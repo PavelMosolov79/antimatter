@@ -152,6 +152,9 @@ export class Hud {
       const a = e.thrust / Math.max(p.mass, 1e-6);
       const gr = g.world.gravityAt(p.x, p.y);
       const deg = ((((p.angle * 180) / Math.PI) % 360) + 360) % 360;
+      lines.push(`позиция ${p.x.toFixed(0)}, ${p.y.toFixed(0)}`);
+      const tg = g.world.target;
+      if (tg) lines.push(`цель ${tg.x.toFixed(0)}, ${tg.y.toFixed(0)}   дистанция ${Math.hypot(tg.x - p.x, tg.y - p.y).toFixed(0)}`);
       lines.push(`масса ${p.mass.toFixed(0)}   палуб ${p.grid.depth}`);
       lines.push(`двигатели ${e.alive}/${e.total}   тяга ${a.toFixed(1)} кл/с²`);
       lines.push(`скорость ${Math.hypot(p.vx, p.vy).toFixed(1)} кл/с   курс ${deg.toFixed(0)}°`);
@@ -161,6 +164,8 @@ export class Hud {
     } else {
       lines.push('корабль уничтожен — «Сброс сцены»');
     }
+    const cur = g.scene.cursor;
+    if (cur) lines.push(`курсор ${cur.x.toFixed(0)}, ${cur.y.toFixed(0)}`);
     this.stats.textContent = lines.join('\n');
   }
 }
