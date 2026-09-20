@@ -20,7 +20,7 @@ const CSS = `
 #left { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; width: 300px; pointer-events: none; }
 #left .panel { position: static; }
 #stats { white-space: pre; }
-#controls { right: 12px; top: 12px; width: 300px; max-height: calc(100vh - 24px); overflow-y: auto; }
+#controls { right: 12px; top: 12px; width: 300px; max-height: calc(100vh - 62px); overflow-y: auto; }
 .bar { position: relative; height: 14px; background: #101a2c; border: 1px solid #24304a; border-radius: 4px; margin-bottom: 5px; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
 .bar > span { position: absolute; left: 6px; right: 6px; top: -1px; line-height: 14px; font-size: 11px; display: flex; justify-content: space-between; text-shadow: 0 0 3px #000; }
@@ -43,7 +43,7 @@ const CSS = `
 #overlay button { margin: 0 4px; padding: 6px 14px; font-size: 13px; }
 #hint { left: 12px; bottom: 12px; color: #8fa4cc; max-width: 460px; }
 #hint { pointer-events: none; }
-#panelToggle { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); pointer-events: auto; background: rgba(10,14,24,.8); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 4px 12px; font: inherit; cursor: pointer; z-index: 5; }
+#panelToggle { position: fixed; right: 12px; bottom: 12px; pointer-events: auto; background: rgba(10,14,24,.8); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 4px 12px; font: inherit; cursor: pointer; z-index: 5; }
 .collapsed #left, .collapsed #controls, .collapsed #hint { display: none; }
 `;
 

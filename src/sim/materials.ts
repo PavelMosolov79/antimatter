@@ -27,6 +27,6 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'module', hp: 24, mass: 1.5, color: 0x3fb8a6 },
   { name: 'thruster', hp: 22, mass: 0.8, color: 0x52d4ee },
   { name: 'turret', hp: 35, mass: 1.5, color: 0x5b6478 },
-  { name: 'reactor', hp: 55, mass: 4, color: 0xe0507a },
+  { name: 'reactor', hp: 120, mass: 4, color: 0xe0507a },
   { name: 'shieldgen', hp: 30, mass: 2, color: 0x6a86ff },
 ];
