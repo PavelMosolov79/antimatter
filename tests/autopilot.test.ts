@@ -9,6 +9,7 @@ interface Click {
 }
 
 interface Result {
+  finalAngle: number;
   arrived: boolean;
   finalDist: number;
   rotTotal: number;
@@ -49,7 +50,18 @@ function fly(opts: { ship?: 'fighter' | 'cruiser'; planet?: boolean; clicks: Cli
       maxDrift = Math.max(maxDrift, d);
     }
   }
-  return { arrived, finalDist: Math.hypot(p.x - target.x, p.y - target.y), rotTotal, rotAfter, maxDriftAfter: maxDrift };
+  return { finalAngle: p.angle, arrived, finalDist: Math.hypot(p.x - target.x, p.y - target.y), rotTotal, rotAfter, maxDriftAfter: maxDrift };
+}
+
+function angleTo(x: number, y: number): number {
+  return Math.atan2(x, -y);
+}
+
+function angDiff(a: number, b: number): number {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return Math.abs(d);
 }
 
 describe('autopilot does not spin the ship', () => {
@@ -77,15 +89,39 @@ describe('autopilot does not spin the ship', () => {
     expect(back.rotAfter).toBeLessThan(0.05);
     const diag = fly({ planet: true, clicks: [{ t: 0, x: 40, y: -45 }] });
     expect(diag.arrived).toBe(true);
-    expect(diag.rotTotal).toBeLessThan(4.5);
+    expect(diag.rotTotal).toBeLessThan(2);
   });
 
-  it('long trips turn at most once to aim and once to brake', () => {
+  it('long trips turn once to aim and never flip around to brake', () => {
     const ahead = fly({ clicks: [{ t: 0, x: 260, y: -270 }] });
-    expect(ahead.rotTotal).toBeLessThan(5);
+    expect(ahead.arrived).toBe(true);
+    expect(ahead.rotTotal).toBeLessThan(1.5);
+    expect(angDiff(ahead.finalAngle, angleTo(260, -270))).toBeLessThan(0.4);
     const behind = fly({ clicks: [{ t: 0, x: 0, y: 300 }] });
     expect(behind.arrived).toBe(true);
-    expect(behind.rotTotal).toBeLessThan(7.2);
+    expect(behind.rotTotal).toBeLessThan(3.8);
+    expect(angDiff(behind.finalAngle, angleTo(0, 300))).toBeLessThan(0.4);
+    const cruiser = fly({ ship: 'cruiser', clicks: [{ t: 0, x: -300, y: -200 }], seconds: 70 });
+    expect(cruiser.arrived).toBe(true);
+    expect(cruiser.rotTotal).toBeLessThan(2.5);
+    expect(angDiff(cruiser.finalAngle, angleTo(-300, -200))).toBeLessThan(0.4);
+  });
+
+  it('falls back to flip-and-burn when the retro thrusters are destroyed', () => {
+    const world = new World(1);
+    const p = world.spawnPlayer(buildFighter(), 0, 0, 0);
+    for (const m of p.grid.modules) if (m.kind === 'thruster' && m.dirY > 0.5) p.grid.removeCell(m.core);
+    p.syncMassProps();
+    world.target = { x: 0, y: -300 };
+    let rot = 0;
+    let last = p.angle;
+    for (let i = 0; i < 60 * 45; i++) {
+      world.step(1 / 60);
+      rot += Math.abs(p.angle - last);
+      last = p.angle;
+    }
+    expect(Math.hypot(p.x, p.y + 300)).toBeLessThan(3);
+    expect(rot).toBeGreaterThan(2.5);
   });
 
   it('handles a series of retargets without endless spinning', () => {
@@ -113,6 +149,12 @@ describe('autopilot does not spin the ship', () => {
     expect(hop.rotTotal).toBeLessThan(2.5);
   });
 
+  it('backs up with the retro thrusters when the point is just behind', () => {
+    const r = fly({ clicks: [{ t: 0, x: 0, y: 6 }] });
+    expect(r.arrived).toBe(true);
+    expect(r.rotTotal).toBeLessThan(0.1);
+  });
+
   it('hovers steadily under moderate gravity near a planet', () => {
     const r = fly({ planet: true, clicks: [{ t: 0, x: 650, y: 70 }], seconds: 60 });
     expect(r.arrived).toBe(true);
@@ -121,13 +163,25 @@ describe('autopilot does not spin the ship', () => {
   });
 });
 
-describe('maneuvering thrusters', () => {
-  it('scale with surviving engines', () => {
+describe('maneuvering thrusters are ship modules', () => {
+  it('provide braking and strafing capacity that scales with surviving modules', () => {
     const world = new World();
     const p = world.spawnPlayer(buildFighter(), 0, 0);
-    const full = p.engineSummary().maneuver;
-    expect(full / p.mass).toBeCloseTo(0.16 * 30, 3);
-    for (const m of p.grid.modules) if (m.kind === 'engine') p.grid.removeCell(m.core);
-    expect(p.engineSummary().maneuver).toBe(0);
+    const e = p.engineSummary();
+    expect(e.capBack / p.mass).toBeCloseTo(15, 3);
+    expect(e.capRight / p.mass).toBeCloseTo(7.5, 3);
+    expect(e.capLeft / p.mass).toBeCloseTo(7.5, 3);
+    const back = p.grid.modules.filter((m) => m.kind === 'thruster' && m.dirY > 0.5);
+    expect(back.length).toBe(2);
+    p.grid.removeCell(back[0].core);
+    expect(p.engineSummary().capBack).toBeCloseTo(e.capBack / 2, 3);
+  });
+
+  it('are made of visible pixels on the hull', () => {
+    const world = new World();
+    const p = world.spawnPlayer(buildFighter(), 0, 0);
+    let cells = 0;
+    for (const m of p.grid.modules) if (m.kind === 'thruster') cells += m.cells.length;
+    expect(cells).toBe(4 * 6);
   });
 });

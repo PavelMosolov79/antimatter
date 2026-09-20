@@ -32,7 +32,7 @@ export class World implements DamageSink {
   private damaged = new Set<GridBody>();
   private buf: number[] = [];
   private grav = { ax: 0, ay: 0 };
-  private ctl: Control = { throttle: 0, torque: 0, rcsAx: 0, rcsAy: 0 };
+  private ctl: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0 };
 
   constructor(seed = 1) {
     this.rng = mulberry32(seed);
@@ -163,25 +163,26 @@ export class World implements DamageSink {
     if (p && !p.removed) {
       const eng = p.engineSummary();
       const g = this.gravityAt(p.x, p.y);
-      if (this.autopilot) computeControl(p, this.target, g.ax, g.ay, eng, this.ctl);
+      const ctl = this.ctl;
+      if (this.autopilot) computeControl(p, this.target, g.ax, g.ay, eng, ctl);
       else {
-        this.ctl.throttle = 0;
-        this.ctl.torque = 0;
-        this.ctl.rcsAx = 0;
-        this.ctl.rcsAy = 0;
+        ctl.main = 0;
+        ctl.back = 0;
+        ctl.right = 0;
+        ctl.left = 0;
+        ctl.torque = 0;
       }
-      p.throttle = this.ctl.throttle;
-      p.rcsTorque = this.ctl.torque;
-      p.rcsAx = this.ctl.rcsAx;
-      p.rcsAy = this.ctl.rcsAy;
-      p.vx += this.ctl.rcsAx * dt;
-      p.vy += this.ctl.rcsAy * dt;
-      const th = this.ctl.throttle;
-      const fx = eng.fx * th;
-      const fy = eng.fy * th;
+      p.throttle = ctl.main;
+      p.tBack = ctl.back;
+      p.tRight = ctl.right;
+      p.tLeft = ctl.left;
+      p.rcsTorque = ctl.torque;
+      const th = ctl.main;
+      const fx = eng.fx * th + eng.capRight * ctl.right - eng.capLeft * ctl.left;
+      const fy = eng.fy * th + eng.capBack * ctl.back;
       p.vx += (p.c * fx - p.s * fy) * p.invMass * dt;
       p.vy += (p.s * fx + p.c * fy) * p.invMass * dt;
-      p.w += (eng.torque * th + this.ctl.torque) * p.invInertia * dt;
+      p.w += (eng.torque * th + ctl.torque) * p.invInertia * dt;
     }
 
     for (const b of this.bodies) {

@@ -112,7 +112,6 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
       coreAlive: m.coreAlive && core !== -1,
       thrust: m.thrust,
       rcs: m.rcs,
-      maneuver: m.maneuver,
       dirX: m.dirX,
       dirY: m.dirY,
     };

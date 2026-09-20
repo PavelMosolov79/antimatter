@@ -9,7 +9,9 @@ export interface EngineSummary {
   fy: number;
   torque: number;
   rcs: number;
-  maneuver: number;
+  capBack: number;
+  capRight: number;
+  capLeft: number;
   thrust: number;
   alive: number;
   total: number;
@@ -42,8 +44,9 @@ export class GridBody {
   splitTime = -1;
   throttle = 0;
   rcsTorque = 0;
-  rcsAx = 0;
-  rcsAy = 0;
+  tBack = 0;
+  tRight = 0;
+  tLeft = 0;
   private initialized = false;
 
   constructor(grid: ShipGrid, x: number, y: number, angle: number, kind: BodyKind) {
@@ -126,10 +129,19 @@ export class GridBody {
     let fy = 0;
     let torque = 0;
     let rcs = 0;
-    let maneuver = 0;
+    let capBack = 0;
+    let capRight = 0;
+    let capLeft = 0;
     let alive = 0;
     let total = 0;
     for (const m of g.modules) {
+      if (m.kind === 'thruster') {
+        const f = m.thrust * moduleEfficiency(m);
+        if (m.dirY > 0.5) capBack += f;
+        else if (m.dirX > 0.5) capRight += f;
+        else if (m.dirX < -0.5) capLeft += f;
+        continue;
+      }
       if (m.kind !== 'engine') continue;
       total++;
       const eff = moduleEfficiency(m);
@@ -154,8 +166,7 @@ export class GridBody {
       fy += fyi;
       torque += rx * fyi - ry * fxi;
       rcs += m.rcs * eff;
-      maneuver += m.maneuver * eff;
     }
-    return { fx, fy, torque, rcs, maneuver, thrust: Math.hypot(fx, fy), alive, total };
+    return { fx, fy, torque, rcs, capBack, capRight, capLeft, thrust: Math.hypot(fx, fy), alive, total };
   }
 }

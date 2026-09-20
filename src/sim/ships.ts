@@ -91,14 +91,65 @@ function addBlock(grid: ShipGrid, x0: number, y0: number, w: number, h: number, 
   grid.addModule('generic', cells, { core: [x0 + Math.floor(w / 2), y0 + Math.floor(h / 2), z] });
 }
 
-function tuneEngines(grid: ShipGrid, accel: number, rcsPerThrust: number, maneuverShare = 0.16): void {
+function addThruster(grid: ShipGrid, x0: number, y0: number, dirX: number, dirY: number): boolean {
+  const cells: Array<[number, number, number]> = [];
+  for (let dy = 0; dy < 2; dy++) {
+    for (let dx = 0; dx < 2; dx++) {
+      if (!grid.isOccupied(x0 + dx, y0 + dy)) return false;
+      cells.push([x0 + dx, y0 + dy, 0]);
+    }
+  }
+  for (const [x, y] of cells) grid.setCell(x, y, 0, Mat.THRUSTER);
+  grid.addModule('thruster', cells, { core: cells[0], dirX, dirY });
+  return true;
+}
+
+function topOccupied(grid: ShipGrid, x: number): number {
+  for (let y = 0; y < grid.height; y++) if (grid.isOccupied(x, y)) return y;
+  return -1;
+}
+
+function addNoseThruster(grid: ShipGrid, x0: number): void {
+  const y0 = Math.max(topOccupied(grid, x0), topOccupied(grid, x0 + 1));
+  addThruster(grid, x0, y0, 0, 1);
+}
+
+function addSideThruster(grid: ShipGrid, y0: number, side: 'left' | 'right'): void {
+  const first = (y: number): number => {
+    for (let x = 0; x < grid.width; x++) if (grid.isOccupied(x, y)) return x;
+    return -1;
+  };
+  const last = (y: number): number => {
+    for (let x = grid.width - 1; x >= 0; x--) if (grid.isOccupied(x, y)) return x;
+    return -1;
+  };
+  if (side === 'left') addThruster(grid, Math.max(first(y0), first(y0 + 1)), y0, 1, 0);
+  else addThruster(grid, Math.min(last(y0), last(y0 + 1)) - 1, y0, -1, 0);
+}
+
+interface Tuning {
+  accel: number;
+  rcsPerThrust: number;
+  backShare: number;
+  sideShare: number;
+}
+
+function tuneShip(grid: ShipGrid, t: Tuning): void {
   const engines = grid.modules.filter((m) => m.kind === 'engine');
   const totalCells = engines.reduce((s, m) => s + m.total, 0);
-  const totalThrust = accel * grid.mass;
+  const mainThrust = t.accel * grid.mass;
   for (const m of engines) {
-    m.thrust = (totalThrust * m.total) / totalCells;
-    m.rcs = m.thrust * rcsPerThrust;
-    m.maneuver = m.thrust * maneuverShare;
+    m.thrust = (mainThrust * m.total) / totalCells;
+    m.rcs = m.thrust * t.rcsPerThrust;
+  }
+  const groups: Array<{ match: (dx: number, dy: number) => boolean; share: number }> = [
+    { match: (_dx, dy) => dy > 0.5, share: t.backShare },
+    { match: (dx) => dx > 0.5, share: t.sideShare },
+    { match: (dx) => dx < -0.5, share: t.sideShare },
+  ];
+  for (const grp of groups) {
+    const mods = grid.modules.filter((m) => m.kind === 'thruster' && grp.match(m.dirX, m.dirY));
+    for (const m of mods) m.thrust = (mainThrust * grp.share) / mods.length;
   }
 }
 
@@ -126,7 +177,13 @@ export function buildFighter(): ShipGrid {
   addBlock(g, 13, 14, 5, 4, 1);
   addBlock(g, 13, 26, 5, 6, 1);
   addBlock(g, 14, 20, 3, 3, 2);
-  tuneEngines(g, 30, 10);
+  addNoseThruster(g, 11);
+  addNoseThruster(g, 18);
+  for (const y of [22, 30]) {
+    addSideThruster(g, y, 'left');
+    addSideThruster(g, y, 'right');
+  }
+  tuneShip(g, { accel: 30, rcsPerThrust: 10, backShare: 0.5, sideShare: 0.25 });
   return g;
 }
 
@@ -155,7 +212,15 @@ export function buildCruiser(): ShipGrid {
   addBlock(g, 33, 48, 6, 6, 1);
   addBlock(g, 20, 52, 9, 8, 2);
   addBlock(g, 22, 54, 5, 4, 3);
-  tuneEngines(g, 18, 20);
+  for (const x0 of [15, 9]) {
+    addNoseThruster(g, x0);
+    addNoseThruster(g, 47 - x0);
+  }
+  for (const y of [30, 52]) {
+    addSideThruster(g, y, 'left');
+    addSideThruster(g, y, 'right');
+  }
+  tuneShip(g, { accel: 18, rcsPerThrust: 20, backShare: 0.5, sideShare: 0.22 });
   return g;
 }
 

@@ -100,23 +100,57 @@ export class Scene {
     this.drawDebug(world);
   }
 
-  private emitRcs(b: GridBody): void {
-    const ra = Math.hypot(b.rcsAx, b.rcsAy);
-    if (ra < 0.15) return;
-    const dx = b.rcsAx / ra;
-    const dy = b.rcsAy / ra;
-    const count = ra > 2 ? 2 : 1;
-    for (let i = 0; i < count; i++) {
-      const side = (Math.random() - 0.5) * b.radius * 0.9;
-      const px = b.x - dx * b.radius * 0.6 - dy * side;
-      const py = b.y - dy * b.radius * 0.6 + dx * side;
-      const speed = 10 + Math.random() * 8;
-      this.particles.emit(px, py, b.vx - dx * speed, b.vy - dy * speed, 0.15 + Math.random() * 0.15, 0.7 + Math.random() * 0.5, 0xbfe3ff, true, 2);
+  private emitThrusters(b: GridBody): void {
+    const g = b.grid;
+    const eng = b.engineSummary();
+    const tn = eng.rcs > 0 ? b.rcsTorque / eng.rcs : 0;
+    for (const m of g.modules) {
+      if (m.kind !== 'thruster') continue;
+      const eff = moduleEfficiency(m);
+      if (eff <= 0) continue;
+      let sx = 0;
+      let sy = 0;
+      let n = 0;
+      for (const i of m.cells) {
+        if (g.mat[i] === 0) continue;
+        sx += g.xOf(i) + 0.5;
+        sy += g.yOf(i) + 0.5;
+        n++;
+      }
+      if (n === 0) continue;
+      const cx = sx / n;
+      const cy = sy / n;
+      let act = m.dirY > 0.5 ? b.tBack : m.dirX > 0.5 ? b.tRight : m.dirX < -0.5 ? b.tLeft : 0;
+      const tau = (cx - b.comX) * m.dirY - (cy - b.comY) * m.dirX;
+      if (Math.abs(tau) > 1 && tau * tn > 0) act = Math.max(act, Math.min(1, Math.abs(tn)) * 0.8);
+      act *= eff;
+      if (act < 0.04) continue;
+      const wp = b.localToWorld(cx, cy, { x: 0, y: 0 });
+      const ex = -(b.c * m.dirX - b.s * m.dirY);
+      const ey = -(b.s * m.dirX + b.c * m.dirY);
+      const count = act * 3;
+      let emit = Math.floor(count) + (Math.random() < count % 1 ? 1 : 0);
+      while (emit-- > 0) {
+        const speed = 14 + Math.random() * 10;
+        const jitter = (Math.random() - 0.5) * 3;
+        const off = 1.2 + Math.random() * 0.8;
+        this.particles.emit(
+          wp.x + ex * off,
+          wp.y + ey * off,
+          b.vx + ex * speed - ey * jitter,
+          b.vy + ey * speed + ex * jitter,
+          0.14 + Math.random() * 0.18,
+          1 + Math.random() * 0.9,
+          Math.random() < 0.5 ? 0xd8f6ff : 0x7fdcff,
+          true,
+          2,
+        );
+      }
     }
   }
 
   private emitFlames(b: GridBody): void {
-    this.emitRcs(b);
+    this.emitThrusters(b);
     if (b.throttle < 0.02) return;
     const g = b.grid;
     for (const m of g.modules) {

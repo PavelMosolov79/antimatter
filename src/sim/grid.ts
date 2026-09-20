@@ -1,6 +1,6 @@
 import { MATERIALS } from './materials';
 
-export type ModuleKind = 'engine' | 'generic';
+export type ModuleKind = 'engine' | 'thruster' | 'generic';
 
 export interface Module {
   kind: ModuleKind;
@@ -11,7 +11,6 @@ export interface Module {
   coreAlive: boolean;
   thrust: number;
   rcs: number;
-  maneuver: number;
   dirX: number;
   dirY: number;
 }
@@ -27,7 +26,6 @@ export interface ModuleOptions {
   core?: [number, number, number];
   thrust?: number;
   rcs?: number;
-  maneuver?: number;
   dirX?: number;
   dirY?: number;
 }
@@ -219,7 +217,6 @@ export class ShipGrid {
       coreAlive: true,
       thrust: opts.thrust ?? 0,
       rcs: opts.rcs ?? 0,
-      maneuver: opts.maneuver ?? 0,
       dirX: opts.dirX ?? 0,
       dirY: opts.dirY ?? -1,
     };

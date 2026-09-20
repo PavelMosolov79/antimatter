@@ -156,7 +156,7 @@ export class Hud {
       lines.push(`двигатели ${e.alive}/${e.total}   тяга ${a.toFixed(1)} кл/с²`);
       lines.push(`скорость ${Math.hypot(p.vx, p.vy).toFixed(1)} кл/с   курс ${deg.toFixed(0)}°`);
       lines.push(`газ ${(p.throttle * 100).toFixed(0)}%   вращ ${p.w.toFixed(2)} рад/с`);
-      lines.push(`маневровые ${Math.hypot(p.rcsAx, p.rcsAy).toFixed(1)}/${(e.maneuver / Math.max(p.mass, 1e-6)).toFixed(1)} кл/с²`);
+      lines.push(`маневровые: тормоз ${(e.capBack / Math.max(p.mass, 1e-6)).toFixed(1)}  бок ${(e.capLeft / Math.max(p.mass, 1e-6)).toFixed(1)}/${(e.capRight / Math.max(p.mass, 1e-6)).toFixed(1)}`);
       lines.push(`гравитация ${Math.hypot(gr.ax, gr.ay).toFixed(2)} кл/с²`);
     } else {
       lines.push('корабль уничтожен — «Сброс сцены»');

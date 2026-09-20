@@ -5,6 +5,7 @@ export const Mat = {
   DECK: 3,
   ENGINE: 4,
   MODULE: 5,
+  THRUSTER: 6,
 } as const;
 
 export interface MaterialDef {
@@ -21,4 +22,5 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'deck', hp: 14, mass: 0.5, color: 0x9a8f7c },
   { name: 'engine', hp: 45, mass: 3, color: 0xd9822b },
   { name: 'module', hp: 24, mass: 1.5, color: 0x3fb8a6 },
+  { name: 'thruster', hp: 22, mass: 0.8, color: 0x52d4ee },
 ];
