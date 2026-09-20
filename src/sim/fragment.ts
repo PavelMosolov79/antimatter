@@ -114,6 +114,12 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
       rcs: m.rcs,
       dirX: m.dirX,
       dirY: m.dirY,
+      weapon: m.weapon ? { ...m.weapon } : undefined,
+      power: m.power,
+      capacity: m.capacity,
+      blast: m.blast,
+      shieldMax: m.shieldMax,
+      regen: m.regen,
     };
     grid.modules.push(nm);
     const id = grid.modules.length;
@@ -160,6 +166,9 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
     piece.w = body.w;
     piece.splitTag = body.id;
     piece.splitTime = time;
+    piece.frameX = body.frameX + bx;
+    piece.frameY = body.frameY + by;
+    piece.team = -1;
     if (label === mainLabel) {
       main = piece;
     } else {
@@ -177,6 +186,9 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
   }
   if (main) {
     main.isPlayer = body.isPlayer;
+    main.shipId = body.shipId;
+    main.team = body.team;
+    main.sys = body.sys;
     main.vx -= kickPx / main.mass;
     main.vy -= kickPy / main.mass;
   }

@@ -1,4 +1,5 @@
 import { moduleEfficiency, type ShipGrid } from './grid';
+import type { ShipSys } from './systems';
 
 let nextBodyId = 1;
 
@@ -21,6 +22,11 @@ const tmpPt = { x: 0, y: 0 };
 
 export class GridBody {
   readonly id = nextBodyId++;
+  shipId = this.id;
+  team = -1;
+  frameX = 0;
+  frameY = 0;
+  sys: ShipSys | null = null;
   readonly grid: ShipGrid;
   kind: BodyKind;
   x = 0;

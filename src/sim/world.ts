@@ -1,3 +1,4 @@
+import { createAi, updateAi, type AiKind } from './ai';
 import { computeControl, type Control, type Target } from './autopilot';
 import { collideGridCircle, collideGridGrid, type DamageSink } from './collision';
 import { GridBody } from './body';
@@ -6,11 +7,33 @@ import { gravityAt, isSolid, type Celestial } from './gravity';
 import type { ShipGrid } from './grid';
 import { MATERIALS } from './materials';
 import { mulberry32, type Rng } from './rng';
+import { SYSTEMS, createSys, updateSystems, type EnergyPriority, type Nav } from './systems';
+import { stepProjectiles, updateWeapons, type Beam, type Projectile } from './weapons';
 
 export type SimEvent =
   | { t: 'cell'; x: number; y: number; color: number }
   | { t: 'impact'; x: number; y: number; energy: number }
-  | { t: 'split'; x: number; y: number };
+  | { t: 'split'; x: number; y: number }
+  | { t: 'shot'; x: number; y: number; color: number }
+  | { t: 'shield'; x: number; y: number; shipId: number }
+  | { t: 'warning'; x: number; y: number }
+  | { t: 'detonate'; x: number; y: number; r: number }
+  | { t: 'dead'; x: number; y: number; shipId: number };
+
+export interface ShipOptions {
+  name: string;
+  team: number;
+  player?: boolean;
+  ai?: AiKind;
+  priority?: EnergyPriority;
+}
+
+interface Blast {
+  x: number;
+  y: number;
+  r: number;
+  dmg: number;
+}
 
 const MAX_SPEED = 500;
 const MAX_SPIN = 12;
@@ -28,6 +51,9 @@ export class World implements DamageSink {
   target: Target | null = null;
   autopilot = true;
   events: SimEvent[] = [];
+  projectiles: Projectile[] = [];
+  beams: Beam[] = [];
+  private blasts: Blast[] = [];
   readonly rng: Rng;
   private damaged = new Set<GridBody>();
   private buf: number[] = [];
@@ -51,6 +77,59 @@ export class World implements DamageSink {
     return b;
   }
 
+  spawnShip(grid: ShipGrid, x: number, y: number, angle: number, o: ShipOptions): GridBody {
+    const b = this.spawn(grid, x, y, angle, 'ship');
+    b.team = o.team;
+    b.sys = createSys(b, o.name, o.team);
+    if (o.priority) b.sys.priority = o.priority;
+    if (o.player) {
+      b.isPlayer = true;
+      this.player = b;
+    }
+    if (o.ai) b.sys.ai = createAi(o.ai, this.rng);
+    return b;
+  }
+
+  findShip(shipId: number): GridBody | null {
+    for (const b of this.bodies) {
+      if (!b.removed && b.shipId === shipId && b.kind === 'ship' && b.sys && !b.sys.dead) return b;
+    }
+    return null;
+  }
+
+  killShip(b: GridBody): void {
+    const sys = b.sys;
+    if (!sys || sys.dead) return;
+    sys.dead = true;
+    b.kind = 'debris';
+    if (b.isPlayer) {
+      b.isPlayer = false;
+      if (this.player === b) this.player = null;
+    }
+    this.push({ t: 'dead', x: b.x, y: b.y, shipId: b.shipId });
+  }
+
+  detonate(b: GridBody): void {
+    const sys = b.sys;
+    if (!sys || sys.dead) return;
+    const reactor = b.grid.modules.find((m) => m.kind === 'reactor');
+    const r = reactor && reactor.blast > 0 ? reactor.blast : 40;
+    sys.dead = true;
+    this.push({ t: 'detonate', x: b.x, y: b.y, r });
+    const g = b.grid;
+    for (let y = 0; y < g.height; y += 2) {
+      for (let x = 0; x < g.width; x += 2) {
+        const z = g.topLayer(x, y);
+        if (z < 0) continue;
+        const p = b.localToWorld(x + 0.5, y + 0.5, tmpPt);
+        this.push({ t: 'cell', x: p.x, y: p.y, color: MATERIALS[g.mat[g.idx(x, y, z)]].color });
+      }
+    }
+    this.blasts.push({ x: b.x, y: b.y, r, dmg: SYSTEMS.blastDamage });
+    this.removeBody(b);
+    this.push({ t: 'dead', x: b.x, y: b.y, shipId: b.shipId });
+  }
+
   gravityAt(x: number, y: number): { ax: number; ay: number } {
     gravityAt(this.celestials, x, y, this.grav);
     return this.grav;
@@ -62,7 +141,7 @@ export class World implements DamageSink {
     if (this.player === b) this.player = null;
   }
 
-  private push(e: SimEvent): void {
+  push(e: SimEvent): void {
     if (this.events.length < MAX_EVENTS) this.events.push(e);
   }
 
@@ -156,34 +235,45 @@ export class World implements DamageSink {
     this.push({ t: 'split', x: b.x, y: b.y });
   }
 
+  private drive(b: GridBody, nav: Nav, on: boolean, dt: number): void {
+    const eng = b.engineSummary();
+    const g = this.gravityAt(b.x, b.y);
+    const ctl = this.ctl;
+    if (on) computeControl(b, nav.target, g.ax, g.ay, eng, ctl, nav.face);
+    else {
+      ctl.main = 0;
+      ctl.back = 0;
+      ctl.right = 0;
+      ctl.left = 0;
+      ctl.torque = 0;
+    }
+    b.throttle = ctl.main;
+    b.tBack = ctl.back;
+    b.tRight = ctl.right;
+    b.tLeft = ctl.left;
+    b.rcsTorque = ctl.torque;
+    const th = ctl.main;
+    const fx = eng.fx * th + eng.capRight * ctl.right - eng.capLeft * ctl.left;
+    const fy = eng.fy * th + eng.capBack * ctl.back;
+    b.vx += (b.c * fx - b.s * fy) * b.invMass * dt;
+    b.vy += (b.s * fx + b.c * fy) * b.invMass * dt;
+    b.w += (eng.torque * th + ctl.torque) * b.invInertia * dt;
+  }
+
   step(dt: number): void {
     this.time += dt;
+    this.beams.length = 0;
 
-    const p = this.player;
-    if (p && !p.removed) {
-      const eng = p.engineSummary();
-      const g = this.gravityAt(p.x, p.y);
-      const ctl = this.ctl;
-      if (this.autopilot) computeControl(p, this.target, g.ax, g.ay, eng, ctl);
-      else {
-        ctl.main = 0;
-        ctl.back = 0;
-        ctl.right = 0;
-        ctl.left = 0;
-        ctl.torque = 0;
-      }
-      p.throttle = ctl.main;
-      p.tBack = ctl.back;
-      p.tRight = ctl.right;
-      p.tLeft = ctl.left;
-      p.rcsTorque = ctl.torque;
-      const th = ctl.main;
-      const fx = eng.fx * th + eng.capRight * ctl.right - eng.capLeft * ctl.left;
-      const fy = eng.fy * th + eng.capBack * ctl.back;
-      p.vx += (p.c * fx - p.s * fy) * p.invMass * dt;
-      p.vy += (p.s * fx + p.c * fy) * p.invMass * dt;
-      p.w += (eng.torque * th + ctl.torque) * p.invInertia * dt;
+    for (const b of this.bodies) if (!b.removed && b.sys?.ai) updateAi(this, b);
+
+    for (const b of this.bodies) {
+      if (b.removed) continue;
+      if (b.isPlayer) this.drive(b, { target: this.target, face: null }, this.autopilot, dt);
+      else if (b.sys && !b.sys.dead) this.drive(b, b.sys.nav, true, dt);
     }
+
+    updateWeapons(this, dt);
+    stepProjectiles(this, dt);
 
     for (const b of this.bodies) {
       const g = this.gravityAt(b.x, b.y);
@@ -203,6 +293,18 @@ export class World implements DamageSink {
     }
 
     this.collide();
+    for (const b of this.bodies) if (!b.removed && b.sys) updateSystems(this, b, dt);
+    if (this.blasts.length > 0) {
+      for (const bl of this.blasts) {
+        for (const o of this.bodies) {
+          if (o.removed) continue;
+          if (Math.hypot(o.x - bl.x, o.y - bl.y) > bl.r + o.radius) continue;
+          this.damageCrater(o, bl.x, bl.y, bl.r, bl.dmg, 1);
+        }
+        this.impact(bl.x, bl.y, bl.dmg * bl.r);
+      }
+      this.blasts.length = 0;
+    }
     this.processDamaged();
 
     for (const b of this.bodies) {

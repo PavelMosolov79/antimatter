@@ -69,6 +69,7 @@ export function computeControl(
   gy: number,
   eng: EngineSummary,
   out: Control,
+  faceAngle: number | null = null,
 ): void {
   const P = AUTOPILOT;
   const m = body.mass > 0 ? body.mass : 1;
@@ -92,7 +93,7 @@ export function computeControl(
     const ux = dist > 1e-6 ? tx / dist : 0;
     const uy = dist > 1e-6 ? ty / dist : 0;
 
-    const aimMode = dist > P.aimDist;
+    const aimMode = faceAngle === null && dist > P.aimDist;
     const uf = aimMode ? 1 : ux * hx + uy * hy;
     const ur = aimMode ? 0 : ux * rx + uy * ry;
     const sCap = brakeCap(uf, ur, caps);
@@ -115,7 +116,9 @@ export function computeControl(
     acx = P.kv * (ux * vDes - body.vx) - ux * ff - gx;
     acy = P.kv * (uy * vDes - body.vy) - uy * ff - gy;
 
-    if (aimMode) {
+    if (faceAngle !== null) {
+      wantAngle = faceAngle;
+    } else if (aimMode) {
       const along = acx * ux + acy * uy;
       const cross = -acx * uy + acy * ux;
       wantAngle = fitsWithin(along, cross, caps, P.feasMargin) ? Math.atan2(ux, -uy) : Math.atan2(acx, -acy);

@@ -1,6 +1,27 @@
 import { MATERIALS } from './materials';
 
-export type ModuleKind = 'engine' | 'thruster' | 'generic';
+export type ModuleKind = 'engine' | 'thruster' | 'turret' | 'reactor' | 'shield' | 'generic';
+
+export type WeaponType = 'pulse' | 'beam' | 'heavy';
+
+export interface TargetRef {
+  shipId: number;
+  fx: number;
+  fy: number;
+}
+
+export interface WeaponState {
+  id: number;
+  name: string;
+  type: WeaponType;
+  arcCenter: number;
+  arcHalf: number;
+  off: number;
+  cooldown: number;
+  enabled: boolean;
+  target: TargetRef | null;
+  firing: boolean;
+}
 
 export interface Module {
   kind: ModuleKind;
@@ -13,6 +34,12 @@ export interface Module {
   rcs: number;
   dirX: number;
   dirY: number;
+  weapon?: WeaponState;
+  power: number;
+  capacity: number;
+  blast: number;
+  shieldMax: number;
+  regen: number;
 }
 
 export interface MassProps {
@@ -28,6 +55,12 @@ export interface ModuleOptions {
   rcs?: number;
   dirX?: number;
   dirY?: number;
+  weapon?: WeaponState;
+  power?: number;
+  capacity?: number;
+  blast?: number;
+  shieldMax?: number;
+  regen?: number;
 }
 
 export function moduleEfficiency(m: Module): number {
@@ -219,6 +252,12 @@ export class ShipGrid {
       rcs: opts.rcs ?? 0,
       dirX: opts.dirX ?? 0,
       dirY: opts.dirY ?? -1,
+      weapon: opts.weapon,
+      power: opts.power ?? 0,
+      capacity: opts.capacity ?? 0,
+      blast: opts.blast ?? 0,
+      shieldMax: opts.shieldMax ?? 0,
+      regen: opts.regen ?? 0,
     };
     this.modules.push(module);
     const id = this.modules.length;
