@@ -94,7 +94,7 @@ export class Particles {
           const sp = 8 + Math.random() * 40;
           this.emit(e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.2 + Math.random() * 0.4, 1 + Math.random() * 1.6, 0xfff0c0, true, 3);
         }
-        this.emit(e.x, e.y, 0, 0, 0.18, 3 + Math.min(10, Math.sqrt(e.energy) * 0.05), 0xffffff, true);
+        this.emit(e.x, e.y, 0, 0, 0.14, 1.5 + Math.min(4, Math.sqrt(e.energy) * 0.012), 0xffe8b0, true);
       }
     }
   }

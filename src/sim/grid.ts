@@ -48,6 +48,7 @@ export class ShipGrid {
   columns = 0;
   cells = 0;
   version = 0;
+  lastAbsorbed = 0;
   private sumMx = 0;
   private sumMy = 0;
   private sumMr2 = 0;
@@ -152,23 +153,27 @@ export class ShipGrid {
   damageColumn(x: number, y: number, dmg: number, pen: number, out?: number[]): number {
     let remaining = dmg;
     let destroyed = 0;
+    let absorbed = 0;
     for (let z = 0; z < this.depth; z++) {
       const i = this.idx(x, y, z);
       const m = this.mat[i];
       if (m === 0) continue;
       const h = this.hp[i];
       if (remaining >= h) {
+        absorbed += h;
         remaining = (remaining - h) * pen;
         this.removeCell(i);
         if (out) out.push(x, y, z, m);
         destroyed++;
         if (remaining <= 0.01) break;
       } else {
+        absorbed += remaining;
         this.hp[i] = h - remaining;
         this.version++;
         break;
       }
     }
+    this.lastAbsorbed = absorbed;
     return destroyed;
   }
 

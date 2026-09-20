@@ -116,9 +116,9 @@ function starTexture(c: Celestial): Texture {
         if (r2 > 1) continue;
         const n = fbm((x / R) * 5 + c.seed, (y / R) * 5, c.seed, 5);
         const limb = Math.sqrt(1 - r2);
-        let t = 0.35 + 0.65 * limb * (0.6 + 0.8 * n);
+        let t = 0.15 + 0.7 * limb * (0.45 + 0.9 * n);
         t = Math.round(Math.min(1, t) * 6) / 6;
-        put(img, x, y, mix(0xd8480f, 0xfff4c8, t));
+        put(img, x, y, t < 0.6 ? mix(0xb52d06, 0xff8a1e, t / 0.6) : mix(0xff8a1e, 0xfff0a0, (t - 0.6) / 0.4));
       }
     }
   });
@@ -143,8 +143,8 @@ function blackHoleTexture(c: Celestial): Texture {
           continue;
         }
         if (r > 3.4) continue;
-        const ang = Math.atan2(dy, dx);
-        const swirl = fbm(ang * 2.2 + r * 1.6 + c.seed, r * 3, c.seed, 3);
+        const ang = Math.atan2(dy, dx) + r * 1.5;
+        const swirl = fbm(Math.cos(ang) * r * 1.6 + 20 + c.seed, Math.sin(ang) * r * 1.6 + 20, c.seed, 3);
         let k = 1 - (r - 1.12) / 2.28;
         k = Math.pow(Math.max(0, k), 1.6) * (0.5 + 0.9 * swirl);
         k = Math.min(1, k);
@@ -177,7 +177,7 @@ export function createCelestialView(c: Celestial): Container {
       add(sphereTexture(c, { deep: 0x55575e, shallow: 0x7b7d85, land: 0x9b9da6, peak: 0xd0d2d8, rim: 0xb0b2ba }, 0.35));
       break;
     case 'star':
-      add(glowTexture(0xfff2b0, 0xff8a1e), (c.radius * 6) / 256, 'add', 0.85);
+      add(glowTexture(0xffc060, 0xff6a10), (c.radius * 4.5) / 256, 'add', 0.5);
       add(starTexture(c));
       break;
     case 'blackhole':

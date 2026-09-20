@@ -91,10 +91,25 @@ export class Game {
 
   pointerAction(wx: number, wy: number): void {
     if (this.tool === 'fly') {
-      this.world.target = { x: wx, y: wy };
+      this.world.target = this.clampToSurface(wx, wy);
     } else {
       this.world.explode(wx, wy, this.crater.radius, this.crater.damage, this.crater.pen);
     }
+  }
+
+  private clampToSurface(wx: number, wy: number): { x: number; y: number } {
+    for (const c of this.world.celestials) {
+      if (c.kind === 'blackhole') continue;
+      const dx = wx - c.x;
+      const dy = wy - c.y;
+      const d = Math.hypot(dx, dy);
+      const limit = c.radius + 2;
+      if (d < limit) {
+        const k = d > 1e-6 ? limit / d : 0;
+        return d > 1e-6 ? { x: c.x + dx * k, y: c.y + dy * k } : { x: c.x + limit, y: c.y };
+      }
+    }
+    return { x: wx, y: wy };
   }
 
   totals(): { bodies: number; debris: number; cells: number } {

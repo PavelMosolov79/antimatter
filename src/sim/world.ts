@@ -73,7 +73,7 @@ export class World implements DamageSink {
       this.flushDestroyed(body);
       this.damaged.add(body);
     }
-    return n;
+    return body.grid.lastAbsorbed;
   }
 
   impact(wx: number, wy: number, energy: number): void {

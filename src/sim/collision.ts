@@ -10,7 +10,7 @@ export const COLLISION = {
   restitution: 0.2,
   friction: 0.25,
   minImpactSpeed: 3,
-  damagePerEnergy: 0.002,
+  damagePerEnergy: 0.008,
   maxDamage: 4000,
   penetration: 0.5,
   maxCorrection: 2,
@@ -87,11 +87,30 @@ function resolveContact(
   const rvy = va.y - vb.y;
   const vn = rvx * nx + rvy * ny;
 
+  let keep = 1;
   if (vn < 0) {
+    const closing = -vn;
     const raN = rAx * ny - rAy * nx;
     const rbN = rBx * ny - rBy * nx;
     const denom = invSum + raN * raN * invIA + rbN * rbN * invIB;
-    const j = (-(1 + COLLISION.restitution) * vn) / denom;
+
+    if (closing > COLLISION.minImpactSpeed) {
+      const energy = 0.5 * (1 / invSum) * closing * closing;
+      const budget = Math.min(energy * COLLISION.damagePerEnergy, COLLISION.maxDamage);
+      const share = b ? budget / 2 : budget;
+      let absorbed = 0;
+      const perA = aCols.length > 0 ? share / aCols.length : 0;
+      for (const c of aCols) absorbed += sink.hitColumn(a, c % a.grid.width, Math.floor(c / a.grid.width), perA, COLLISION.penetration);
+      if (b) {
+        const perB = bCols.length > 0 ? share / bCols.length : 0;
+        for (const c of bCols) absorbed += sink.hitColumn(b, c % b.grid.width, Math.floor(c / b.grid.width), perB, COLLISION.penetration);
+      }
+      const left = Math.max(0, 1 - absorbed / (energy * COLLISION.damagePerEnergy));
+      keep = 1 - Math.sqrt(left);
+      sink.impact(px, py, energy);
+    }
+
+    const j = (keep * (1 + COLLISION.restitution) * closing) / denom;
     a.vx += j * nx * invA;
     a.vy += j * ny * invA;
     a.w += invIA * j * raN;
@@ -121,23 +140,9 @@ function resolveContact(
       b.vy -= jt * ty * invB;
       b.w -= invIB * jt * rbT;
     }
-
-    const closing = -vn;
-    if (closing > COLLISION.minImpactSpeed) {
-      const reduced = 1 / invSum;
-      const energy = 0.5 * reduced * closing * closing;
-      const total = Math.min(energy * COLLISION.damagePerEnergy, COLLISION.maxDamage);
-      const perA = aCols.length > 0 ? total / aCols.length : 0;
-      for (const c of aCols) sink.hitColumn(a, c % a.grid.width, Math.floor(c / a.grid.width), perA, COLLISION.penetration);
-      if (b) {
-        const perB = bCols.length > 0 ? total / bCols.length : 0;
-        for (const c of bCols) sink.hitColumn(b, c % b.grid.width, Math.floor(c / b.grid.width), perB, COLLISION.penetration);
-      }
-      sink.impact(px, py, energy);
-    }
   }
 
-  const corr = (Math.min(depth * COLLISION.correctionFactor, COLLISION.maxCorrection)) / invSum;
+  const corr = (Math.min(depth * COLLISION.correctionFactor, COLLISION.maxCorrection) * keep) / invSum;
   a.x += nx * corr * invA;
   a.y += ny * corr * invA;
   if (b) {
