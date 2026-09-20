@@ -110,10 +110,10 @@ describe('energy and shields', () => {
     const world = new World(1);
     const b = world.spawnShip(buildFighter('strike'), 0, 0, 0, { name: 'S', team: 0 });
     const sys = b.sys!;
-    expect(sys.shieldMax).toBe(90);
+    expect(sys.shieldMax).toBe(180);
     expect(absorbShield(sys, 50, 0)).toBe(0);
-    expect(sys.shield).toBeCloseTo(40);
-    const overflow = absorbShield(sys, 60, 0);
+    expect(sys.shield).toBeCloseTo(130);
+    const overflow = absorbShield(sys, 150, 0);
     expect(overflow).toBeCloseTo(20);
     expect(sys.shield).toBe(0);
     expect(sys.shieldDown).toBe(true);
@@ -135,7 +135,7 @@ describe('energy and shields', () => {
       updateSystems(world, b, 1 / 60);
     }
     expect(sys.shield).toBeGreaterThan(0);
-    for (let i = 0; i < 60 * 8; i++) {
+    for (let i = 0; i < 60 * 11; i++) {
       world.time += 1 / 60;
       updateSystems(world, b, 1 / 60);
     }

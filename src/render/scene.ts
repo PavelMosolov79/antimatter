@@ -2,6 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import type { GridBody } from '../sim/body';
 import { moduleEfficiency } from '../sim/grid';
 import type { World } from '../sim/world';
+import { CombatFx } from './combatFx';
 import { createCelestialView } from './celestials';
 import { Particles } from './particles';
 import { BodyView, OUTER_VIEW } from './shipView';
@@ -18,6 +19,7 @@ export class Scene {
   readonly celestialLayer = new Container();
   readonly bodyLayer = new Container();
   readonly particles = new Particles();
+  readonly combat = new CombatFx();
   readonly debug = new Graphics();
   private views = new Map<number, BodyView>();
   camX = 0;
@@ -33,7 +35,7 @@ export class Scene {
     this.app = app;
     app.stage.addChild(this.starfield.container);
     app.stage.addChild(this.worldLayer);
-    this.worldLayer.addChild(this.celestialLayer, this.bodyLayer, this.particles.container, this.debug);
+    this.worldLayer.addChild(this.celestialLayer, this.bodyLayer, this.combat.container, this.particles.container, this.debug);
   }
 
   get scale(): number {
@@ -52,6 +54,7 @@ export class Scene {
     }
     this.views.clear();
     this.particles.clear();
+    this.combat.reset();
     for (const c of [...this.celestialLayer.children]) c.destroy({ children: true });
     for (const c of world.celestials) this.celestialLayer.addChild(createCelestialView(c));
     if (world.player) {
@@ -93,10 +96,14 @@ export class Scene {
       v.update(this.layerView);
     }
 
-    if (simDt > 0 && p) this.emitFlames(p);
+    if (simDt > 0) {
+      for (const b of world.bodies) if (b.isPlayer || (b.sys && !b.sys.dead)) this.emitFlames(b);
+    }
     this.particles.handleEvents(world.events);
+    this.combat.handleEvents(world.events, this.particles);
     world.events.length = 0;
     this.particles.update(simDt);
+    this.combat.update(world, simDt, s);
     this.drawDebug(world);
   }
 

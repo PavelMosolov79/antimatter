@@ -1,10 +1,28 @@
 import type { GridBody } from './sim/body';
 import type { Celestial } from './sim/gravity';
-import { SHIPS, buildFreighter } from './sim/ships';
+import type { EnergyPriority } from './sim/systems';
+import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
+import { shipRef } from './sim/weapons';
+import type { Module, TargetRef, WeaponState } from './sim/grid';
 import { World } from './sim/world';
 import { Scene } from './render/scene';
 
 export type Tool = 'fly' | 'crater';
+export type BattleState = 'playing' | 'won' | 'lost';
+
+export interface Scenario {
+  id: string;
+  label: string;
+  enemies: string[];
+}
+
+export const SCENARIOS: Scenario[] = [
+  { id: 'sandbox', label: 'Песочница', enemies: [] },
+  { id: 'duel-raider', label: 'Дуэль: налётчик', enemies: ['raider'] },
+  { id: 'duel-hunter', label: 'Дуэль: охотник', enemies: ['hunter'] },
+  { id: 'three-scouts', label: '1 на 3: разведчики', enemies: ['scout', 'scout', 'scout'] },
+  { id: 'squad', label: 'Отряд', enemies: ['raider', 'scout', 'hunter'] },
+];
 
 export const STEP = 1 / 60;
 
@@ -17,6 +35,11 @@ function arena(): Celestial[] {
   ];
 }
 
+export interface WeaponRow {
+  weapon: WeaponState;
+  module: Module;
+}
+
 export class Game {
   world: World;
   readonly scene: Scene;
@@ -25,6 +48,9 @@ export class Game {
   paused = false;
   slowMo = false;
   shipId = 'fighter';
+  scenarioId = 'sandbox';
+  state: BattleState = 'playing';
+  selectedWeapon: number | null = null;
   stepMs = 0;
   private acc = 0;
   private seed = 1;
@@ -35,13 +61,33 @@ export class Game {
     this.reset();
   }
 
-  reset(shipId = this.shipId): void {
+  get scenario(): Scenario {
+    return SCENARIOS.find((s) => s.id === this.scenarioId) ?? SCENARIOS[0];
+  }
+
+  reset(shipId = this.shipId, scenarioId = this.scenarioId): void {
     this.shipId = shipId;
+    this.scenarioId = scenarioId;
     const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
     this.world.celestials = arena();
-    this.world.spawnPlayer(spec.build(), 0, 0, 0);
-    this.spawnTarget(150, -130, 0.5);
+    this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    const enemies = this.scenario.enemies;
+    if (enemies.length === 0) {
+      this.spawnTarget(150, -130, 0.5);
+    } else {
+      enemies.forEach((id, i) => {
+        const es = ENEMIES.find((e) => e.id === id)!;
+        const spread = enemies.length === 1 ? 0 : (i / (enemies.length - 1) - 0.5) * 1.5;
+        const a = -Math.PI / 2 + spread;
+        const ex = Math.cos(a) * 380;
+        const ey = Math.sin(a) * 380;
+        const heading = Math.atan2(-ex, ey);
+        this.world.spawnShip(es.build(), ex, ey, heading, { name: es.label, team: 1, ai: es.ai });
+      });
+    }
+    this.state = 'playing';
+    this.selectedWeapon = null;
     this.scene.reset(this.world);
     this.acc = 0;
   }
@@ -69,6 +115,93 @@ export class Game {
     this.world.explode(wp.x, wp.y, 3.2, 200, 0.4);
   }
 
+  weaponRows(): WeaponRow[] {
+    const p = this.world.player;
+    if (!p) return [];
+    const rows: WeaponRow[] = [];
+    for (const m of p.grid.modules) if (m.weapon) rows.push({ weapon: m.weapon, module: m });
+    return rows.sort((a, b) => a.weapon.id - b.weapon.id);
+  }
+
+  selectWeapon(id: number): void {
+    this.selectedWeapon = this.selectedWeapon === id ? null : id;
+  }
+
+  toggleWeapon(id: number): void {
+    const row = this.weaponRows().find((r) => r.weapon.id === id);
+    if (row) row.weapon.enabled = !row.weapon.enabled;
+  }
+
+  setPriority(p: EnergyPriority): void {
+    const sys = this.world.player?.sys;
+    if (sys) sys.priority = p;
+  }
+
+  clearTargets(): void {
+    const sys = this.world.player?.sys;
+    if (sys) sys.focus = null;
+    for (const r of this.weaponRows()) r.weapon.target = null;
+    this.selectedWeapon = null;
+  }
+
+  private assignTarget(ref: TargetRef): void {
+    const sys = this.world.player?.sys;
+    if (!sys) return;
+    if (this.selectedWeapon !== null) {
+      const row = this.weaponRows().find((r) => r.weapon.id === this.selectedWeapon);
+      if (row) row.weapon.target = ref;
+      this.selectedWeapon = null;
+    } else {
+      sys.focus = ref;
+      for (const r of this.weaponRows()) r.weapon.target = null;
+    }
+  }
+
+  pickEnemy(wx: number, wy: number): TargetRef | null {
+    const p = this.world.player;
+    if (!p?.sys) return null;
+    let best: { ref: TargetRef; d: number } | null = null;
+    for (const b of this.world.bodies) {
+      if (b.removed || b.kind !== 'ship' || !b.sys || b.sys.dead || b.sys.team === p.sys.team) continue;
+      const lp = b.worldToLocal(wx, wy, { x: 0, y: 0 });
+      let bd = Infinity;
+      let bx = 0;
+      let by = 0;
+      const ix = Math.floor(lp.x);
+      const iy = Math.floor(lp.y);
+      for (let j = -3; j <= 3; j++) {
+        for (let i = -3; i <= 3; i++) {
+          if (!b.grid.isOccupied(ix + i, iy + j)) continue;
+          const cx = ix + i + 0.5;
+          const cy = iy + j + 0.5;
+          const d = Math.hypot(cx - lp.x, cy - lp.y);
+          if (d < bd) {
+            bd = d;
+            bx = cx;
+            by = cy;
+          }
+        }
+      }
+      if (bd <= 3.5) {
+        if (!best || bd < best.d) best = { ref: shipRef(b, bx, by), d: bd };
+      } else {
+        const dc = Math.hypot(b.x - wx, b.y - wy);
+        if (dc < b.radius + 3 && (!best || dc + 4 < best.d)) best = { ref: shipRef(b), d: dc + 4 };
+      }
+    }
+    return best ? best.ref : null;
+  }
+
+  private evaluate(): void {
+    if (this.state !== 'playing' || this.scenario.enemies.length === 0) return;
+    if (!this.world.player) {
+      this.state = 'lost';
+      return;
+    }
+    const enemyAlive = this.world.bodies.some((b) => !b.removed && b.kind === 'ship' && b.sys && !b.sys.dead && b.sys.team === 1);
+    if (!enemyAlive) this.state = 'won';
+  }
+
   tick(frameDt: number): void {
     const dt = Math.min(frameDt, 0.05);
     let simDt = 0;
@@ -85,12 +218,18 @@ export class Game {
       }
       if (steps > 0) this.stepMs = this.stepMs * 0.9 + ((performance.now() - t0) / steps) * 0.1;
       if (steps === 6) this.acc = 0;
+      this.evaluate();
     }
     this.scene.render(this.world, dt, simDt);
   }
 
   pointerAction(wx: number, wy: number): void {
     if (this.tool === 'fly') {
+      const enemy = this.pickEnemy(wx, wy);
+      if (enemy) {
+        this.assignTarget(enemy);
+        return;
+      }
       this.world.target = this.clampToSurface(wx, wy);
     } else {
       this.world.explode(wx, wy, this.crater.radius, this.crater.damage, this.crater.pen);

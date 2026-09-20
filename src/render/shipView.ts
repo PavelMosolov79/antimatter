@@ -10,7 +10,9 @@ function clamp255(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : v | 0;
 }
 
-export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number): void {
+export type Tint = [number, number, number];
+
+export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number, tint: Tint = [1, 1, 1]): void {
   const w = grid.width;
   const h = grid.height;
   const visible = (x: number, y: number): boolean => {
@@ -36,9 +38,9 @@ export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number): void 
       if (!visible(x, y - 1) || !visible(x - 1, y)) f *= 1.22;
       else if (!visible(x, y + 1) || !visible(x + 1, y)) f *= 0.8;
       if (ratio < 0.5 && hash2(x * 7, y * 13, z) > 0.72) f *= 0.55;
-      buf[o] = clamp255(((def.color >> 16) & 255) * f);
-      buf[o + 1] = clamp255(((def.color >> 8) & 255) * f);
-      buf[o + 2] = clamp255((def.color & 255) * f);
+      buf[o] = clamp255(((def.color >> 16) & 255) * f * tint[0]);
+      buf[o + 1] = clamp255(((def.color >> 8) & 255) * f * tint[1]);
+      buf[o + 2] = clamp255((def.color & 255) * f * tint[2]);
       buf[o + 3] = 255;
     }
   }
@@ -52,6 +54,7 @@ export class BodyView {
   private readonly buffer: Uint8Array;
   private version = -1;
   private layer = -2;
+  private look = -1;
 
   constructor(body: GridBody) {
     this.body = body;
@@ -70,11 +73,16 @@ export class BodyView {
 
   update(layer: number): void {
     const b = this.body;
-    if (b.grid.version !== this.version || layer !== this.layer) {
-      paintGrid(b.grid, this.buffer, layer);
+    const look = (b.team + 1) * 2 + (b.sys?.dead ? 1 : 0);
+    if (b.grid.version !== this.version || layer !== this.layer || look !== this.look) {
+      let tint: Tint = [1, 1, 1];
+      if (b.team === 1) tint = [1.2, 0.76, 0.76];
+      if (b.sys?.dead) tint = [tint[0] * 0.55, tint[1] * 0.55, tint[2] * 0.55];
+      paintGrid(b.grid, this.buffer, layer, tint);
       this.source.update();
       this.version = b.grid.version;
       this.layer = layer;
+      this.look = look;
     }
     this.sprite.pivot.set(b.comX, b.comY);
     this.sprite.position.set(b.x, b.y);

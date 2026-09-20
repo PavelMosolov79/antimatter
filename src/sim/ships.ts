@@ -255,7 +255,7 @@ export function buildFighter(loadout: FighterLoadout = 'strike'): ShipGrid {
     addTurret(g, 14, 31, 3, 'heavy', 0, 1.2);
   }
   addReactor(g, 14, 25, 1, 3, 30, 140, 46);
-  addShieldGen(g, 14, 20, 1, loadout === 'hunter' ? 60 : 90, 12);
+  addShieldGen(g, 14, 20, 1, loadout === 'hunter' ? 120 : 180, 20);
   addBlock(g, 14, 21, 3, 2, 2);
   tuneShip(g, { accel: loadout === 'hunter' ? 32 : 30, rcsPerThrust: 10, backShare: 0.5, sideShare: 0.25 });
   return g;
@@ -298,7 +298,7 @@ export function buildCruiser(): ShipGrid {
   addTurret(g, 36, 56, 2, 'pulse', Math.PI, 1.6);
   addTurret(g, 23, 40, 3, 'beam', 0, 1.5);
   addReactor(g, 23, 44, 1, 3, 55, 260, 60);
-  addShieldGen(g, 21, 50, 1, 220, 22);
+  addShieldGen(g, 21, 50, 1, 420, 35);
   addShieldGen(g, 26, 50, 1, 0, 0);
   addBlock(g, 20, 56, 9, 6, 2);
   tuneShip(g, { accel: 18, rcsPerThrust: 20, backShare: 0.5, sideShare: 0.22 });
@@ -327,7 +327,7 @@ export function buildScout(): ShipGrid {
   }
   addTurret(g, 9, 8, 2, 'pulse', 0, 1.9);
   addReactor(g, 9, 14, 1, 3, 20, 80, 30);
-  addShieldGen(g, 9, 18, 1, 40, 10);
+  addShieldGen(g, 9, 18, 1, 80, 12);
   tuneShip(g, { accel: 40, rcsPerThrust: 10, backShare: 0.5, sideShare: 0.25 });
   return g;
 }
