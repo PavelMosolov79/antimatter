@@ -9,6 +9,7 @@ export interface EngineSummary {
   fy: number;
   torque: number;
   rcs: number;
+  maneuver: number;
   thrust: number;
   alive: number;
   total: number;
@@ -41,6 +42,8 @@ export class GridBody {
   splitTime = -1;
   throttle = 0;
   rcsTorque = 0;
+  rcsAx = 0;
+  rcsAy = 0;
   private initialized = false;
 
   constructor(grid: ShipGrid, x: number, y: number, angle: number, kind: BodyKind) {
@@ -123,6 +126,7 @@ export class GridBody {
     let fy = 0;
     let torque = 0;
     let rcs = 0;
+    let maneuver = 0;
     let alive = 0;
     let total = 0;
     for (const m of g.modules) {
@@ -150,7 +154,8 @@ export class GridBody {
       fy += fyi;
       torque += rx * fyi - ry * fxi;
       rcs += m.rcs * eff;
+      maneuver += m.maneuver * eff;
     }
-    return { fx, fy, torque, rcs, thrust: Math.hypot(fx, fy), alive, total };
+    return { fx, fy, torque, rcs, maneuver, thrust: Math.hypot(fx, fy), alive, total };
   }
 }

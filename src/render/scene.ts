@@ -100,7 +100,23 @@ export class Scene {
     this.drawDebug(world);
   }
 
+  private emitRcs(b: GridBody): void {
+    const ra = Math.hypot(b.rcsAx, b.rcsAy);
+    if (ra < 0.15) return;
+    const dx = b.rcsAx / ra;
+    const dy = b.rcsAy / ra;
+    const count = ra > 2 ? 2 : 1;
+    for (let i = 0; i < count; i++) {
+      const side = (Math.random() - 0.5) * b.radius * 0.9;
+      const px = b.x - dx * b.radius * 0.6 - dy * side;
+      const py = b.y - dy * b.radius * 0.6 + dx * side;
+      const speed = 10 + Math.random() * 8;
+      this.particles.emit(px, py, b.vx - dx * speed, b.vy - dy * speed, 0.15 + Math.random() * 0.15, 0.7 + Math.random() * 0.5, 0xbfe3ff, true, 2);
+    }
+  }
+
   private emitFlames(b: GridBody): void {
+    this.emitRcs(b);
     if (b.throttle < 0.02) return;
     const g = b.grid;
     for (const m of g.modules) {

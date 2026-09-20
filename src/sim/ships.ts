@@ -91,13 +91,14 @@ function addBlock(grid: ShipGrid, x0: number, y0: number, w: number, h: number, 
   grid.addModule('generic', cells, { core: [x0 + Math.floor(w / 2), y0 + Math.floor(h / 2), z] });
 }
 
-function tuneEngines(grid: ShipGrid, accel: number, rcsPerThrust: number): void {
+function tuneEngines(grid: ShipGrid, accel: number, rcsPerThrust: number, maneuverShare = 0.16): void {
   const engines = grid.modules.filter((m) => m.kind === 'engine');
   const totalCells = engines.reduce((s, m) => s + m.total, 0);
   const totalThrust = accel * grid.mass;
   for (const m of engines) {
     m.thrust = (totalThrust * m.total) / totalCells;
     m.rcs = m.thrust * rcsPerThrust;
+    m.maneuver = m.thrust * maneuverShare;
   }
 }
 

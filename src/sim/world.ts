@@ -32,7 +32,7 @@ export class World implements DamageSink {
   private damaged = new Set<GridBody>();
   private buf: number[] = [];
   private grav = { ax: 0, ay: 0 };
-  private ctl: Control = { throttle: 0, torque: 0 };
+  private ctl: Control = { throttle: 0, torque: 0, rcsAx: 0, rcsAy: 0 };
 
   constructor(seed = 1) {
     this.rng = mulberry32(seed);
@@ -167,9 +167,15 @@ export class World implements DamageSink {
       else {
         this.ctl.throttle = 0;
         this.ctl.torque = 0;
+        this.ctl.rcsAx = 0;
+        this.ctl.rcsAy = 0;
       }
       p.throttle = this.ctl.throttle;
       p.rcsTorque = this.ctl.torque;
+      p.rcsAx = this.ctl.rcsAx;
+      p.rcsAy = this.ctl.rcsAy;
+      p.vx += this.ctl.rcsAx * dt;
+      p.vy += this.ctl.rcsAy * dt;
       const th = this.ctl.throttle;
       const fx = eng.fx * th;
       const fy = eng.fy * th;
