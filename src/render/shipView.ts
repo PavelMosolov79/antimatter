@@ -1,0 +1,88 @@
+import { BufferImageSource, Sprite, Texture } from 'pixi.js';
+import type { GridBody } from '../sim/body';
+import type { ShipGrid } from '../sim/grid';
+import { MATERIALS } from '../sim/materials';
+import { hash2 } from '../sim/rng';
+
+export const OUTER_VIEW = -1;
+
+function clamp255(v: number): number {
+  return v < 0 ? 0 : v > 255 ? 255 : v | 0;
+}
+
+export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number): void {
+  const w = grid.width;
+  const h = grid.height;
+  const visible = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    return layer < 0 ? grid.colCount[y * w + x] > 0 : grid.mat[grid.idx(x, y, layer)] !== 0;
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      let z = -1;
+      if (layer < 0) z = grid.topLayer(x, y);
+      else if (grid.mat[grid.idx(x, y, layer)] !== 0) z = layer;
+      if (z < 0) {
+        buf[o] = buf[o + 1] = buf[o + 2] = buf[o + 3] = 0;
+        continue;
+      }
+      const i = grid.idx(x, y, z);
+      const def = MATERIALS[grid.mat[i]];
+      const ratio = grid.hp[i] / def.hp;
+      let f = 1 - 0.14 * z;
+      f *= 0.6 + 0.4 * ratio;
+      f *= 0.94 + 0.12 * hash2(x, y, z);
+      if (!visible(x, y - 1) || !visible(x - 1, y)) f *= 1.22;
+      else if (!visible(x, y + 1) || !visible(x + 1, y)) f *= 0.8;
+      if (ratio < 0.5 && hash2(x * 7, y * 13, z) > 0.72) f *= 0.55;
+      buf[o] = clamp255(((def.color >> 16) & 255) * f);
+      buf[o + 1] = clamp255(((def.color >> 8) & 255) * f);
+      buf[o + 2] = clamp255((def.color & 255) * f);
+      buf[o + 3] = 255;
+    }
+  }
+}
+
+export class BodyView {
+  readonly body: GridBody;
+  readonly sprite: Sprite;
+  private readonly source: BufferImageSource;
+  private readonly texture: Texture;
+  private readonly buffer: Uint8Array;
+  private version = -1;
+  private layer = -2;
+
+  constructor(body: GridBody) {
+    this.body = body;
+    const { width, height } = body.grid;
+    this.buffer = new Uint8Array(width * height * 4);
+    this.source = new BufferImageSource({
+      resource: this.buffer,
+      width,
+      height,
+      format: 'rgba8unorm',
+      scaleMode: 'nearest',
+    });
+    this.texture = new Texture({ source: this.source });
+    this.sprite = new Sprite(this.texture);
+  }
+
+  update(layer: number): void {
+    const b = this.body;
+    if (b.grid.version !== this.version || layer !== this.layer) {
+      paintGrid(b.grid, this.buffer, layer);
+      this.source.update();
+      this.version = b.grid.version;
+      this.layer = layer;
+    }
+    this.sprite.pivot.set(b.comX, b.comY);
+    this.sprite.position.set(b.x, b.y);
+    this.sprite.rotation = b.angle;
+  }
+
+  destroy(): void {
+    this.sprite.destroy();
+    this.texture.destroy(true);
+  }
+}
