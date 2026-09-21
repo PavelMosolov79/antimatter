@@ -275,3 +275,72 @@ describe('enemy AI', () => {
     expect(avg).toBeLessThan(4);
   });
 });
+
+describe('main target lock', () => {
+  function angleTo(fromX: number, fromY: number, toX: number, toY: number): number {
+    return Math.atan2(toX - fromX, -(toY - fromY));
+  }
+
+  function diff(a: number, b: number): number {
+    let d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
+  }
+
+  function setup(): { world: World; me: GridBody; foe: GridBody } {
+    const world = new World(11);
+    const me = world.spawnShip(buildFighter('strike'), 0, 0, 0, { name: 'P', team: 0, player: true });
+    for (const m of me.grid.modules) if (m.weapon) m.weapon.enabled = false;
+    const foe = world.spawnShip(noShield(buildFighter('raider')), 220, -200, Math.PI, { name: 'E', team: 1 });
+    for (const m of foe.grid.modules) if (m.weapon) m.weapon.enabled = false;
+    me.sys!.focus = shipRef(foe);
+    return { world, me, foe };
+  }
+
+  it('keeps the nose on the main target while flying to a point off to the side', () => {
+    const { world, me, foe } = setup();
+    world.target = { x: 150, y: 120 };
+    let rot = 0;
+    let last = me.angle;
+    let maxErr = 0;
+    for (let i = 0; i < 60 * 40; i++) {
+      world.step(1 / 60);
+      rot += Math.abs(me.angle - last);
+      last = me.angle;
+      if (i > 60 * 6) maxErr = Math.max(maxErr, diff(me.angle, angleTo(me.x, me.y, foe.x, foe.y)));
+    }
+    expect(maxErr).toBeLessThan(0.15);
+    expect(rot).toBeLessThan(3);
+    expect(Math.hypot(me.x - 150, me.y - 120)).toBeLessThan(8);
+    expect(Math.hypot(me.vx, me.vy)).toBeLessThan(2);
+  });
+
+  it('follows a target that moves around the player', () => {
+    const { world, me, foe } = setup();
+    foe.vx = -12;
+    foe.vy = 6;
+    world.target = { x: 0, y: 0 };
+    let maxErr = 0;
+    for (let i = 0; i < 60 * 30; i++) {
+      world.step(1 / 60);
+      if (i > 60 * 5) maxErr = Math.max(maxErr, diff(me.angle, angleTo(me.x, me.y, foe.x, foe.y)));
+    }
+    expect(maxErr).toBeLessThan(0.3);
+  });
+
+  it('turns to the destination when the nose lock is off', () => {
+    const { world, me, foe } = setup();
+    world.lockFace = false;
+    world.target = { x: -200, y: 0 };
+    for (let i = 0; i < 60 * 12; i++) world.step(1 / 60);
+    expect(diff(me.angle, angleTo(me.x, me.y, foe.x, foe.y))).toBeGreaterThan(0.5);
+  });
+
+  it('drops the lock when the target dies', () => {
+    const { world, me, foe } = setup();
+    world.killShip(foe);
+    world.step(1 / 60);
+    expect(me.sys!.focus).toBeNull();
+  });
+});

@@ -178,7 +178,9 @@ export class Hud {
     const power = section('Энергия и цели');
     this.priorityBtns.set('shield', button(power, 'Приоритет: щит', () => this.game.setPriority('shield')));
     this.priorityBtns.set('weapons', button(power, 'Приоритет: оружие', () => this.game.setPriority('weapons')));
-    button(power, 'Все орудия: авто', () => this.game.clearTargets());
+    const lockBtn = button(power, 'Нос следит за целью', () => this.game.setLockFace(!this.game.world.lockFace), { toggle: true });
+    this.toggles.push({ el: lockBtn, get: () => this.game.world.lockFace });
+    button(power, 'Снять цель / орудия: авто', () => this.game.clearTargets());
 
     const tools = section('Инструмент (ЛКМ)');
     this.toolBtns.set('fly', button(tools, 'Полёт / цель', () => this.setTool('fly')));
@@ -321,7 +323,7 @@ export class Hud {
       const th = t.grid.cells / t.sys.cellsMax;
       const shield = t.sys.shieldMax > 0 ? ` · щит ${((t.sys.shield / t.sys.shieldMax) * 100).toFixed(0)}%${t.sys.shieldDown ? ' (упал)' : ''}` : '';
       const warn = t.sys.countdown >= 0 ? `\nРЕАКТОР НЕСТАБИЛЕН: ${Math.max(0, t.sys.countdown).toFixed(1)} с` : '';
-      this.targetInfo.textContent = `Цель: ${t.sys.name} · корпус ${(th * 100).toFixed(0)}%${shield}${warn}`;
+      this.targetInfo.textContent = `${sys.focus ? 'Основная цель' : 'Авто-цель'}: ${t.sys.name} · корпус ${(th * 100).toFixed(0)}%${shield}${warn}`;
     } else {
       this.targetInfo.textContent = 'Цели нет';
     }

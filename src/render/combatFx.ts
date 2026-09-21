@@ -91,6 +91,30 @@ export class CombatFx {
       g.moveTo(bm.x0, bm.y0).lineTo(bm.x1, bm.y1).stroke({ width: 0.9, color: 0xffffff, alpha: 0.95 });
     }
 
+    const focus = world.player?.sys?.focus;
+    const locked = focus ? world.findShip(focus.shipId) : null;
+    if (locked && world.player) {
+      const r = locked.radius + 3;
+      const pulse = 0.75 + 0.25 * Math.sin(time * 6);
+      const c = 0xffd24a;
+      const k = Math.min(6, r * 0.45);
+      const w = px * 1.6;
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          const cx = locked.x + sx * r;
+          const cy = locked.y + sy * r;
+          g.moveTo(cx, cy - sy * k).lineTo(cx, cy).lineTo(cx - sx * k, cy).stroke({ width: w, color: c, alpha: pulse });
+        }
+      }
+      const p = world.player;
+      const dx = locked.x - p.x;
+      const dy = locked.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      g.moveTo(p.x + (dx / d) * (p.radius + 4), p.y + (dy / d) * (p.radius + 4))
+        .lineTo(locked.x - (dx / d) * (r + 1), locked.y - (dy / d) * (r + 1))
+        .stroke({ width: px, color: c, alpha: 0.18 });
+    }
+
     const warned = new Set<number>();
     for (const b of world.bodies) {
       const sys = b.sys;

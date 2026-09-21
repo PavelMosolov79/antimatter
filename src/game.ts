@@ -69,7 +69,9 @@ export class Game {
     this.shipId = shipId;
     this.scenarioId = scenarioId;
     const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
+    const lock = this.world ? this.world.lockFace : true;
     this.world = new World(this.seed++);
+    this.world.lockFace = lock;
     this.world.celestials = arena();
     this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
     const enemies = this.scenario.enemies;
@@ -135,6 +137,10 @@ export class Game {
   setPriority(p: EnergyPriority): void {
     const sys = this.world.player?.sys;
     if (sys) sys.priority = p;
+  }
+
+  setLockFace(v: boolean): void {
+    this.world.lockFace = v;
   }
 
   clearTargets(): void {

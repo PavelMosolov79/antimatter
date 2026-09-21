@@ -50,6 +50,8 @@ export class World implements DamageSink {
   time = 0;
   target: Target | null = null;
   autopilot = true;
+  lockFace = true;
+  private playerNav: Nav = { target: null, face: null };
   events: SimEvent[] = [];
   projectiles: Projectile[] = [];
   beams: Beam[] = [];
@@ -235,6 +237,17 @@ export class World implements DamageSink {
     this.push({ t: 'split', x: b.x, y: b.y });
   }
 
+  private faceAngleTo(b: GridBody): number | null {
+    const ref = b.sys?.focus;
+    if (!ref) return null;
+    const t = this.findShip(ref.shipId);
+    if (!t || t === b) {
+      if (b.sys) b.sys.focus = null;
+      return null;
+    }
+    return Math.atan2(t.x - b.x, -(t.y - b.y));
+  }
+
   private drive(b: GridBody, nav: Nav, on: boolean, dt: number): void {
     const eng = b.engineSummary();
     const g = this.gravityAt(b.x, b.y);
@@ -268,7 +281,11 @@ export class World implements DamageSink {
 
     for (const b of this.bodies) {
       if (b.removed) continue;
-      if (b.isPlayer) this.drive(b, { target: this.target, face: null }, this.autopilot, dt);
+      if (b.isPlayer) {
+        this.playerNav.target = this.target;
+        this.playerNav.face = this.lockFace ? this.faceAngleTo(b) : null;
+        this.drive(b, this.playerNav, this.autopilot, dt);
+      }
       else if (b.sys && !b.sys.dead) this.drive(b, b.sys.nav, true, dt);
     }
 
