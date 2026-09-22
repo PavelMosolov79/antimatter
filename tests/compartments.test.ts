@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GridBody } from '../src/sim/body';
 import { ensureRooms, roomsOnDeck, setDoorOpen, updateCompartments, type Room } from '../src/sim/compartments';
+import { splitBody } from '../src/sim/fragment';
 import { buildCruiser, buildFighter } from '../src/sim/ships';
 import { updateSystems } from '../src/sim/systems';
 import { World } from '../src/sim/world';
@@ -341,5 +342,34 @@ describe('doors survive a hull split', () => {
     expect(survivor).not.toBeNull();
     expect(survivor!.grid.doors.length).toBeGreaterThan(0);
     expect(survivor!.grid.doors.length).toBeLessThanOrEqual(before);
+  });
+
+  it('does not reset an already-vented room back to full pressure when the ship fragments elsewhere', () => {
+    // The surviving "main" piece after any split gets a brand-new (cropped) ShipGrid
+    // object, even when the actual disconnected piece is small and unrelated to any
+    // breached room. ensureRooms() keys its rebuild-vs-reuse decision off grid identity,
+    // so without a coordinate-aware migration this silently reset every room's pressure
+    // back to 1 on the very next split, no matter how long it had been venting.
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    breachCells(ship, shieldBay.cells, 1);
+    run(world, ship, 3);
+    expect(shieldBay.pressure).toBeLessThan(0.05);
+
+    // Sever the hull roughly in half; the shield bay's half (front) is the heavier
+    // "main" survivor, but it still gets an entirely new, cropped ShipGrid object.
+    for (let x = 0; x < ship.grid.width; x++) {
+      for (let z = 0; z < ship.grid.depth; z++) ship.grid.removeCell(ship.grid.idx(x, 34, z));
+    }
+    const res = splitBody(ship, () => 0.5, 0);
+    expect(res?.main).toBeTruthy();
+    const survivor = res!.main!;
+    expect(survivor.grid).not.toBe(ship.grid);
+
+    const newGraph = ensureRooms(survivor);
+    const stillVented = newGraph.rooms.filter((r) => r.z === 1 && r.pressure < 0.1);
+    expect(stillVented.length).toBeGreaterThan(0);
+    expect(newGraph.rooms.filter((r) => r.z === 1 && r.pressure > 0.99).length).toBeLessThan(newGraph.rooms.filter((r) => r.z === 1).length);
   });
 });

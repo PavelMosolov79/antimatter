@@ -133,29 +133,61 @@ export function buildRooms(grid: ShipGrid): RoomGraph {
   return { grid, structVersion: grid.structVersion, rooms, edges, cellRoom };
 }
 
-function migrate(oldGraph: RoomGraph, newGraph: RoomGraph): void {
+/**
+ * A new room can inherit cells from several old rooms at once when a wall or door
+ * between them is destroyed and the flood fill merges them into one region. Picking
+ * only the single largest contributor (as an earlier version of this did) throws away
+ * every other contributor's state: merging a nearly-vented closet into a big, still
+ * fully pressurized corridor room would silently reset the closet back to full
+ * pressure, because the corridor's cell count wins the vote. Air mixing between
+ * connected spaces is what actually happens physically, so instead we average
+ * pressure/fire across all contributing old rooms weighted by how many of the new
+ * room's cells came from each one. `oldCellFor` maps a new-graph cell index back to
+ * the corresponding old-graph cell index, which is the identity for an in-place
+ * rebuild but needs a coordinate translation when the new grid is a cropped copy
+ * (see `remapRoomGraph`).
+ */
+function blend(oldGraph: RoomGraph, newGraph: RoomGraph, oldCellFor: (newCell: number) => number): void {
   for (const nr of newGraph.rooms) {
-    const counts = new Map<number, number>();
+    let matchedCells = 0;
+    let pressureSum = 0;
+    let fireSum = 0;
+    let breached = false;
     for (const cell of nr.cells) {
-      const oldId = oldGraph.cellRoom[cell];
+      const oldId = oldGraph.cellRoom[oldCellFor(cell)];
       if (oldId === -1) continue;
-      counts.set(oldId, (counts.get(oldId) ?? 0) + 1);
+      const or = oldGraph.rooms[oldId];
+      pressureSum += or.pressure;
+      fireSum += or.fire;
+      if (or.breached) breached = true;
+      matchedCells++;
     }
-    let best = -1;
-    let bestCount = 0;
-    for (const [oldId, cnt] of counts) {
-      if (cnt > bestCount) {
-        bestCount = cnt;
-        best = oldId;
-      }
-    }
-    if (best >= 0) {
-      const or = oldGraph.rooms[best];
-      nr.pressure = or.pressure;
-      nr.fire = or.fire;
-      nr.breached = or.breached;
+    if (matchedCells > 0) {
+      nr.pressure = pressureSum / matchedCells;
+      nr.fire = fireSum / matchedCells;
+      nr.breached = breached;
     }
   }
+}
+
+function migrate(oldGraph: RoomGraph, newGraph: RoomGraph): void {
+  blend(oldGraph, newGraph, (cell) => cell);
+}
+
+/**
+ * Rebuilds the room graph for a ship grid that was cropped out of a larger one (see
+ * `extractComponent` in fragment.ts), carrying over pressure/fire instead of starting
+ * every room back at full pressure. This is the split/fragmentation counterpart of the
+ * in-place rebuild `ensureRooms` does: when a piece breaks off the ship (even a tiny,
+ * structurally unrelated piece elsewhere), the surviving hull gets an entirely new
+ * `ShipGrid` object, so `ensureRooms`'s `old.grid === g` identity check can never match
+ * and would otherwise silently drop all compartment state for the whole ship.
+ */
+export function remapRoomGraph(oldGraph: RoomGraph, newGrid: ShipGrid, offsetX: number, offsetY: number): RoomGraph {
+  const fresh = buildRooms(newGrid);
+  const oldGrid = oldGraph.grid;
+  blend(oldGraph, fresh, (cell) => oldGrid.idx(newGrid.xOf(cell) + offsetX, newGrid.yOf(cell) + offsetY, newGrid.zOf(cell)));
+  return fresh;
 }
 
 export function ensureRooms(body: GridBody): RoomGraph {

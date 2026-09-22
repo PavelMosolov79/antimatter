@@ -1,4 +1,5 @@
 import { GridBody } from './body';
+import { remapRoomGraph } from './compartments';
 import { ShipGrid, type Module } from './grid';
 import { MATERIALS } from './materials';
 import type { Rng } from './rng';
@@ -147,6 +148,8 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
   const pieces: GridBody[] = [];
   const dust: DustCell[] = [];
   let main: GridBody | null = null;
+  let mainBx = 0;
+  let mainBy = 0;
   let kickPx = 0;
   let kickPy = 0;
   const g = body.grid;
@@ -180,6 +183,8 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
     piece.team = -1;
     if (label === mainLabel) {
       main = piece;
+      mainBx = bx;
+      mainBy = by;
     } else {
       const dx = wp.x - ox;
       const dy = wp.y - oy;
@@ -200,6 +205,9 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
     main.sys = body.sys;
     main.vx -= kickPx / main.mass;
     main.vy -= kickPy / main.mass;
+    if (main.sys?.rooms && main.sys.rooms.grid === g) {
+      main.sys.rooms = remapRoomGraph(main.sys.rooms, main.grid, mainBx, mainBy);
+    }
   }
   return { main, pieces, dust };
 }
