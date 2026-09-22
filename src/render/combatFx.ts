@@ -1,11 +1,12 @@
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { GridBody } from '../sim/body';
-import { moduleEfficiency } from '../sim/grid';
+import { moduleEfficiency, type WeaponType } from '../sim/grid';
 import { shieldRadius } from '../sim/raycast';
 import { shieldActive } from '../sim/systems';
 import { WEAPONS } from '../sim/weapons';
 import type { SimEvent, World } from '../sim/world';
 import type { Particles } from './particles';
+import { OUTER_VIEW } from './shipView';
 
 const TEAM_COLORS: Record<number, number> = { 0: 0x59b8ff, 1: 0xff6a5a };
 
@@ -27,18 +28,71 @@ function teamColor(team: number): number {
   return TEAM_COLORS[team] ?? 0xcccccc;
 }
 
+// Pixel art for the barrel that sticks out past a turret's own hull cell, drawn at
+// exactly 1 texture pixel = 1 world unit so it reads at the same resolution as the
+// ship's own hull texture instead of a smooth vector shape sitting on top of it.
+// 'W' pixels are white so a Sprite tint can recolor them per weapon/enabled state;
+// 'D' pixels are baked as a fixed dark mount color. Row 0 is the muzzle end, the
+// last row is the mount end (anchored to the turret's cell).
+const BARREL_ART: Record<WeaponType, string[]> = {
+  pulse: ['.W.W.', '.W.W.', '.W.W.', 'DDDDD'],
+  heavy: ['..W..', '.WWW.', '.WWW.', 'WWWWW', '.DDD.'],
+  beam: ['.W.', '.W.', '.W.', 'DDD'],
+};
+
+const barrelTextureCache = new Map<WeaponType, Texture>();
+
+function getBarrelTexture(type: WeaponType): Texture {
+  let tex = barrelTextureCache.get(type);
+  if (tex) return tex;
+  const art = BARREL_ART[type];
+  const cols = art[0].length;
+  const rows = art.length;
+  const canvas = document.createElement('canvas');
+  canvas.width = cols;
+  canvas.height = rows;
+  const ctx = canvas.getContext('2d')!;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const ch = art[y][x];
+      if (ch === '.') continue;
+      ctx.fillStyle = ch === 'D' ? '#2a3140' : '#ffffff';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  tex = Texture.from(canvas);
+  tex.source.scaleMode = 'nearest';
+  barrelTextureCache.set(type, tex);
+  return tex;
+}
+
+interface BarrelDraw {
+  x: number;
+  y: number;
+  angle: number;
+  type: WeaponType;
+  color: number;
+  firing: boolean;
+  tipX: number;
+  tipY: number;
+}
+
 export class CombatFx {
   readonly container = new Container();
   private readonly gfx = new Graphics();
   private readonly boltLayer = new Container();
+  private readonly barrelLayer = new Container();
   private readonly textLayer = new Container();
   private bolts: Sprite[] = [];
+  private barrelSprites: Sprite[] = [];
+  private muzzleSprites: Sprite[] = [];
   private texts = new Map<number, Text>();
   private waves: Wave[] = [];
   private hits: ShieldHit[] = [];
+  private barrelDraws: BarrelDraw[] = [];
 
   constructor() {
-    this.container.addChild(this.gfx, this.boltLayer, this.textLayer);
+    this.container.addChild(this.gfx, this.barrelLayer, this.boltLayer, this.textLayer);
   }
 
   reset(): void {
@@ -80,11 +134,12 @@ export class CombatFx {
     }
   }
 
-  update(world: World, dt: number, scale: number): void {
+  update(world: World, dt: number, scale: number, layerView: number): void {
     const g = this.gfx;
     g.clear();
     const px = 1.5 / scale;
     const time = performance.now() / 1000;
+    this.barrelDraws.length = 0;
 
     for (const bm of world.beams) {
       g.moveTo(bm.x0, bm.y0).lineTo(bm.x1, bm.y1).stroke({ width: 2.4, color: bm.color, alpha: 0.28 });
@@ -128,7 +183,7 @@ export class CombatFx {
         g.circle(b.x, b.y, R).stroke({ width: px * (1 + sys.shieldFlash), color: col, alpha: 0.14 + 0.28 * frac + 0.55 * sys.shieldFlash });
       }
 
-      this.drawBarrels(b);
+      if (layerView === OUTER_VIEW || layerView === 0) this.collectBarrels(b);
 
       if (!b.isPlayer) this.drawBars(b);
 
@@ -168,10 +223,10 @@ export class CombatFx {
     this.waves = this.waves.filter((w) => w.life > 0);
 
     this.syncBolts(world);
+    this.syncBarrels(this.barrelDraws);
   }
 
-  private drawBarrels(b: GridBody): void {
-    const g = this.gfx;
+  private collectBarrels(b: GridBody): void {
     const grid = b.grid;
     for (const m of grid.modules) {
       const w = m.weapon;
@@ -188,11 +243,56 @@ export class CombatFx {
       if (n === 0) continue;
       const wp = b.localToWorld(sx / n, sy / n, { x: 0, y: 0 });
       const ang = b.angle + w.arcCenter + w.off;
-      const len = w.type === 'heavy' ? 4.4 : 3.2;
-      const color = w.enabled ? WEAPONS[w.type].color : 0x666666;
-      g.moveTo(wp.x, wp.y)
-        .lineTo(wp.x + Math.sin(ang) * len, wp.y - Math.cos(ang) * len)
-        .stroke({ width: w.type === 'heavy' ? 1.5 : 0.9, color, alpha: 0.95 });
+      const fx = Math.sin(ang);
+      const fy = -Math.cos(ang);
+      const reach = BARREL_ART[w.type].length;
+      this.barrelDraws.push({
+        x: wp.x,
+        y: wp.y,
+        angle: ang,
+        type: w.type,
+        color: w.enabled ? WEAPONS[w.type].color : 0x6a6a6a,
+        firing: w.firing,
+        tipX: wp.x + fx * (reach - 0.5),
+        tipY: wp.y + fy * (reach - 0.5),
+      });
+    }
+  }
+
+  private syncBarrels(list: BarrelDraw[]): void {
+    while (this.barrelSprites.length < list.length) {
+      const s = new Sprite();
+      s.anchor.set(0.5, 1);
+      this.barrelLayer.addChild(s);
+      this.barrelSprites.push(s);
+    }
+    while (this.muzzleSprites.length < list.length) {
+      const s = new Sprite(Texture.WHITE);
+      s.anchor.set(0.5);
+      s.blendMode = 'add';
+      this.barrelLayer.addChild(s);
+      this.muzzleSprites.push(s);
+    }
+    for (let i = 0; i < this.barrelSprites.length; i++) {
+      const s = this.barrelSprites[i];
+      const m = this.muzzleSprites[i];
+      if (i >= list.length) {
+        s.visible = false;
+        m.visible = false;
+        continue;
+      }
+      const d = list[i];
+      s.visible = true;
+      s.texture = getBarrelTexture(d.type);
+      s.tint = d.color;
+      s.position.set(d.x, d.y);
+      s.rotation = d.angle;
+      m.visible = d.firing;
+      if (d.firing) {
+        m.tint = 0xfff3d0;
+        m.width = m.height = d.type === 'heavy' ? 1.6 : d.type === 'beam' ? 1.1 : 0.8;
+        m.position.set(d.tipX, d.tipY);
+      }
     }
   }
 

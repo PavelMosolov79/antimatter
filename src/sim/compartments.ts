@@ -208,8 +208,14 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
   for (const room of graph.rooms) {
     let breachedCells = 0;
     for (const i of room.cells) {
-      if (grid.mat[i] === 0) continue;
-      if (grid.topLayer(grid.xOf(i), grid.yOf(i)) === room.z) breachedCells++;
+      // Breached means nothing shallower than this level still shields the column from
+      // outside: either this cell itself is now the exposed surface (topLayer === room.z),
+      // or it — and everything above it — is gone entirely (topLayer > room.z, some
+      // deeper deck now exposed, or -1, nothing left at all). If something shallower
+      // survives, the room stays sealed even if this specific cell was blown away (e.g.
+      // fire gutting an interior floor tile while the outer hull above it holds).
+      const top = grid.topLayer(grid.xOf(i), grid.yOf(i));
+      if (top === -1 || top >= room.z) breachedCells++;
     }
     const wasBreached = room.breached;
     room.breached = breachedCells > 0;

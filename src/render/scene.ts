@@ -103,7 +103,7 @@ export class Scene {
     this.combat.handleEvents(world.events, this.particles);
     world.events.length = 0;
     this.particles.update(simDt);
-    this.combat.update(world, simDt, s);
+    this.combat.update(world, simDt, s, this.layerView);
     this.drawDebug(world);
   }
 

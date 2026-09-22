@@ -96,6 +96,38 @@ describe('decompression', () => {
     expect(shieldBay.pressure).toBeLessThan(0.05);
   });
 
+  it('a breach never self-heals when a follow-up hit finishes off the exposed cell', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    const [cell] = shieldBay.cells;
+    const x = ship.grid.xOf(cell);
+    const y = ship.grid.yOf(cell);
+    // First hit: punch through the hull above it (the normal case, already covered above).
+    ship.grid.removeCell(ship.grid.idx(x, y, 0));
+    run(world, ship, 0.5);
+    expect(shieldBay.breached).toBe(true);
+    const pressureAfterFirstHit = shieldBay.pressure;
+    // Second hit finishes off the room's own exposed cell instead of just damaging it —
+    // this must still read as breached (or worse), never as freshly sealed.
+    ship.grid.removeCell(cell);
+    run(world, ship, 0.1);
+    expect(shieldBay.breached).toBe(true);
+    expect(shieldBay.pressure).toBeLessThanOrEqual(pressureAfterFirstHit);
+  });
+
+  it('does not treat a fire-gutted interior floor tile as a hull breach while the outer hull above it still holds', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    const [cell] = shieldBay.cells;
+    // Destroy only the room's own cell — the hull (z=0) and everything shallower stays intact.
+    ship.grid.removeCell(cell);
+    run(world, ship, 2);
+    expect(shieldBay.breached).toBe(false);
+    expect(shieldBay.pressure).toBe(1);
+  });
+
   it('closing the connecting door keeps the neighboring room fully sealed', () => {
     const { world, ship } = makePlayer();
     const graph = ensureRooms(ship);
