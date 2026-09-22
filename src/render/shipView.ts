@@ -16,6 +16,10 @@ export type Tint = [number, number, number];
 export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number, tint: Tint = [1, 1, 1], rooms?: RoomGraph | null, time = 0): void {
   const w = grid.width;
   const h = grid.height;
+  if (layer >= grid.depth) {
+    buf.fill(0);
+    return;
+  }
   const visible = (x: number, y: number): boolean => {
     if (x < 0 || y < 0 || x >= w || y >= h) return false;
     return layer < 0 ? grid.colCount[y * w + x] > 0 : grid.mat[grid.idx(x, y, layer)] !== 0;

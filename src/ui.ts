@@ -319,7 +319,13 @@ export class Hud {
     for (const [id, b] of this.scenarioBtns) b.classList.toggle('on', g.scenarioId === id);
     const pri = g.world.player?.sys?.priority;
     for (const [id, b] of this.priorityBtns) b.classList.toggle('on', pri === id);
-    this.layerBtns.forEach((b, i) => b.classList.toggle('on', (i === 0 ? OUTER_VIEW : i - 1) === g.scene.layerView));
+    const depth = g.world.player?.grid.depth ?? 0;
+    this.layerBtns.forEach((b, i) => {
+      const idx = i === 0 ? OUTER_VIEW : i - 1;
+      b.classList.toggle('on', idx === g.scene.layerView);
+      b.disabled = idx >= 0 && idx >= depth;
+      if (b.disabled && idx === g.scene.layerView) g.scene.layerView = OUTER_VIEW;
+    });
     for (const t of this.toggles) t.el.classList.toggle('on', t.get());
     for (const w of this.weaponEls) w.name.classList.toggle('sel', g.selectedWeapon === w.id);
 
