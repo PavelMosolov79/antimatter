@@ -59,9 +59,19 @@ function edgeOpen(grid: ShipGrid, edge: RoomEdge): boolean {
   return !!door && (door.open || door.destroyed);
 }
 
+/**
+ * Hull tapering means a hand-placed wall almost never lines up with the hull edge on
+ * every row it crosses, so a stray sliver of floor can end up sealed on all sides with
+ * no door — structurally sound but pointless. Rather than chase every such sliver by
+ * hand, we just don't dignify anything this small with a room: its cells stay
+ * unassigned (cellRoom -1), inert for pressure/fire purposes, same as a wall.
+ */
+const MIN_ROOM_CELLS = 6;
+
 export function buildRooms(grid: ShipGrid): RoomGraph {
   const n = grid.mat.length;
   const cellRoom = new Int32Array(n).fill(-1);
+  const visited = new Uint8Array(n);
   const rooms: Room[] = [];
   const stack: number[] = [];
 
@@ -69,12 +79,11 @@ export function buildRooms(grid: ShipGrid): RoomGraph {
     const base = z * grid.layerSize;
     for (let start = base; start < base + grid.layerSize; start++) {
       const m = grid.mat[start];
-      if (m === 0 || m === Mat.WALL || m === Mat.DOOR || cellRoom[start] !== -1) continue;
-      const id = rooms.length;
+      if (m === 0 || m === Mat.WALL || m === Mat.DOOR || visited[start]) continue;
       const cells: number[] = [];
       stack.length = 0;
       stack.push(start);
-      cellRoom[start] = id;
+      visited[start] = 1;
       while (stack.length > 0) {
         const i = stack.pop()!;
         cells.push(i);
@@ -84,11 +93,14 @@ export function buildRooms(grid: ShipGrid): RoomGraph {
         for (const ni of nb) {
           if (ni < 0) continue;
           const nm = grid.mat[ni];
-          if (nm === 0 || nm === Mat.WALL || nm === Mat.DOOR || cellRoom[ni] !== -1) continue;
-          cellRoom[ni] = id;
+          if (nm === 0 || nm === Mat.WALL || nm === Mat.DOOR || visited[ni]) continue;
+          visited[ni] = 1;
           stack.push(ni);
         }
       }
+      if (cells.length < MIN_ROOM_CELLS) continue;
+      const id = rooms.length;
+      for (const c of cells) cellRoom[c] = id;
       rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false });
     }
   }

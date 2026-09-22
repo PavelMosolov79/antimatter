@@ -1,19 +1,6 @@
 import { ShipGrid, type WeaponState, type WeaponType } from './grid';
 import { Mat } from './materials';
 
-/**
- * Carves a full-width bulkhead across row y (x0..x1 inclusive) at deck z, leaving a
- * single-cell door at doorX. Only overwrites plain DECK cells — never a module.
- */
-function addBulkhead(grid: ShipGrid, y: number, x0: number, x1: number, z: number, doorX: number): void {
-  for (let x = x0; x <= x1; x++) {
-    const i = grid.idx(x, y, z);
-    if (grid.mat[i] !== Mat.DECK) continue;
-    if (x === doorX) grid.addDoor(x, y, z);
-    else grid.setCell(x, y, z, Mat.WALL);
-  }
-}
-
 function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number): void {
   for (let z = z0; z <= z1; z++) {
     const i = grid.idx(x, y, z);
@@ -21,21 +8,49 @@ function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number)
   }
 }
 
-function rowSpan(grid: ShipGrid, y: number, z: number): [number, number] {
-  let x0 = -1;
-  let x1 = -1;
-  for (let x = 0; x < grid.width; x++) {
-    if (grid.mat[grid.idx(x, y, z)] === 0) continue;
-    if (x0 < 0) x0 = x;
-    x1 = x;
+/**
+ * Deckplan toolkit: rooms are carved as proper rectangular chambers with their own
+ * walls on every side that needs one, connected by doors to a corridor or to each
+ * other — not a single bulkhead line across the whole hull. Every helper here only
+ * ever overwrites plain DECK cells, so it can never damage a module or double-wall
+ * a boundary another room already sealed.
+ */
+function wallRowWindow(grid: ShipGrid, y: number, xa: number, xb: number, z: number, doorX?: number): void {
+  const lo = Math.min(xa, xb);
+  const hi = Math.max(xa, xb);
+  for (let x = lo; x <= hi; x++) {
+    const i = grid.idx(x, y, z);
+    if (grid.mat[i] !== Mat.DECK) continue;
+    if (x === doorX) grid.addDoor(x, y, z);
+    else grid.setCell(x, y, z, Mat.WALL);
   }
-  return [x0, x1];
 }
 
-function addDeckBulkhead(grid: ShipGrid, y: number, z: number, doorX: number): void {
-  const [x0, x1] = rowSpan(grid, y, z);
-  if (x0 < 0) return;
-  addBulkhead(grid, y, x0, x1, z, doorX);
+function wallColWindow(grid: ShipGrid, x: number, ya: number, yb: number, z: number, doorY?: number): void {
+  const lo = Math.min(ya, yb);
+  const hi = Math.max(ya, yb);
+  for (let y = lo; y <= hi; y++) {
+    const i = grid.idx(x, y, z);
+    if (grid.mat[i] !== Mat.DECK) continue;
+    if (y === doorY) grid.addDoor(x, y, z);
+    else grid.setCell(x, y, z, Mat.WALL);
+  }
+}
+
+interface RoomSides {
+  /** Wall this side, with a door at the given coordinate (x for n/s, y for e/w). Omit a side entirely to leave it open — typically because a neighboring room already sealed that boundary, or the hull itself bounds it there. */
+  n?: number;
+  s?: number;
+  e?: number;
+  w?: number;
+}
+
+/** Carves a rectangular room [x0,x1]x[y0,y1] at deck z, walling only the requested sides. */
+function room(grid: ShipGrid, z: number, x0: number, x1: number, y0: number, y1: number, sides: RoomSides = {}): void {
+  if (sides.n !== undefined) wallRowWindow(grid, y0, x0, x1, z, sides.n);
+  if (sides.s !== undefined) wallRowWindow(grid, y1, x0, x1, z, sides.s);
+  if (sides.w !== undefined) wallColWindow(grid, x0, y0, y1, z, sides.w);
+  if (sides.e !== undefined) wallColWindow(grid, x1, y0, y1, z, sides.e);
 }
 
 type Profile = Array<[number, number]>;
@@ -295,13 +310,23 @@ export function buildFighter(loadout: FighterLoadout = 'strike'): ShipGrid {
   addShieldGen(g, 14, 20, 1, loadout === 'hunter' ? 120 : 180, 20);
   addBlock(g, 14, 21, 3, 2, 2);
 
-  // Deck 1: bridge (y4-15) | shield bay (y16-27) | aft bay (y28-41)
-  addDeckBulkhead(g, 16, 1, 15);
-  addDeckBulkhead(g, 28, 1, 15);
-  // Deck 2: forward engineering (y11-23) | reactor closet (y25-27) | aft bay (y29-39)
-  addDeckBulkhead(g, 24, 2, 15);
-  addDeckBulkhead(g, 28, 2, 15);
-  addLadder(g, 15, 18, 1, 2);
+  // Deck 1: bow → bridge (own room) → shield bay (own room) → a wide aft section split
+  // into two bands of left/right cabins flanking the open central corridor.
+  room(g, 1, 11, 19, 4, 16, { s: 15 });
+  room(g, 1, 11, 19, 17, 23, { s: 15, w: -1, e: -1 });
+  wallRowWindow(g, 23, 0, g.width - 1, 1); // full-width cap: no leaking around the chamber into the aft bands
+  room(g, 1, 5, 12, 25, 30, { n: -1, s: -1, e: 27 });
+  room(g, 1, 18, 25, 25, 30, { n: -1, s: -1, w: 27 });
+  room(g, 1, 2, 12, 31, 37, { n: -1, s: -1, e: 34 });
+  room(g, 1, 18, 28, 31, 37, { n: -1, s: -1, w: 34 });
+  // Deck 2: bow → engineering nook → reactor closet (its own sealed room) → a wide
+  // aft band with cabins either side of the corridor.
+  room(g, 2, 11, 19, 11, 23, { s: 15 });
+  room(g, 2, 11, 19, 24, 28, { s: 15, w: -1, e: -1 });
+  wallRowWindow(g, 28, 0, g.width - 1, 2);
+  room(g, 2, 4, 12, 29, 35, { n: -1, s: -1, e: 32 });
+  room(g, 2, 18, 26, 29, 35, { n: -1, s: -1, w: 32 });
+  addLadder(g, 15, 30, 1, 2);
 
   tuneShip(g, { accel: loadout === 'hunter' ? 32 : 30, rcsPerThrust: 10, backShare: 0.5, sideShare: 0.25 });
   return g;
@@ -348,17 +373,41 @@ export function buildCruiser(): ShipGrid {
   addShieldGen(g, 26, 50, 1, 0, 0);
   addBlock(g, 20, 56, 9, 6, 2);
 
-  // Deck 1: bridge (y2-23) | fore corridor (y24-37) | engineering: side blocks + shields (y38-55) | aft bay (y56-73)
-  addDeckBulkhead(g, 24, 1, 24);
-  addDeckBulkhead(g, 38, 1, 24);
-  addDeckBulkhead(g, 56, 1, 24);
-  // Deck 2: forward (y6-42) | reactor closet (y44-49) | machinery/engineering bay (y56-71)
-  addDeckBulkhead(g, 43, 2, 24);
-  addDeckBulkhead(g, 55, 2, 24);
+  // Deck 1: bridge (own room) → three bands of port/starboard cabins flanking the open
+  // spine corridor → port/starboard crew quarters either side of a sealed shield bay.
+  room(g, 1, 16, 32, 2, 23, { s: 24 });
+  room(g, 1, 14, 19, 24, 29, { n: -1, s: -1, e: 26 });
+  room(g, 1, 30, 35, 24, 29, { n: -1, s: -1, w: 26 });
+  room(g, 1, 11, 19, 30, 37, { n: -1, s: -1, e: 33 });
+  room(g, 1, 30, 38, 30, 37, { n: -1, s: -1, w: 33 });
+  room(g, 1, 7, 19, 38, 46, { n: -1, s: -1, e: 42 });
+  room(g, 1, 30, 42, 38, 46, { n: -1, s: -1, w: 42 });
+  room(g, 1, 9, 17, 47, 54, { n: -1, s: -1, e: 51 });
+  room(g, 1, 31, 39, 47, 54, { n: -1, s: -1, w: 51 });
+  room(g, 1, 20, 29, 49, 52, { n: 24, s: 24, w: -1, e: -1 });
+  wallRowWindow(g, 49, 0, g.width - 1, 1);
+  wallRowWindow(g, 52, 0, g.width - 1, 1);
+  room(g, 1, 4, 17, 55, 59, { n: -1, s: -1, e: 57 });
+  room(g, 1, 32, 44, 55, 59, { n: -1, s: -1, w: 57 });
+
+  // Deck 2: open forward corridor with one pair of cabins → sealed reactor closet
+  // (bypassable via the side corridors) → aft engineering bay.
+  room(g, 2, 11, 19, 38, 42, { n: -1, s: -1, e: 40 });
+  room(g, 2, 30, 37, 38, 42, { n: -1, s: -1, w: 40 });
+  room(g, 2, 18, 31, 43, 49, { n: 24, s: 24, w: -1, e: -1 });
+  wallRowWindow(g, 43, 0, g.width - 1, 2);
+  wallRowWindow(g, 49, 0, g.width - 1, 2);
+  room(g, 2, 18, 30, 55, 63, { n: 24, s: 24, w: -1, e: -1 });
+  wallRowWindow(g, 55, 0, g.width - 1, 2);
+  wallRowWindow(g, 63, 0, g.width - 1, 2);
   addLadder(g, 24, 30, 1, 2);
-  addLadder(g, 24, 63, 2, 3);
-  // Deck 3: forward (y10-40) | aft (y42-69)
-  addDeckBulkhead(g, 41, 3, 24);
+  addLadder(g, 24, 64, 2, 3);
+
+  // Deck 3: empty hold, laid out the same way — bands of small rooms off the corridor.
+  room(g, 3, 13, 19, 40, 50, { n: -1, s: -1, e: 45 });
+  room(g, 3, 30, 36, 40, 50, { n: -1, s: -1, w: 45 });
+  room(g, 3, 8, 19, 51, 61, { n: -1, s: -1, e: 56 });
+  room(g, 3, 30, 40, 51, 61, { n: -1, s: -1, w: 56 });
 
   tuneShip(g, { accel: 18, rcsPerThrust: 20, backShare: 0.5, sideShare: 0.22 });
   return g;

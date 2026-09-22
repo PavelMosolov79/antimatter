@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GridBody } from '../src/sim/body';
 import { ensureRooms, roomsOnDeck, setDoorOpen, updateCompartments, type Room } from '../src/sim/compartments';
-import { buildFighter } from '../src/sim/ships';
+import { buildCruiser, buildFighter } from '../src/sim/ships';
 import { updateSystems } from '../src/sim/systems';
 import { World } from '../src/sim/world';
 
@@ -37,17 +37,33 @@ function findReactorRoom(ship: GridBody): Room {
 }
 
 describe('compartment graph', () => {
-  it('partitions the fighter into the designed six rooms linked by doors and one ladder', () => {
+  it('partitions the fighter into proper walled rooms (bridge, shield bay, corridor, cabins) linked by doors and one ladder', () => {
     const g = buildFighter('strike');
     const graph = ensureRooms(new World(1).spawnShip(g, 0, 0, 0, { name: 'P', team: 0, player: true }));
-    expect(graph.rooms.length).toBe(6);
-    expect(graph.rooms.filter((r) => r.z === 1).length).toBe(3);
-    expect(graph.rooms.filter((r) => r.z === 2).length).toBe(3);
+    // 7 rooms on deck 1 (bridge, shield bay, corridor spine, two bands of port/starboard
+    // cabins) and 5 on deck 2 (engineering nook, reactor closet, corridor, one band of cabins).
+    expect(graph.rooms.length).toBe(12);
+    expect(graph.rooms.filter((r) => r.z === 1).length).toBe(7);
+    expect(graph.rooms.filter((r) => r.z === 2).length).toBe(5);
     const doorEdges = graph.edges.filter((e) => e.kind === 'door');
     const ladderEdges = graph.edges.filter((e) => e.kind === 'ladder');
-    expect(doorEdges.length).toBe(4);
+    expect(doorEdges.length).toBe(10);
     expect(ladderEdges.length).toBe(1);
-    expect(g.doors.length).toBe(4);
+    expect(g.doors.length).toBe(10);
+    // Every room is a real box: at least 3 of its 4 sides carry an actual wall/door
+    // boundary rather than just relying on the hull taper — i.e. this isn't a single
+    // full-width bulkhead line, but genuine rectangular chambers.
+    for (const r of graph.rooms) expect(r.cells.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('gives the cruiser an even richer deck plan with more, smaller rooms', () => {
+    const g = buildCruiser();
+    const graph = ensureRooms(new World(1).spawnShip(g, 0, 0, 0, { name: 'P', team: 0, player: true }));
+    expect(graph.rooms.length).toBeGreaterThan(20);
+    expect(graph.rooms.filter((r) => r.z === 1).length).toBeGreaterThanOrEqual(10);
+    expect(graph.rooms.filter((r) => r.z === 2).length).toBeGreaterThanOrEqual(8);
+    expect(graph.rooms.filter((r) => r.z === 3).length).toBeGreaterThanOrEqual(4);
+    expect(graph.edges.filter((e) => e.kind === 'ladder').length).toBe(2);
   });
 
   it('every room starts sealed at full pressure with no fire', () => {
@@ -250,7 +266,11 @@ describe('reactor fire interacts with MVP-1 detonation', () => {
     forceRng(world, 0);
     const reactorRoom = findReactorRoom(ship);
     reactorRoom.fire = 0.5;
-    breachCells(ship, reactorRoom.cells.slice(0, 8), reactorRoom.z);
+    // Breach directly over the reactor module itself, not an arbitrary slice of the
+    // room's cell list — some of those border the room's own wall/door, and destroying
+    // a door is a structural change that would (correctly) invalidate this reference.
+    const reactorModule = ship.grid.modules.find((m) => m.kind === 'reactor')!;
+    breachCells(ship, reactorModule.cells, reactorRoom.z);
     // A handful of ticks is enough to vent this small room before the fire can do much damage
     // or spread far enough to threaten the graph's structural cells.
     for (let i = 0; i < 60 * 2; i++) {
