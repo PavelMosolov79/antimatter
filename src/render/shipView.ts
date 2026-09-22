@@ -2,7 +2,7 @@ import { BufferImageSource, Sprite, Texture } from 'pixi.js';
 import type { GridBody } from '../sim/body';
 import type { RoomGraph } from '../sim/compartments';
 import type { ShipGrid } from '../sim/grid';
-import { MATERIALS } from '../sim/materials';
+import { Mat, MATERIALS } from '../sim/materials';
 import { hash2 } from '../sim/rng';
 
 export const OUTER_VIEW = -1;
@@ -31,6 +31,21 @@ export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number, tint: 
       if (layer < 0) z = grid.topLayer(x, y);
       else if (grid.mat[grid.idx(x, y, layer)] !== 0) z = layer;
       if (z < 0) {
+        // Interior deck view, but this column has no cell at this exact z: the hull
+        // tapers here, so nothing was ever built at this slice. Still part of the ship's
+        // footprint (colCount>0 elsewhere in the column) though, so paint it as solid
+        // hull-wall backing rather than leaving it blank — otherwise it reads as open
+        // space instead of the ship's own outer wall.
+        if (layer >= 0 && grid.colCount[y * w + x] > 0) {
+          const def = MATERIALS[Mat.WALL];
+          let f = 1 - 0.14 * layer;
+          f *= 0.94 + 0.12 * hash2(x, y, layer);
+          buf[o] = clamp255(((def.color >> 16) & 255) * f * tint[0]);
+          buf[o + 1] = clamp255(((def.color >> 8) & 255) * f * tint[1]);
+          buf[o + 2] = clamp255((def.color & 255) * f * tint[2]);
+          buf[o + 3] = 255;
+          continue;
+        }
         buf[o] = buf[o + 1] = buf[o + 2] = buf[o + 3] = 0;
         continue;
       }
