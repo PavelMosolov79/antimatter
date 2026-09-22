@@ -125,6 +125,15 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
     const id = grid.modules.length;
     for (const i of cells) grid.mod[i] = id;
   }
+  for (const d of src.doors) {
+    if (src.mat[d.cell] === 0) continue;
+    const x = src.xOf(d.cell);
+    const y = src.yOf(d.cell);
+    if (labels[y * w + x] !== label) continue;
+    const ni = grid.idx(x - minX, y - minY, src.zOf(d.cell));
+    grid.doors.push({ cell: ni, open: d.open, destroyed: d.destroyed });
+    grid.doorIdx[ni] = grid.doors.length;
+  }
   return { grid, bx: minX, by: minY };
 }
 

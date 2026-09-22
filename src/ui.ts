@@ -27,6 +27,18 @@ const CSS = `
 .bar.hull > i { background: #3fae5a; }
 .bar.shield > i { background: #3f8fe0; }
 .bar.energy > i { background: #d9a52b; }
+.bar.pressure > i { background: #59b8ff; }
+.bar.fire > i { background: #ff6a3a; }
+.room { margin-bottom: 8px; }
+.room .rname { font-size: 11px; color: #8fa4cc; margin-bottom: 2px; }
+.room .bar { height: 10px; margin-bottom: 3px; }
+.room .bar > span { line-height: 10px; font-size: 9px; }
+.drow { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.drow .dlabel { flex: 1; font-size: 11px; color: #8fa4cc; }
+.drow button { width: 78px; }
+.drow button.on { border-color: #63e07a; color: #63e07a; background: #12301e; }
+.drow button.destroyed { border-color: #ff5a4a; color: #ff5a4a; background: #301414; cursor: default; }
+.deckhint { color: #8fa4cc; font-size: 11px; }
 .wrow { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
 .wrow .wname { width: 62px; text-align: left; }
 .wrow .wname.sel { border-color: #ffb347; color: #ffb347; background: #3a2a10; }
@@ -78,6 +90,18 @@ interface WeaponEls {
   toggle: HTMLButtonElement;
 }
 
+interface RoomEls {
+  id: number;
+  pressure: BarEls;
+  fire: BarEls;
+}
+
+interface DoorEls {
+  id: number;
+  label: HTMLSpanElement;
+  btn: HTMLButtonElement;
+}
+
 export class Hud {
   private game: Game;
   private stats: HTMLDivElement;
@@ -96,6 +120,10 @@ export class Hud {
   private weaponKey = '';
   private overlay = document.createElement('div');
   private overlayTitle = document.createElement('h2');
+  private compartBody = document.createElement('div');
+  private compartKey = '';
+  private roomEls: RoomEls[] = [];
+  private doorEls: DoorEls[] = [];
   private last = 0;
 
   constructor(game: Game, root: HTMLElement) {
@@ -124,6 +152,14 @@ export class Hud {
     wh.style.marginTop = '8px';
     combat.append(ch, this.hull.root, this.shield.root, this.energy.root, this.targetInfo, wh, this.weaponBox);
     left.appendChild(combat);
+
+    const compart = document.createElement('div');
+    compart.id = 'compartments';
+    compart.className = 'panel';
+    const cph = document.createElement('h4');
+    cph.textContent = 'Отсеки (только свой корабль)';
+    compart.append(cph, this.compartBody);
+    left.appendChild(compart);
 
     const controls = document.createElement('div');
     controls.id = 'controls';
@@ -194,8 +230,8 @@ export class Hud {
     button(sandbox, 'Сломать двигатель', () => this.game.breakEngine());
 
     const layers = section('Вид (слой палубы)');
-    const names = ['Внешний', 'Палуба 1', 'Палуба 2', 'Палуба 3'];
-    for (let i = 0; i < 4; i++) {
+    const names = ['Внешний', 'Обшивка', 'Палуба 1', 'Палуба 2', 'Палуба 3'];
+    for (let i = 0; i < names.length; i++) {
       const idx = i === 0 ? OUTER_VIEW : i - 1;
       this.layerBtns.push(button(layers, names[i], () => (this.game.scene.layerView = idx)));
     }
@@ -297,7 +333,87 @@ export class Hud {
     if (now - this.last < 150) return;
     this.last = now;
     this.updateCombat();
+    this.updateCompartmentsPanel();
     this.updateStats();
+  }
+
+  private updateCompartmentsPanel(): void {
+    const info = this.game.currentDeckCompartments();
+    if (!info) {
+      if (this.compartKey !== '') {
+        this.compartKey = '';
+        this.roomEls = [];
+        this.doorEls = [];
+        this.compartBody.replaceChildren();
+        const hint = document.createElement('div');
+        hint.className = 'deckhint';
+        hint.textContent = 'Выберите «Палуба 1/2/3» слева, чтобы увидеть отсеки и двери своего корабля.';
+        this.compartBody.appendChild(hint);
+      }
+      return;
+    }
+
+    const nameOf = (i: number): string => String.fromCharCode(65 + (i % 26));
+    const roomIndex = new Map(info.rooms.map((r, i) => [r.id, i]));
+    const key = `${info.rooms.map((r) => r.id).join(',')}|${info.doors.map((d) => d.id).join(',')}`;
+    if (key !== this.compartKey) {
+      this.compartKey = key;
+      this.compartBody.replaceChildren();
+      this.roomEls = [];
+      this.doorEls = [];
+      info.rooms.forEach((r, i) => {
+        const box = document.createElement('div');
+        box.className = 'room';
+        const name = document.createElement('div');
+        name.className = 'rname';
+        name.textContent = `Отсек ${nameOf(i)}`;
+        const pressure = makeBar('pressure');
+        const fire = makeBar('fire');
+        box.append(name, pressure.root, fire.root);
+        this.compartBody.appendChild(box);
+        this.roomEls.push({ id: r.id, pressure, fire });
+      });
+      if (info.doors.length > 0) {
+        const dh = document.createElement('div');
+        dh.className = 'rname';
+        dh.textContent = 'Двери';
+        this.compartBody.appendChild(dh);
+      }
+      for (const d of info.doors) {
+        const row = document.createElement('div');
+        row.className = 'drow';
+        const label = document.createElement('span');
+        label.className = 'dlabel';
+        const btn = document.createElement('button');
+        btn.addEventListener('click', () => this.game.toggleDoor(d.id));
+        row.append(label, btn);
+        this.compartBody.appendChild(row);
+        this.doorEls.push({ id: d.id, label, btn });
+      }
+    }
+
+    for (const el of this.roomEls) {
+      const r = info.rooms[roomIndex.get(el.id) ?? -1];
+      if (!r) continue;
+      this.setBar(el.pressure, r.pressure, 'Давление', `${(r.pressure * 100).toFixed(0)}%`);
+      this.setBar(el.fire, r.fire, 'Огонь', r.fire > 0 ? `${(r.fire * 100).toFixed(0)}%` : '—');
+    }
+    for (const el of this.doorEls) {
+      const d = info.doors.find((x) => x.id === el.id);
+      if (!d) continue;
+      const ai = roomIndex.get(d.roomA) ?? -1;
+      const bi = roomIndex.get(d.roomB) ?? -1;
+      el.label.textContent = `${nameOf(ai)} ↔ ${nameOf(bi)}`;
+      if (d.destroyed) {
+        el.btn.textContent = 'РАЗРУШЕНА';
+        el.btn.className = 'destroyed';
+        el.btn.disabled = true;
+      } else {
+        el.btn.disabled = false;
+        el.btn.textContent = d.open ? 'ОТКРЫТА' : 'ЗАКРЫТА';
+        el.btn.className = d.open ? 'on' : '';
+      }
+    }
   }
 
   private updateCombat(): void {

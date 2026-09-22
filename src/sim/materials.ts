@@ -9,6 +9,9 @@ export const Mat = {
   TURRET: 7,
   REACTOR: 8,
   SHIELDGEN: 9,
+  WALL: 10,
+  DOOR: 11,
+  LADDER: 12,
 } as const;
 
 export interface MaterialDef {
@@ -29,4 +32,7 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'turret', hp: 35, mass: 1.5, color: 0x5b6478 },
   { name: 'reactor', hp: 120, mass: 4, color: 0xe0507a },
   { name: 'shieldgen', hp: 30, mass: 2, color: 0x6a86ff },
+  { name: 'wall', hp: 26, mass: 1.2, color: 0x596273 },
+  { name: 'door', hp: 20, mass: 0.6, color: 0xe0b34e },
+  { name: 'ladder', hp: 14, mass: 0.5, color: 0x4fae7a },
 ];

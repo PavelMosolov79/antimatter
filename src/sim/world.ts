@@ -1,6 +1,7 @@
 import { createAi, updateAi, type AiKind } from './ai';
 import { computeControl, type Control, type Target } from './autopilot';
 import { collideGridCircle, collideGridGrid, type DamageSink } from './collision';
+import { updateCompartments } from './compartments';
 import { GridBody } from './body';
 import { DUST_MIN_COLUMNS, splitBody, type SplitResult } from './fragment';
 import { gravityAt, isSolid, type Celestial } from './gravity';
@@ -180,6 +181,22 @@ export class World implements DamageSink {
     return n;
   }
 
+  burnCells(body: GridBody, cellIndices: number[], totalDmg: number): void {
+    if (cellIndices.length === 0 || totalDmg <= 0) return;
+    const per = totalDmg / cellIndices.length;
+    let destroyedAny = false;
+    for (const i of cellIndices) {
+      if (body.grid.mat[i] === 0) continue;
+      const before = body.grid.mat[i];
+      if (body.grid.burnCell(i, per)) {
+        destroyedAny = true;
+        const p = body.localToWorld(body.grid.xOf(i) + 0.5, body.grid.yOf(i) + 0.5, tmpPt);
+        this.push({ t: 'cell', x: p.x, y: p.y, color: MATERIALS[before].color });
+      }
+    }
+    if (destroyedAny) this.damaged.add(body);
+  }
+
   explode(wx: number, wy: number, radius: number, dmg: number, pen: number): number {
     let total = 0;
     for (const b of this.bodies) {
@@ -310,6 +327,7 @@ export class World implements DamageSink {
     }
 
     this.collide();
+    if (this.player && !this.player.removed && this.player.sys) updateCompartments(this, this.player, dt);
     for (const b of this.bodies) if (!b.removed && b.sys) updateSystems(this, b, dt);
     if (this.blasts.length > 0) {
       for (const bl of this.blasts) {

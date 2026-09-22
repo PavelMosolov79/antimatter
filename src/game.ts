@@ -1,4 +1,5 @@
 import type { GridBody } from './sim/body';
+import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
 import type { Celestial } from './sim/gravity';
 import type { EnergyPriority } from './sim/systems';
 import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
@@ -6,6 +7,7 @@ import { shipRef } from './sim/weapons';
 import type { Module, TargetRef, WeaponState } from './sim/grid';
 import { World } from './sim/world';
 import { Scene } from './render/scene';
+import { OUTER_VIEW } from './render/shipView';
 
 export type Tool = 'fly' | 'crater';
 export type BattleState = 'playing' | 'won' | 'lost';
@@ -255,6 +257,21 @@ export class Game {
       }
     }
     return { x: wx, y: wy };
+  }
+
+  currentDeckCompartments(): { rooms: Room[]; doors: DoorInfo[] } | null {
+    const p = this.world.player;
+    const z = this.scene.layerView;
+    if (!p?.sys || z === OUTER_VIEW) return null;
+    const graph = ensureRooms(p);
+    return { rooms: roomsOnDeck(graph, z), doors: doorsOnDeck(p.grid, graph, z) };
+  }
+
+  toggleDoor(doorId: number): void {
+    const p = this.world.player;
+    if (!p) return;
+    const door = p.grid.doors[doorId];
+    if (door) setDoorOpen(p.grid, doorId, !door.open);
   }
 
   totals(): { bodies: number; debris: number; cells: number } {

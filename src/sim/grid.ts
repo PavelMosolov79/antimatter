@@ -1,4 +1,4 @@
-import { MATERIALS } from './materials';
+import { Mat, MATERIALS } from './materials';
 
 export type ModuleKind = 'engine' | 'thruster' | 'turret' | 'reactor' | 'shield' | 'generic';
 
@@ -63,8 +63,18 @@ export interface ModuleOptions {
   regen?: number;
 }
 
+function isStructural(m: number): boolean {
+  return m === Mat.WALL || m === Mat.DOOR || m === Mat.LADDER;
+}
+
 export function moduleEfficiency(m: Module): number {
   return m.coreAlive && m.total > 0 ? m.alive / m.total : 0;
+}
+
+export interface Door {
+  cell: number;
+  open: boolean;
+  destroyed: boolean;
 }
 
 export class ShipGrid {
@@ -75,12 +85,15 @@ export class ShipGrid {
   readonly mat: Uint8Array;
   readonly hp: Float32Array;
   readonly mod: Uint16Array;
+  readonly doorIdx: Uint16Array;
   readonly colCount: Uint8Array;
   modules: Module[] = [];
+  doors: Door[] = [];
   mass = 0;
   columns = 0;
   cells = 0;
   version = 0;
+  structVersion = 0;
   lastAbsorbed = 0;
   private sumMx = 0;
   private sumMy = 0;
@@ -95,6 +108,7 @@ export class ShipGrid {
     this.mat = new Uint8Array(n);
     this.hp = new Float32Array(n);
     this.mod = new Uint16Array(n);
+    this.doorIdx = new Uint16Array(n);
     this.colCount = new Uint8Array(this.layerSize);
   }
 
@@ -146,6 +160,7 @@ export class ShipGrid {
     this.cells++;
     this.accumulate(x, y, m, 1);
     this.version++;
+    if (isStructural(m)) this.structVersion++;
   }
 
   copyCellFrom(src: ShipGrid, sidx: number, x: number, y: number, z: number): void {
@@ -179,8 +194,34 @@ export class ShipGrid {
       if (i === mod.core) mod.coreAlive = false;
       this.mod[i] = 0;
     }
+    const did = this.doorIdx[i];
+    if (did !== 0) this.doors[did - 1].destroyed = true;
     this.version++;
+    if (isStructural(m)) this.structVersion++;
     return m;
+  }
+
+  /** Reduces a single cell's HP directly (fire damage), bypassing column penetration. Returns true if destroyed. */
+  burnCell(i: number, dmg: number): boolean {
+    const m = this.mat[i];
+    if (m === 0) return false;
+    const h = this.hp[i];
+    if (dmg >= h) {
+      this.removeCell(i);
+      return true;
+    }
+    this.hp[i] = h - dmg;
+    this.version++;
+    return false;
+  }
+
+  addDoor(x: number, y: number, z: number): number {
+    const i = this.idx(x, y, z);
+    this.setCell(x, y, z, Mat.DOOR);
+    const door: Door = { cell: i, open: true, destroyed: false };
+    this.doors.push(door);
+    this.doorIdx[i] = this.doors.length;
+    return this.doors.length;
   }
 
   damageColumn(x: number, y: number, dmg: number, pen: number, out?: number[]): number {

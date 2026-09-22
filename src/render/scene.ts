@@ -93,7 +93,7 @@ export class Scene {
         this.views.set(b.id, v);
         this.bodyLayer.addChild(v.sprite);
       }
-      v.update(this.layerView);
+      v.update(this.layerView, performance.now() / 1000);
     }
 
     if (simDt > 0) {

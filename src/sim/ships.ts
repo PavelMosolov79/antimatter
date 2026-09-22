@@ -1,6 +1,43 @@
 import { ShipGrid, type WeaponState, type WeaponType } from './grid';
 import { Mat } from './materials';
 
+/**
+ * Carves a full-width bulkhead across row y (x0..x1 inclusive) at deck z, leaving a
+ * single-cell door at doorX. Only overwrites plain DECK cells — never a module.
+ */
+function addBulkhead(grid: ShipGrid, y: number, x0: number, x1: number, z: number, doorX: number): void {
+  for (let x = x0; x <= x1; x++) {
+    const i = grid.idx(x, y, z);
+    if (grid.mat[i] !== Mat.DECK) continue;
+    if (x === doorX) grid.addDoor(x, y, z);
+    else grid.setCell(x, y, z, Mat.WALL);
+  }
+}
+
+function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number): void {
+  for (let z = z0; z <= z1; z++) {
+    const i = grid.idx(x, y, z);
+    if (grid.mat[i] === Mat.DECK) grid.setCell(x, y, z, Mat.LADDER);
+  }
+}
+
+function rowSpan(grid: ShipGrid, y: number, z: number): [number, number] {
+  let x0 = -1;
+  let x1 = -1;
+  for (let x = 0; x < grid.width; x++) {
+    if (grid.mat[grid.idx(x, y, z)] === 0) continue;
+    if (x0 < 0) x0 = x;
+    x1 = x;
+  }
+  return [x0, x1];
+}
+
+function addDeckBulkhead(grid: ShipGrid, y: number, z: number, doorX: number): void {
+  const [x0, x1] = rowSpan(grid, y, z);
+  if (x0 < 0) return;
+  addBulkhead(grid, y, x0, x1, z, doorX);
+}
+
 type Profile = Array<[number, number]>;
 
 function halfWidthAt(profile: Profile, y: number): number {
@@ -257,6 +294,15 @@ export function buildFighter(loadout: FighterLoadout = 'strike'): ShipGrid {
   addReactor(g, 14, 25, 2, 3, 30, 140, 46);
   addShieldGen(g, 14, 20, 1, loadout === 'hunter' ? 120 : 180, 20);
   addBlock(g, 14, 21, 3, 2, 2);
+
+  // Deck 1: bridge (y4-15) | shield bay (y16-27) | aft bay (y28-41)
+  addDeckBulkhead(g, 16, 1, 15);
+  addDeckBulkhead(g, 28, 1, 15);
+  // Deck 2: forward engineering (y11-23) | reactor closet (y25-27) | aft bay (y29-39)
+  addDeckBulkhead(g, 24, 2, 15);
+  addDeckBulkhead(g, 28, 2, 15);
+  addLadder(g, 15, 18, 1, 2);
+
   tuneShip(g, { accel: loadout === 'hunter' ? 32 : 30, rcsPerThrust: 10, backShare: 0.5, sideShare: 0.25 });
   return g;
 }
@@ -301,6 +347,19 @@ export function buildCruiser(): ShipGrid {
   addShieldGen(g, 21, 50, 1, 420, 35);
   addShieldGen(g, 26, 50, 1, 0, 0);
   addBlock(g, 20, 56, 9, 6, 2);
+
+  // Deck 1: bridge (y2-23) | fore corridor (y24-37) | engineering: side blocks + shields (y38-55) | aft bay (y56-73)
+  addDeckBulkhead(g, 24, 1, 24);
+  addDeckBulkhead(g, 38, 1, 24);
+  addDeckBulkhead(g, 56, 1, 24);
+  // Deck 2: forward (y6-42) | reactor closet (y44-49) | machinery/engineering bay (y56-71)
+  addDeckBulkhead(g, 43, 2, 24);
+  addDeckBulkhead(g, 55, 2, 24);
+  addLadder(g, 24, 30, 1, 2);
+  addLadder(g, 24, 63, 2, 3);
+  // Deck 3: forward (y10-40) | aft (y42-69)
+  addDeckBulkhead(g, 41, 3, 24);
+
   tuneShip(g, { accel: 18, rcsPerThrust: 20, backShare: 0.5, sideShare: 0.22 });
   return g;
 }
