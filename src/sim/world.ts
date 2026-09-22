@@ -3,6 +3,7 @@ import { computeControl, type Control, type Target } from './autopilot';
 import { collideGridCircle, collideGridGrid, type DamageSink } from './collision';
 import { updateCompartments } from './compartments';
 import { GridBody } from './body';
+import { pilotAvailable, spawnCrew, updateCrew } from './crew';
 import { DUST_MIN_COLUMNS, splitBody, type SplitResult } from './fragment';
 import { gravityAt, isSolid, type Celestial } from './gravity';
 import type { ShipGrid } from './grid';
@@ -88,6 +89,7 @@ export class World implements DamageSink {
     if (o.player) {
       b.isPlayer = true;
       this.player = b;
+      b.sys.crew = spawnCrew(b.grid);
     }
     if (o.ai) b.sys.ai = createAi(o.ai, this.rng);
     return b;
@@ -301,7 +303,7 @@ export class World implements DamageSink {
       if (b.isPlayer) {
         this.playerNav.target = this.target;
         this.playerNav.face = this.lockFace ? this.faceAngleTo(b) : null;
-        this.drive(b, this.playerNav, this.autopilot, dt);
+        this.drive(b, this.playerNav, this.autopilot && pilotAvailable(b), dt);
       }
       else if (b.sys && !b.sys.dead) this.drive(b, b.sys.nav, true, dt);
     }
@@ -327,7 +329,10 @@ export class World implements DamageSink {
     }
 
     this.collide();
-    if (this.player && !this.player.removed && this.player.sys) updateCompartments(this, this.player, dt);
+    if (this.player && !this.player.removed && this.player.sys) {
+      updateCompartments(this, this.player, dt);
+      updateCrew(this, this.player, dt);
+    }
     for (const b of this.bodies) if (!b.removed && b.sys) updateSystems(this, b, dt);
     if (this.blasts.length > 0) {
       for (const bl of this.blasts) {

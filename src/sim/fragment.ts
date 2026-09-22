@@ -1,5 +1,6 @@
 import { GridBody } from './body';
 import { remapRoomGraph } from './compartments';
+import { remapCrew } from './crew';
 import { ShipGrid, type Module } from './grid';
 import { MATERIALS } from './materials';
 import type { Rng } from './rng';
@@ -207,6 +208,9 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
     main.vy -= kickPy / main.mass;
     if (main.sys?.rooms && main.sys.rooms.grid === g) {
       main.sys.rooms = remapRoomGraph(main.sys.rooms, main.grid, mainBx, mainBy);
+    }
+    if (main.sys?.crew) {
+      main.sys.crew = remapCrew(main.sys.crew, main.grid, mainBx, mainBy);
     }
   }
   return { main, pieces, dust };

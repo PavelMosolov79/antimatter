@@ -143,6 +143,25 @@ function addBlock(grid: ShipGrid, x0: number, y0: number, w: number, h: number, 
   grid.addModule('generic', cells, { core: [x0 + Math.floor(w / 2), y0 + Math.floor(h / 2), z] });
 }
 
+/**
+ * A pilot post. The first bridge module a ship's build function adds is its primary
+ * helm — crew.ts assigns the starting pilot there. Any further bridge modules (e.g. a
+ * console tucked into engineering) are reserve posts: empty until an orphaned pilot
+ * needs somewhere else to fly the ship from.
+ */
+function addBridge(grid: ShipGrid, x0: number, y0: number, w: number, h: number, z: number): void {
+  const cells: Array<[number, number, number]> = [];
+  for (let y = y0; y < y0 + h; y++) {
+    for (let x = x0; x < x0 + w; x++) {
+      if (!grid.isOccupied(x, y)) continue;
+      grid.setCell(x, y, z, Mat.BRIDGE);
+      cells.push([x, y, z]);
+    }
+  }
+  if (cells.length === 0) return;
+  grid.addModule('bridge', cells, { core: [x0 + Math.floor(w / 2), y0 + Math.floor(h / 2), z] });
+}
+
 function addThruster(grid: ShipGrid, x0: number, y0: number, dirX: number, dirY: number): boolean {
   const cells: Array<[number, number, number]> = [];
   for (let dy = 0; dy < 2; dy++) {
@@ -284,7 +303,7 @@ function fighterHull(): ShipGrid {
   addEngine(g, 13, 40, 5, 4);
   addEngine(g, 4, 36, 3, 4);
   addEngine(g, 24, 36, 3, 4);
-  addBlock(g, 13, 12, 5, 3, 1);
+  addBridge(g, 13, 12, 5, 3, 1);
   addNoseThruster(g, 11);
   addNoseThruster(g, 18);
   for (const y of [22, 30]) {
@@ -308,7 +327,7 @@ export function buildFighter(loadout: FighterLoadout = 'strike'): ShipGrid {
   }
   addReactor(g, 14, 25, 2, 3, 30, 140, 46);
   addShieldGen(g, 14, 20, 1, loadout === 'hunter' ? 120 : 180, 20);
-  addBlock(g, 14, 21, 3, 2, 2);
+  addBridge(g, 14, 21, 3, 2, 2); // reserve helm console in the engineering nook
 
   // Deck 1: bow → bridge (own room) → shield bay (own room) → a wide aft section split
   // into two bands of left/right cabins flanking the open central corridor.
@@ -350,7 +369,7 @@ export function buildCruiser(): ShipGrid {
   addEngine(g, 29, 70, 3, 6);
   addEngine(g, 6, 62, 3, 6);
   addEngine(g, 40, 62, 3, 6);
-  addBlock(g, 21, 16, 7, 6, 1);
+  addBridge(g, 21, 16, 7, 6, 1);
   addBlock(g, 10, 48, 6, 6, 1);
   addBlock(g, 33, 48, 6, 6, 1);
   for (const x0 of [15, 9]) {
@@ -371,7 +390,7 @@ export function buildCruiser(): ShipGrid {
   addReactor(g, 23, 44, 2, 3, 55, 260, 60);
   addShieldGen(g, 21, 50, 1, 420, 35);
   addShieldGen(g, 26, 50, 1, 0, 0);
-  addBlock(g, 20, 56, 9, 6, 2);
+  addBridge(g, 20, 56, 9, 6, 2); // reserve helm console in the aft engineering bay
 
   // Deck 1: bridge (own room) → three bands of port/starboard cabins flanking the open
   // spine corridor → port/starboard crew quarters either side of a sealed shield bay.

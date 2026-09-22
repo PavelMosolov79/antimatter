@@ -39,6 +39,10 @@ const CSS = `
 .drow button.on { border-color: #63e07a; color: #63e07a; background: #12301e; }
 .drow button.destroyed { border-color: #ff5a4a; color: #ff5a4a; background: #301414; cursor: default; }
 .deckhint { color: #8fa4cc; font-size: 11px; }
+.crow { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 11px; }
+.crow .cdot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.crow .cname { color: #cfe0ff; width: 92px; }
+.crow .cstate { color: #8fa4cc; }
 .wrow { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
 .wrow .wname { width: 62px; text-align: left; }
 .wrow .wname.sel { border-color: #ffb347; color: #ffb347; background: #3a2a10; }
@@ -102,6 +106,17 @@ interface DoorEls {
   btn: HTMLButtonElement;
 }
 
+interface CrewEls {
+  id: number;
+  dot: HTMLSpanElement;
+  name: HTMLSpanElement;
+  state: HTMLSpanElement;
+}
+
+const ROLE_LABEL: Record<string, string> = { pilot: 'Пилот', gunner: 'Артиллерист', shieldop: 'Оператор щита', engineer: 'Инженер' };
+const TASK_LABEL: Record<string, string> = { atPost: 'на посту', toPost: 'идёт на пост', seal: 'герметизирует пробоину', extinguish: 'тушит пожар', flee: 'бежит от опасности', idle: 'свободен' };
+const ROLE_DOT: Record<string, string> = { pilot: '#ffffff', gunner: '#ffb347', shieldop: '#6a86ff', engineer: '#ffe066' };
+
 export class Hud {
   private game: Game;
   private stats: HTMLDivElement;
@@ -124,6 +139,9 @@ export class Hud {
   private compartKey = '';
   private roomEls: RoomEls[] = [];
   private doorEls: DoorEls[] = [];
+  private crewBody = document.createElement('div');
+  private crewKey = '';
+  private crewEls: CrewEls[] = [];
   private last = 0;
 
   constructor(game: Game, root: HTMLElement) {
@@ -160,6 +178,14 @@ export class Hud {
     cph.textContent = 'Отсеки (только свой корабль)';
     compart.append(cph, this.compartBody);
     left.appendChild(compart);
+
+    const crewPanel = document.createElement('div');
+    crewPanel.id = 'crew';
+    crewPanel.className = 'panel';
+    const crh = document.createElement('h4');
+    crh.textContent = 'Экипаж (текущая палуба)';
+    crewPanel.append(crh, this.crewBody);
+    left.appendChild(crewPanel);
 
     const controls = document.createElement('div');
     controls.id = 'controls';
@@ -340,6 +366,7 @@ export class Hud {
     this.last = now;
     this.updateCombat();
     this.updateCompartmentsPanel();
+    this.updateCrewPanel();
     this.updateStats();
   }
 
@@ -419,6 +446,55 @@ export class Hud {
         el.btn.textContent = d.open ? 'ОТКРЫТА' : 'ЗАКРЫТА';
         el.btn.className = d.open ? 'on' : '';
       }
+    }
+  }
+
+  private updateCrewPanel(): void {
+    const crew = this.game.currentDeckCrew();
+    if (!crew) {
+      if (this.crewKey !== '') {
+        this.crewKey = '';
+        this.crewEls = [];
+        this.crewBody.replaceChildren();
+        const hint = document.createElement('div');
+        hint.className = 'deckhint';
+        hint.textContent = 'Выберите «Палуба 1/2/3» слева, чтобы увидеть экипаж на ней.';
+        this.crewBody.appendChild(hint);
+      }
+      return;
+    }
+
+    const key = crew.map((c) => `${c.id}:${c.role}:${c.homeModule}`).join(',');
+    if (key !== this.crewKey) {
+      this.crewKey = key;
+      this.crewBody.replaceChildren();
+      this.crewEls = [];
+      if (crew.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'deckhint';
+        hint.textContent = 'На этой палубе никого нет.';
+        this.crewBody.appendChild(hint);
+      }
+      for (const c of crew) {
+        const row = document.createElement('div');
+        row.className = 'crow';
+        const dot = document.createElement('span');
+        dot.className = 'cdot';
+        dot.style.background = ROLE_DOT[c.role] ?? '#8fa4cc';
+        const name = document.createElement('span');
+        name.className = 'cname';
+        name.textContent = ROLE_LABEL[c.role] ?? c.role;
+        const state = document.createElement('span');
+        state.className = 'cstate';
+        row.append(dot, name, state);
+        this.crewBody.appendChild(row);
+        this.crewEls.push({ id: c.id, dot, name, state });
+      }
+    }
+    for (const el of this.crewEls) {
+      const c = crew.find((x) => x.id === el.id);
+      if (!c) continue;
+      el.state.textContent = (c.orphaned ? 'без поста, ' : '') + (TASK_LABEL[c.task] ?? c.task);
     }
   }
 

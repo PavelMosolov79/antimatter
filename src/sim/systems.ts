@@ -1,6 +1,7 @@
 import type { AiState } from './ai';
 import type { GridBody } from './body';
 import type { RoomGraph } from './compartments';
+import type { Crew } from './crew';
 import { moduleEfficiency, type TargetRef } from './grid';
 import { MATERIALS, Mat } from './materials';
 import type { World } from './world';
@@ -34,6 +35,7 @@ export interface ShipSys {
   autoTarget: TargetRef | null;
   autoTime: number;
   rooms: RoomGraph | null;
+  crew: Crew[] | null;
 }
 
 export const SYSTEMS = {
@@ -72,6 +74,7 @@ export function createSys(body: GridBody, name: string, team: number): ShipSys {
     autoTarget: null,
     autoTime: -100,
     rooms: null,
+    crew: null,
   };
   aggregate(body, sys);
   sys.energy = sys.energyMax;

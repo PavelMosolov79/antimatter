@@ -12,6 +12,7 @@ export const Mat = {
   WALL: 10,
   DOOR: 11,
   LADDER: 12,
+  BRIDGE: 13,
 } as const;
 
 export interface MaterialDef {
@@ -35,4 +36,5 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'wall', hp: 26, mass: 1.2, color: 0x596273 },
   { name: 'door', hp: 20, mass: 0.6, color: 0xe0b34e },
   { name: 'ladder', hp: 14, mass: 0.5, color: 0x4fae7a },
+  { name: 'bridge', hp: 24, mass: 1.5, color: 0xd8e6ff },
 ];

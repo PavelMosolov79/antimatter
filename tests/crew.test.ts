@@ -1,0 +1,179 @@
+import { describe, expect, it } from 'vitest';
+import type { GridBody } from '../src/sim/body';
+import { ensureRooms, roomsOnDeck } from '../src/sim/compartments';
+import { pilotAvailable } from '../src/sim/crew';
+import { splitBody } from '../src/sim/fragment';
+import { buildFighter } from '../src/sim/ships';
+import { World } from '../src/sim/world';
+
+const DT = 1 / 60;
+
+function makePlayer(): { world: World; ship: GridBody } {
+  const world = new World(1);
+  const ship = world.spawnShip(buildFighter('strike'), 0, 0, 0, { name: 'P', team: 0, player: true });
+  return { world, ship };
+}
+
+function run(world: World, seconds: number): void {
+  const steps = Math.round(seconds / DT);
+  for (let i = 0; i < steps; i++) world.step(DT);
+}
+
+describe('crew roster', () => {
+  it('spawns one crew per combat post plus mobile engineers, with only the primary bridge staffed', () => {
+    const { ship } = makePlayer();
+    const crew = ship.sys!.crew!;
+    const bridges = ship.grid.modules.filter((m) => m.kind === 'bridge').length;
+    const turrets = ship.grid.modules.filter((m) => m.kind === 'turret').length;
+    const shields = ship.grid.modules.filter((m) => m.kind === 'shield').length;
+
+    expect(bridges).toBe(2); // primary helm + one reserve console
+    expect(crew.filter((c) => c.role === 'pilot').length).toBe(1); // reserve starts empty
+    expect(crew.filter((c) => c.role === 'gunner').length).toBe(turrets);
+    expect(crew.filter((c) => c.role === 'shieldop').length).toBe(shields);
+    expect(crew.filter((c) => c.role === 'engineer').length).toBeGreaterThanOrEqual(1);
+    expect(crew.every((c) => !c.dead)).toBe(true);
+  });
+
+  it('starts every stationary crew member at their post', () => {
+    const { ship } = makePlayer();
+    const crew = ship.sys!.crew!;
+    for (const c of crew) {
+      if (c.mobile) continue;
+      expect(c.task).toBe('atPost');
+    }
+  });
+});
+
+describe('pilot post and flight control', () => {
+  it('flight control is available while a pilot is at a working bridge', () => {
+    const { ship } = makePlayer();
+    expect(pilotAvailable(ship)).toBe(true);
+  });
+
+  it('dies if the bridge is destroyed while they are physically standing in it', () => {
+    const { world, ship } = makePlayer();
+    run(world, 2); // let the crew settle onto their posts first
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    const bridge = ship.grid.modules.find((m) => m.kind === 'bridge')!;
+    for (const cell of [...bridge.cells]) ship.grid.removeCell(cell);
+    run(world, 1);
+    expect(pilot.dead).toBe(true);
+    expect(pilotAvailable(ship)).toBe(false);
+  });
+
+  it('is orphaned, not killed, if the bridge is destroyed while they are elsewhere, and relocates to the reserve post', () => {
+    const { world, ship } = makePlayer();
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    // Move the pilot away from the bridge before it's hit.
+    pilot.x = 15;
+    pilot.y = 33;
+    pilot.z = 2;
+    pilot.roomId = -1;
+
+    const primary = ship.grid.modules.findIndex((m) => m.kind === 'bridge');
+    for (const cell of [...ship.grid.modules[primary].cells]) ship.grid.removeCell(cell);
+
+    run(world, 15);
+    expect(pilot.dead).toBe(false);
+    expect(pilot.orphaned).toBe(false);
+    expect(pilot.homeModule).not.toBe(primary);
+    expect(ship.grid.modules[pilot.homeModule].kind).toBe('bridge');
+    expect(pilot.task).toBe('atPost');
+    expect(pilotAvailable(ship)).toBe(true);
+  });
+
+  it('disables autopilot thrust once no pilot is at any working post', () => {
+    const { world, ship } = makePlayer();
+    world.target = { x: 500, y: 0 };
+    run(world, 1);
+    const vBefore = Math.hypot(ship.vx, ship.vy);
+    expect(vBefore).toBeGreaterThan(0);
+
+    for (const m of ship.grid.modules) {
+      if (m.kind !== 'bridge') continue;
+      for (const cell of [...m.cells]) ship.grid.removeCell(cell);
+    }
+    run(world, 15); // long enough for every pilot candidate to end up dead or permanently orphaned with no post left
+    const vx0 = ship.vx;
+    const vy0 = ship.vy;
+    run(world, 0.5);
+    expect(ship.vx).toBeCloseTo(vx0, 5);
+    expect(ship.vy).toBeCloseTo(vy0, 5);
+  });
+});
+
+describe('engineers', () => {
+  it('holds a breached room steady instead of letting it fully vent', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    const [cell] = shieldBay.cells;
+    const x = ship.grid.xOf(cell);
+    const y = ship.grid.yOf(cell);
+    ship.grid.removeCell(ship.grid.idx(x, y, 0));
+
+    run(world, 3); // engineer arrives and starts sealing before it fully vents
+    expect(shieldBay.sealing).toBe(true);
+    const pressureAtSeal = shieldBay.pressure;
+    expect(pressureAtSeal).toBeGreaterThan(0);
+
+    run(world, 5);
+    expect(shieldBay.pressure).toBeCloseTo(pressureAtSeal, 2);
+  });
+
+  it('extinguishes a fire faster than it would decay on its own in vacuum', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const bridge = roomsOnDeck(graph, 1)[0];
+    bridge.fire = 0.9;
+    run(world, 6);
+    expect(bridge.fire).toBe(0);
+  });
+});
+
+describe('crew across a hull fragmentation split', () => {
+  it('carries surviving crew over with their position remapped onto the new (cropped) grid', () => {
+    const { ship } = makePlayer();
+    const crew = ship.sys!.crew!;
+    const shieldop = crew.find((c) => c.role === 'shieldop')!;
+
+    for (let x = 0; x < ship.grid.width; x++) {
+      for (let z = 0; z < ship.grid.depth; z++) ship.grid.removeCell(ship.grid.idx(x, 34, z));
+    }
+    const res = splitBody(ship, () => 0.5, 0);
+    const survivor = res!.main!;
+    expect(survivor.grid).not.toBe(ship.grid);
+
+    const stillThere = survivor.sys!.crew!.find((c) => c.id === shieldop.id);
+    expect(stillThere).toBeDefined();
+    // The crop shifts local coordinates by some offset — what matters is that the
+    // translated position lands on solid ground in the new grid, not off in space.
+    const g = survivor.grid;
+    const xi = Math.floor(stillThere!.x);
+    const yi = Math.floor(stillThere!.y);
+    expect(xi).toBeGreaterThanOrEqual(0);
+    expect(yi).toBeGreaterThanOrEqual(0);
+    expect(g.mat[g.idx(xi, yi, stillThere!.z)]).not.toBe(0);
+  });
+
+  it('loses crew standing on the piece that breaks away', () => {
+    const { ship } = makePlayer();
+    const crew = ship.sys!.crew!;
+    const pilot = crew.find((c) => c.role === 'pilot')!;
+    // The pilot's post (z=1) is on the front half; sever the ship well behind it so the
+    // piece that snaps off is a small chunk far from the bridge, then move the pilot onto
+    // that same doomed piece before the cut.
+    pilot.x = 15;
+    pilot.y = 40;
+    pilot.z = 1;
+
+    for (let x = 0; x < ship.grid.width; x++) {
+      for (let z = 0; z < ship.grid.depth; z++) ship.grid.removeCell(ship.grid.idx(x, 34, z));
+    }
+    const res = splitBody(ship, () => 0.5, 0);
+    const survivor = res!.main!;
+    const stillThere = survivor.sys!.crew!.find((c) => c.id === pilot.id);
+    expect(stillThere).toBeUndefined();
+  });
+});

@@ -1,6 +1,6 @@
 import { Mat, MATERIALS } from './materials';
 
-export type ModuleKind = 'engine' | 'thruster' | 'turret' | 'reactor' | 'shield' | 'generic';
+export type ModuleKind = 'engine' | 'thruster' | 'turret' | 'reactor' | 'shield' | 'bridge' | 'generic';
 
 export type WeaponType = 'pulse' | 'beam' | 'heavy';
 

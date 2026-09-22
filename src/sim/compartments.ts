@@ -13,6 +13,14 @@ export interface Room {
   fire: number;
   prevHp: number;
   breached: boolean;
+  /**
+   * Set fresh every tick by updateCrew() from crew.ts (never by anything in this
+   * file), based on whether an engineer is currently standing here working the
+   * breach/fire. Read one tick late by updateCompartments() below — a single frame
+   * of lag is invisible and keeps the two systems from having to interleave calls.
+   */
+  sealing: boolean;
+  firefighting: boolean;
 }
 
 export interface RoomEdge {
@@ -41,6 +49,7 @@ export const COMPARTMENTS = {
   ignitionDivisor: 55,
   ignitionFeed: 220,
   minOxygen: 0.12,
+  engineerExtinguishRate: 1,
 };
 
 function clamp01(v: number): number {
@@ -101,7 +110,7 @@ export function buildRooms(grid: ShipGrid): RoomGraph {
       if (cells.length < MIN_ROOM_CELLS) continue;
       const id = rooms.length;
       for (const c of cells) cellRoom[c] = id;
-      rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false });
+      rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false, sealing: false, firefighting: false });
     }
   }
 
@@ -251,7 +260,10 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
     }
     const wasBreached = room.breached;
     room.breached = breachedCells > 0;
-    if (breachedCells > 0) room.pressure = clamp01(room.pressure - COMPARTMENTS.breachRate * breachedCells * dt);
+    // An engineer actively sealing the breach (crew.ts) stops the leak from getting any
+    // worse, but doesn't retroactively fix the hull — the room stays "breached" and the
+    // patch holds only as long as someone's there working it.
+    if (breachedCells > 0 && !room.sealing) room.pressure = clamp01(room.pressure - COMPARTMENTS.breachRate * breachedCells * dt);
     if (!wasBreached && room.breached) autoCloseDoors(grid, graph, room.id);
   }
 
@@ -277,7 +289,9 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
       }
     }
     if (room.fire > 0) {
-      if (room.pressure < COMPARTMENTS.minOxygen) {
+      if (room.firefighting) {
+        room.fire = Math.max(0, room.fire - COMPARTMENTS.engineerExtinguishRate * dt);
+      } else if (room.pressure < COMPARTMENTS.minOxygen) {
         room.fire = Math.max(0, room.fire - COMPARTMENTS.fireVacuumDecay * dt);
       } else {
         room.fire = Math.min(1, room.fire + COMPARTMENTS.fireGrowth * dt);

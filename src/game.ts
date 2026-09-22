@@ -1,5 +1,6 @@
 import type { GridBody } from './sim/body';
 import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
+import { crewOnDeck, type Crew } from './sim/crew';
 import type { Celestial } from './sim/gravity';
 import type { EnergyPriority } from './sim/systems';
 import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
@@ -265,6 +266,13 @@ export class Game {
     if (!p?.sys || z === OUTER_VIEW) return null;
     const graph = ensureRooms(p);
     return { rooms: roomsOnDeck(graph, z), doors: doorsOnDeck(p.grid, graph, z) };
+  }
+
+  currentDeckCrew(): Crew[] | null {
+    const p = this.world.player;
+    const z = this.scene.layerView;
+    if (!p?.sys?.crew || z === OUTER_VIEW) return null;
+    return crewOnDeck(p.sys.crew, z);
   }
 
   toggleDoor(doorId: number): void {
