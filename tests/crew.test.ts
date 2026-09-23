@@ -331,4 +331,122 @@ describe('wandering when there is nowhere useful to go', () => {
     expect(engineer.task).toBe('wander');
     expect(everMoves(world, engineer, 8)).toBe(true);
   });
+
+  it('does not act on a stale cached room id while standing exactly on a door cell', () => {
+    // A structural rebuild anywhere on the ship (any wall/door/ladder destroyed, not
+    // necessarily near this crew member) renumbers every room from scratch. A crew
+    // member's cached roomId — only ever consulted while standing on a door/ladder
+    // cell, which isn't part of any room itself — could end up pointing at a
+    // completely different, wrong room if it was cached before that rebuild happened.
+    // Reproduce that exact state directly: stand on a real door, but with a stale
+    // roomId/roomVersion pointing at some other (rigged to look dangerous) room.
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const doorEdge = graph.edges.find((e) => e.kind === 'door')!;
+    const door = ship.grid.doors[doorEdge.doorId!];
+    const shieldop = ship.sys!.crew!.find((c) => c.role === 'shieldop')!;
+
+    shieldop.x = ship.grid.xOf(door.cell) + 0.5;
+    shieldop.y = ship.grid.yOf(door.cell) + 0.5;
+    shieldop.z = ship.grid.zOf(door.cell);
+    shieldop.task = 'atPost';
+
+    const wrongRoom = graph.rooms.find((r) => r.z === shieldop.z && r.id !== doorEdge.a && r.id !== doorEdge.b)!;
+    wrongRoom.fire = 1; // the wrong cached room looks dangerous...
+    shieldop.roomId = wrongRoom.id;
+    shieldop.roomVersion = graph.structVersion - 1; // ...but the cache predates the current graph
+
+    world.step(DT);
+    // ...and the real door they're standing on has nothing to do with that room, so
+    // there's no real danger here — trusting the stale id would falsely trigger a flee.
+    expect(shieldop.task).not.toBe('flee');
+  });
+});
+
+describe('engineers responding to a call are not treated like bystanders', () => {
+  it('never gets ejected while walking through an actively venting breach it hasn\'t reached yet', () => {
+    // The ejection roll only ever applies to whatever room a crew member is physically
+    // standing in right now — someone still travelling *toward* a breached room, through
+    // other rooms in between, was never at risk in the first place, so a natural,
+    // realistic approach can pass this test by sheer travel-time luck even without the
+    // fix (it just never happens to be inside the room during its narrow risky window).
+    // Placing the engineer directly inside the breached room mid-approach (arrived, but
+    // not yet at the sealing spot) removes that luck and tests the exemption itself.
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    const [cell] = shieldBay.cells;
+    const x = ship.grid.xOf(cell);
+    const y = ship.grid.yOf(cell);
+    ship.grid.removeCell(ship.grid.idx(x, y, 0)); // a real, single-cell breach
+
+    // Room state is recomputed from the live grid every tick, so let it drain
+    // naturally instead of just setting the fields — until it's actively venting
+    // (below the ejection threshold) but not yet fully vented (SEALABLE_PRESSURE).
+    // Keep every real engineer out of it during this drain: otherwise one of them
+    // reaches the room and starts sealing it for real, freezing pressure above the
+    // danger threshold before this test ever gets to set up its own scenario.
+    const engineers = ship.sys!.crew!.filter((c) => c.role === 'engineer');
+    for (const e of engineers) e.dead = true;
+    for (let i = 0; i < 1000 && shieldBay.pressure >= 0.2; i++) world.step(DT);
+    expect(shieldBay.breached).toBe(true);
+    expect(shieldBay.pressure).toBeGreaterThan(0.05);
+
+    // Stand at one corner of the room but queue a waypoint clear across it — decideEngineer
+    // only calls the job "reached" once waypoints is empty, so this keeps them genuinely
+    // mid-walk-inside-the-room (not yet 'seal') for the check below, rather than
+    // decideEngineer immediately declaring them arrived because they're already inside.
+    const engineer = engineers[0];
+    let near = shieldBay.cells[0];
+    let far = shieldBay.cells[0];
+    let bestD = 0;
+    for (const i of shieldBay.cells) {
+      const d = Math.hypot(ship.grid.xOf(i) - ship.grid.xOf(near), ship.grid.yOf(i) - ship.grid.yOf(near));
+      if (d > bestD) {
+        bestD = d;
+        far = i;
+      }
+    }
+    engineer.x = ship.grid.xOf(near) + 0.5;
+    engineer.y = ship.grid.yOf(near) + 0.5;
+    engineer.z = shieldBay.z;
+    engineer.roomId = -1;
+    engineer.destRoom = shieldBay.id;
+    engineer.waypoints = [{ x: ship.grid.xOf(far) + 0.5, y: ship.grid.yOf(far) + 0.5, z: shieldBay.z }];
+    engineer.task = 'toPost';
+    engineer.dead = false;
+
+    forceRng(world, 0); // would guarantee ejection for anyone still eligible
+    world.step(DT);
+    expect(engineer.task).not.toBe('ejected');
+    expect(engineer.dead).toBe(false);
+  });
+
+  it('does not dispatch an engineer to a room that has already fully vented — nothing left to save', () => {
+    // Breach every column of the room at once (not just one cell) so it vents
+    // to nothing within a fraction of a second — faster than any engineer could
+    // realistically travel there and start sealing — instead of the single-cell
+    // breach other tests use, which a responding engineer is meant to catch and
+    // hold steady (see 'holds a breached room steady...' above).
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    for (const cell of shieldBay.cells) {
+      const x = ship.grid.xOf(cell);
+      const y = ship.grid.yOf(cell);
+      ship.grid.removeCell(ship.grid.idx(x, y, 0));
+    }
+
+    // Check shortly after it's vented dry, not later — once ejection has had time to
+    // kick in, a dispatched-then-ejected engineer's task also reads as "not toPost/seal"
+    // (it becomes 'ejected'), which would let this test pass even without the fix by
+    // hiding the wrong root cause behind a different, unrelated bug's symptom.
+    run(world, 1);
+    expect(shieldBay.pressure).toBeLessThan(0.02); // sanity: it really is bone dry
+
+    const engineer = ship.sys!.crew!.find((c) => c.role === 'engineer')!;
+    expect(engineer.task).not.toBe('toPost');
+    expect(engineer.task).not.toBe('seal');
+    expect(engineer.destRoom).not.toBe(shieldBay.id);
+  });
 });

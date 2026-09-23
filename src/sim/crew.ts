@@ -30,6 +30,11 @@ export interface Crew {
    * returns -1 — this holds the last real answer so pathing decisions never see a gap.
    */
   roomId: number;
+  /** The room graph's structVersion this `roomId` was captured against. A structural
+   * change anywhere on the ship (any wall/door/ladder destroyed, not just nearby)
+   * rebuilds the whole graph with fresh, renumbered rooms — a cached id from before
+   * that could now point at a completely different room. Only trusted while it matches. */
+  roomVersion: number;
   /** The room id this crew is currently walking toward (for change detection only). */
   destRoom: number;
   task: CrewTask;
@@ -66,8 +71,16 @@ function isDangerousFire(room: Room | null): boolean {
   return !!room && room.fire > CREW.dangerFire;
 }
 
+/**
+ * Sealing a room only ever pauses further pressure *loss* — once a breach has finished
+ * venting (pressure already at rock bottom), there's nothing left to save, so dispatching
+ * an engineer there is a pointless, purely dangerous errand into what's effectively a
+ * crater, not a repair job. Below this the room isn't "damaged", it's just gone.
+ */
+const SEALABLE_PRESSURE = 0.05;
+
 function needsHelp(room: Room): boolean {
-  return (room.breached && room.pressure < 0.95) || room.fire > 0;
+  return (room.breached && room.pressure > SEALABLE_PRESSURE && room.pressure < 0.95) || room.fire > 0;
 }
 
 function moduleCore(grid: ShipGrid, moduleId: number): { x: number; y: number; z: number } {
@@ -85,12 +98,24 @@ function roomIdAt(grid: ShipGrid, graph: RoomGraph, x: number, y: number, z: num
 /**
  * Door and ladder cells aren't part of any room's cell set, so a crew member mid-transit
  * through one gets a hard -1 from roomIdAt for that instant. Falling back to their last
- * confirmed room keeps every BFS/decision call fed a real room id instead of a dead end.
+ * confirmed room keeps every BFS/decision call fed a real room id instead of a dead end —
+ * but only if that cached id was captured against the *current* room graph generation.
+ * Destroying a wall, door or ladder anywhere on the ship (not necessarily anywhere near
+ * this crew member) rebuilds the whole graph with fresh, renumbered rooms; trusting an id
+ * cached before that happened could silently hand back a completely different room,
+ * which is exactly what made crew "stick" exactly on doorways — every decision made while
+ * standing there kept re-targeting whatever that stale id now happened to mean, instead
+ * of the room they were actually about to step into.
  */
 function currentRoom(grid: ShipGrid, graph: RoomGraph, crew: Crew): number {
   const r = roomIdAt(grid, graph, crew.x, crew.y, crew.z);
-  if (r >= 0) crew.roomId = r;
-  return crew.roomId;
+  if (r >= 0) {
+    crew.roomId = r;
+    crew.roomVersion = graph.structVersion;
+    return r;
+  }
+  if (crew.roomVersion === graph.structVersion) return crew.roomId;
+  return -1;
 }
 
 function roomCentroid(grid: ShipGrid, room: Room): { x: number; y: number } {
@@ -280,6 +305,7 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     z: pos.z,
     waypoints: [],
     roomId: -1,
+    roomVersion: -1,
     destRoom: -1,
     task: mobile ? 'idle' : 'atPost',
     orphaned: false,
@@ -496,11 +522,16 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     }
 
     // A hull breach doesn't just make a room unpleasant — while it's actively venting,
-    // anyone without a suit and not braced against it sealing the hole (task 'seal')
-    // risks being pulled out through the breach and lost, same as a real decompression
-    // accident. Rolled per tick rather than at a fixed instant so someone who reacts
-    // immediately has a real chance to reach safety before the dice catch up with them.
-    if (!crew.suited && crew.task !== 'seal' && room && room.breached && room.pressure < CREW.dangerPressure && world.rng() < CREW.ejectChance * dt) {
+    // anyone without a suit risks being pulled out through the breach and lost, same as
+    // a real decompression accident. Rolled per tick rather than at a fixed instant so
+    // someone who reacts immediately has a real chance to reach safety before the dice
+    // catch up with them. Engineers are exempt entirely: they only ever enter a
+    // dangerous room deliberately, responding to exactly this kind of emergency (see
+    // needsHelp/decideEngineer) — dying en route before they even get a chance to help,
+    // through no fault of their own, made every rescue attempt a coin flip against the
+    // room simply finishing its own vent first. A civilian caught in the same room
+    // without that training or purpose still isn't so lucky.
+    if (!crew.suited && crew.role !== 'engineer' && room && room.breached && room.pressure < CREW.dangerPressure && world.rng() < CREW.ejectChance * dt) {
       beginEjection(crew, grid, room);
       continue;
     }
@@ -557,6 +588,7 @@ export function remapCrew(crew: Crew[], newGrid: ShipGrid, offsetX: number, offs
     c.y = ny;
     c.waypoints = [];
     c.roomId = -1;
+    c.roomVersion = -1;
     c.destRoom = -1;
     if (!c.mobile) {
       const mapped = c.homeModule >= 0 && c.homeModule < moduleMap.length ? moduleMap[c.homeModule] : -1;
