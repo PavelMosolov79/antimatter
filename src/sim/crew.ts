@@ -5,7 +5,7 @@ import { Mat } from './materials';
 import type { World } from './world';
 
 export type CrewRole = 'pilot' | 'gunner' | 'shieldop' | 'engineer';
-export type CrewTask = 'atPost' | 'toPost' | 'seal' | 'extinguish' | 'flee' | 'idle' | 'ejected';
+export type CrewTask = 'atPost' | 'toPost' | 'seal' | 'extinguish' | 'flee' | 'idle' | 'ejected' | 'wander';
 
 interface Waypoint {
   x: number;
@@ -40,6 +40,8 @@ export interface Crew {
    * from being pulled out through a breach. Kept as a field so that feature can hook in
    * later without touching the ejection logic itself. */
   suited: boolean;
+  /** Countdown to the next random step while wandering (see wanderBehavior). */
+  wanderCooldown: number;
 }
 
 const CREW = {
@@ -284,6 +286,7 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     dead: false,
     dangerTime: 0,
     suited: false,
+    wanderCooldown: 0,
   };
 }
 
@@ -335,9 +338,63 @@ function findFreeReservePost(grid: ShipGrid, crew: Crew[], role: CrewRole, exclu
   return null;
 }
 
-function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: Crew[]): void {
+function hasLiveModule(grid: ShipGrid, room: Room): boolean {
+  for (const i of room.cells) {
+    const mid = grid.mod[i];
+    if (mid !== 0 && moduleEfficiency(grid.modules[mid - 1]) > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * What a crew member with nothing else to do falls back to — an orphan with no free
+ * reserve post, or an engineer with no breach or fire anywhere reachable. Rather than
+ * just freezing wherever they happened to be (which could easily be mid-doorway, since
+ * that's not part of any room), they head for the nearest room that still has some
+ * working equipment in it, then shuffle between random spots there so they read as
+ * someone waiting around, not a stalled sprite.
+ */
+function wanderBehavior(crew: Crew, grid: ShipGrid, graph: RoomGraph, curId: number, dt: number): void {
+  crew.task = 'wander';
+  const room = graph.rooms[curId] ?? null;
+
+  if (!room || !hasLiveModule(grid, room)) {
+    const target = bfsNearest(graph, curId, (r) => hasLiveModule(grid, r) && !isDangerous(r));
+    if (target !== null && target !== curId) {
+      if (crew.destRoom !== target) {
+        crew.waypoints = buildRoute(grid, graph, curId, target);
+        crew.destRoom = target;
+      }
+      return; // still on the way there
+    }
+  }
+
+  crew.destRoom = -1;
+  if (crew.waypoints.length > 0) return; // still shuffling to the last spot picked
+  if (crew.wanderCooldown > 0) {
+    crew.wanderCooldown -= dt;
+    return;
+  }
+  if (!room || room.cells.length === 0) return;
+  const cell = room.cells[Math.floor(Math.random() * room.cells.length)];
+  crew.waypoints = [{ x: grid.xOf(cell) + 0.5, y: grid.yOf(cell) + 0.5, z: room.z }];
+  crew.wanderCooldown = 1.5 + Math.random() * 2.5;
+}
+
+function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: Crew[], dt: number): void {
   const curId = currentRoom(grid, graph, crew);
   const room = graph.rooms[curId] ?? null;
+
+  // Personal safety always comes first, whether or not there's a post to worry about.
+  if (isDangerous(room) && crew.task !== 'flee') {
+    const safe = bfsNearest(graph, curId, (r) => !isDangerous(r));
+    if (safe !== null && safe !== curId) {
+      crew.waypoints = buildRoute(grid, graph, curId, safe);
+      crew.destRoom = safe;
+    }
+    crew.task = 'flee';
+    return;
+  }
 
   if (crew.orphaned) {
     const spare = findFreeReservePost(grid, roster, crew.role, -1);
@@ -345,7 +402,7 @@ function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: 
       crew.homeModule = spare;
       crew.orphaned = false;
     } else {
-      crew.task = 'idle';
+      wanderBehavior(crew, grid, graph, curId, dt);
       return;
     }
   } else {
@@ -357,16 +414,6 @@ function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: 
       crew.waypoints = [];
       return;
     }
-  }
-
-  if (isDangerous(room) && crew.task !== 'flee') {
-    const safe = bfsNearest(graph, curId, (r) => !isDangerous(r));
-    if (safe !== null && safe !== curId) {
-      crew.waypoints = buildRoute(grid, graph, curId, safe);
-      crew.destRoom = safe;
-    }
-    crew.task = 'flee';
-    return;
   }
 
   const targetRoom = targetRoomForStationary(grid, graph, crew);
@@ -383,13 +430,11 @@ function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: 
   crew.task = 'toPost';
 }
 
-function decideEngineer(crew: Crew, grid: ShipGrid, graph: RoomGraph): void {
+function decideEngineer(crew: Crew, grid: ShipGrid, graph: RoomGraph, dt: number): void {
   const curId = currentRoom(grid, graph, crew);
   const target = bfsNearest(graph, curId, needsHelp);
   if (target === null) {
-    crew.task = 'idle';
-    crew.destRoom = -1;
-    crew.waypoints = [];
+    wanderBehavior(crew, grid, graph, curId, dt);
     return;
   }
   if (target !== curId && crew.destRoom !== target) {
@@ -428,8 +473,8 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
       continue;
     }
 
-    if (crew.role === 'engineer') decideEngineer(crew, grid, graph);
-    else decideStationary(crew, grid, graph, sys.crew);
+    if (crew.role === 'engineer') decideEngineer(crew, grid, graph, dt);
+    else decideStationary(crew, grid, graph, sys.crew, dt);
 
     moveAlong(crew, dt);
 

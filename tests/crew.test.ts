@@ -23,6 +23,20 @@ function forceRng(world: World, value: number): void {
   (world as unknown as { rng: () => number }).rng = () => value;
 }
 
+/** Steps tick by tick (instead of a single before/after snapshot) and reports whether
+ * position ever changed — a wander target is a random cell in the room, so a plain
+ * before/after check over a fixed window can land on the same spot again by chance and
+ * read as "never moved" even though they genuinely walked somewhere in between. */
+function everMoves(world: World, crew: { x: number; y: number; z: number }, seconds: number): boolean {
+  const start = { x: crew.x, y: crew.y, z: crew.z };
+  const steps = Math.round(seconds / DT);
+  for (let i = 0; i < steps; i++) {
+    world.step(DT);
+    if (Math.hypot(crew.x - start.x, crew.y - start.y) > 0.05 || crew.z !== start.z) return true;
+  }
+  return false;
+}
+
 describe('crew roster', () => {
   it('spawns one crew per combat post plus mobile engineers, with only the primary bridge staffed', () => {
     const { ship } = makePlayer();
@@ -283,5 +297,38 @@ describe('ejection through a breach', () => {
     run(world, 1);
     expect(engineer.task).toBe('seal');
     expect(engineer.dead).toBe(false);
+  });
+});
+
+describe('wandering when there is nowhere useful to go', () => {
+  it('wanders instead of freezing in place when orphaned with no reserve post available anywhere', () => {
+    const { world, ship } = makePlayer();
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    // Move the pilot away first so destroying every bridge orphans them instead of
+    // killing them outright (that's covered by a separate test).
+    pilot.x = 15;
+    pilot.y = 33;
+    pilot.z = 2;
+    pilot.roomId = -1;
+
+    for (const m of ship.grid.modules) {
+      if (m.kind !== 'bridge') continue;
+      for (const cell of [...m.cells]) ship.grid.removeCell(cell);
+    }
+
+    run(world, 1);
+    expect(pilot.orphaned).toBe(true);
+    expect(pilot.task).toBe('wander');
+    expect(everMoves(world, pilot, 8)).toBe(true);
+    expect(pilot.dead).toBe(false);
+  });
+
+  it('wanders instead of freezing when an engineer has nothing left to fix', () => {
+    const { world, ship } = makePlayer();
+    const engineer = ship.sys!.crew!.find((c) => c.role === 'engineer')!;
+
+    run(world, 1); // nothing broken anywhere — should fall back to wandering, not idle forever
+    expect(engineer.task).toBe('wander');
+    expect(everMoves(world, engineer, 8)).toBe(true);
   });
 });
