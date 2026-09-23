@@ -5,61 +5,65 @@ import { moduleEfficiency } from './sim/grid';
 import { WEAPONS } from './sim/weapons';
 
 const CSS = `
-#hud { position: fixed; inset: 0; pointer-events: none; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: #cfe0ff; }
-.panel { position: absolute; background: rgba(10,14,24,.8); border: 1px solid #26324a; border-radius: 8px; padding: 10px 12px; pointer-events: auto; backdrop-filter: blur(4px); }
-.panel h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #7f95bf; font-weight: 600; }
-.panel .row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+#hud { position: fixed; inset: 0; pointer-events: none; font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #cfe0ff; }
+.panel { position: absolute; background: rgba(10,14,24,.85); border: 1px solid #26324a; border-radius: 6px; padding: 6px 8px; pointer-events: auto; backdrop-filter: blur(4px); }
+.panel h4 { margin: 0 0 4px; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: #7f95bf; font-weight: 600; }
+.panel h5 { margin: 6px 0 3px; font-size: 9px; letter-spacing: .05em; text-transform: uppercase; color: #5f759f; font-weight: 600; border-top: 1px solid #202c46; padding-top: 5px; }
+.panel h5:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+.panel .row { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 5px; }
 .panel .row:last-child { margin-bottom: 0; }
-.panel button { background: #182238; color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 5px; padding: 4px 8px; font: inherit; cursor: pointer; }
+.panel button { background: #182238; color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 4px; padding: 2px 6px; font: inherit; font-size: 10px; cursor: pointer; }
 .panel button:hover { background: #22304f; }
 .panel button.on { border-color: #59e6ff; color: #59e6ff; background: #14304a; }
-.panel label { display: flex; align-items: center; gap: 6px; width: 100%; }
-.panel label span { width: 78px; color: #8fa4cc; }
+.panel button:disabled { opacity: .4; cursor: default; }
+.panel label { display: flex; align-items: center; gap: 4px; width: 100%; }
+.panel label span { width: 52px; flex-shrink: 0; color: #8fa4cc; }
 .panel input[type=range] { flex: 1; accent-color: #59e6ff; }
-.panel .val { width: 34px; text-align: right; }
-#left { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; width: 300px; pointer-events: none; }
+.panel .val { width: 26px; text-align: right; flex-shrink: 0; }
+#left { position: absolute; left: 8px; top: 8px; display: flex; flex-direction: column; gap: 6px; width: 208px; max-height: calc(100vh - 16px); overflow-y: auto; pointer-events: auto; }
 #left .panel { position: static; }
-#stats { white-space: pre; }
-#controls { right: 12px; top: 12px; width: 300px; max-height: calc(100vh - 62px); overflow-y: auto; }
-.bar { position: relative; height: 14px; background: #101a2c; border: 1px solid #24304a; border-radius: 4px; margin-bottom: 5px; overflow: hidden; }
+#controls { right: 8px; top: 8px; width: 208px; max-height: calc(100vh - 34px); overflow-y: auto; }
+#stats { white-space: pre; font-size: 9.5px; color: #93a8cf; }
+.scrollbox { max-height: 130px; overflow-y: auto; margin-bottom: 2px; }
+.bar { position: relative; height: 12px; background: #101a2c; border: 1px solid #24304a; border-radius: 3px; margin-bottom: 3px; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
-.bar > span { position: absolute; left: 6px; right: 6px; top: -1px; line-height: 14px; font-size: 11px; display: flex; justify-content: space-between; text-shadow: 0 0 3px #000; }
+.bar > span { position: absolute; left: 4px; right: 4px; top: -1px; line-height: 12px; font-size: 9.5px; display: flex; justify-content: space-between; text-shadow: 0 0 3px #000; }
 .bar.hull > i { background: #3fae5a; }
 .bar.shield > i { background: #3f8fe0; }
 .bar.energy > i { background: #d9a52b; }
-.bar.pressure > i { background: #59b8ff; }
-.bar.fire > i { background: #ff6a3a; }
-.room { margin-bottom: 8px; }
-.room .rname { font-size: 11px; color: #8fa4cc; margin-bottom: 2px; }
-.room .bar { height: 10px; margin-bottom: 3px; }
-.room .bar > span { line-height: 10px; font-size: 9px; }
-.drow { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.drow .dlabel { flex: 1; font-size: 11px; color: #8fa4cc; }
-.drow button { width: 78px; }
+.room { display: flex; align-items: center; gap: 3px; margin-bottom: 2px; font-size: 9.5px; }
+.room .rname { width: 12px; flex-shrink: 0; color: #8fa4cc; }
+.room .mbar { position: relative; flex: 1; height: 9px; background: #101a2c; border: 1px solid #24304a; border-radius: 2px; overflow: hidden; }
+.room .mbar > i { position: absolute; left: 0; top: 0; bottom: 0; background: #59b8ff; }
+.room .pct { width: 24px; text-align: right; color: #8fa4cc; flex-shrink: 0; }
+.room .fire { width: 24px; text-align: right; color: #ff6a3a; flex-shrink: 0; visibility: hidden; }
+.room .fire.on { visibility: visible; }
+.drow { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; font-size: 9.5px; }
+.drow .dlabel { flex: 1; color: #8fa4cc; }
+.drow button { width: 58px; padding: 1px 4px; }
 .drow button.on { border-color: #63e07a; color: #63e07a; background: #12301e; }
 .drow button.destroyed { border-color: #ff5a4a; color: #ff5a4a; background: #301414; cursor: default; }
-.deckhint { color: #8fa4cc; font-size: 11px; }
-.crow { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 11px; }
-.crow .cdot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-.crow .cname { color: #cfe0ff; width: 92px; }
-.crow .cstate { color: #8fa4cc; }
-.wrow { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
-.wrow .wname { width: 62px; text-align: left; }
+.deckhint { color: #8fa4cc; font-size: 9.5px; }
+.crow { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; font-size: 9.5px; }
+.crow .cdot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.crow .cname { color: #cfe0ff; width: 62px; flex-shrink: 0; }
+.crow .cstate { color: #8fa4cc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wrow { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; }
+.wrow .wname { width: 46px; padding: 2px 4px; }
 .wrow .wname.sel { border-color: #ffb347; color: #ffb347; background: #3a2a10; }
-.wrow .wstate { flex: 1; color: #8fa4cc; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wrow .wstate { flex: 1; color: #8fa4cc; font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wrow .wstate.off { color: #6a4a4a; }
-.wrow .wtoggle { width: 44px; }
+.wrow .wtoggle { width: 34px; padding: 2px 4px; }
 .wrow .wtoggle.on { border-color: #63e07a; color: #63e07a; background: #12301e; }
-.tinfo { color: #ffb0a0; font-size: 11px; min-height: 16px; white-space: pre; }
+.tinfo { color: #ffb0a0; font-size: 9.5px; min-height: 12px; white-space: pre; margin-bottom: 4px; }
 #overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
 #overlay .box { pointer-events: auto; text-align: center; background: rgba(8,12,22,.9); border: 1px solid #2c3d63; border-radius: 12px; padding: 22px 34px; }
 #overlay h2 { margin: 0 0 12px; font-size: 26px; letter-spacing: .12em; }
 #overlay h2.won { color: #63e07a; }
 #overlay h2.lost { color: #ff5a4a; }
 #overlay button { margin: 0 4px; padding: 6px 14px; font-size: 13px; }
-#hint { left: 12px; bottom: 12px; color: #8fa4cc; max-width: 460px; }
-#hint { pointer-events: none; }
-#panelToggle { position: fixed; right: 12px; bottom: 12px; pointer-events: auto; background: rgba(10,14,24,.8); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 4px 12px; font: inherit; cursor: pointer; z-index: 5; }
+#hint { left: 8px; bottom: 8px; color: #7f95bf; font-size: 9.5px; max-width: 340px; pointer-events: none; }
+#panelToggle { position: fixed; right: 8px; bottom: 8px; pointer-events: auto; background: rgba(10,14,24,.85); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 10px; cursor: pointer; z-index: 5; }
 .collapsed #left, .collapsed #controls, .collapsed #hint { display: none; }
 `;
 
@@ -96,8 +100,11 @@ interface WeaponEls {
 
 interface RoomEls {
   id: number;
-  pressure: BarEls;
-  fire: BarEls;
+  row: HTMLDivElement;
+  name: HTMLSpanElement;
+  pressureBar: HTMLElement;
+  pct: HTMLSpanElement;
+  fire: HTMLSpanElement;
 }
 
 interface DoorEls {
@@ -113,8 +120,8 @@ interface CrewEls {
   state: HTMLSpanElement;
 }
 
-const ROLE_LABEL: Record<string, string> = { pilot: 'Пилот', gunner: 'Артиллерист', shieldop: 'Оператор щита', engineer: 'Инженер' };
-const TASK_LABEL: Record<string, string> = { atPost: 'на посту', toPost: 'идёт на пост', seal: 'герметизирует пробоину', extinguish: 'тушит пожар', flee: 'бежит от опасности', idle: 'свободен' };
+const ROLE_LABEL: Record<string, string> = { pilot: 'Пилот', gunner: 'Арт.', shieldop: 'Щит', engineer: 'Инж.' };
+const TASK_LABEL: Record<string, string> = { atPost: 'на посту', toPost: 'к посту', seal: 'герметизирует', extinguish: 'тушит', flee: 'бежит', idle: 'свободен' };
 const ROLE_DOT: Record<string, string> = { pilot: '#ffffff', gunner: '#ffb347', shieldop: '#6a86ff', engineer: '#ffe066' };
 
 export class Hud {
@@ -150,55 +157,22 @@ export class Hud {
     style.textContent = CSS;
     document.head.appendChild(style);
 
-    const left = document.createElement('div');
-    left.id = 'left';
-    root.appendChild(left);
-
-    this.stats = document.createElement('div');
-    this.stats.id = 'stats';
-    this.stats.className = 'panel';
-    left.appendChild(this.stats);
-
-    const combat = document.createElement('div');
-    combat.id = 'combat';
-    combat.className = 'panel';
-    const ch = document.createElement('h4');
-    ch.textContent = 'Бой';
-    this.targetInfo.className = 'tinfo';
-    const wh = document.createElement('h4');
-    wh.textContent = 'Орудия (выберите и кликните врага)';
-    wh.style.marginTop = '8px';
-    combat.append(ch, this.hull.root, this.shield.root, this.energy.root, this.targetInfo, wh, this.weaponBox);
-    left.appendChild(combat);
-
-    const compart = document.createElement('div');
-    compart.id = 'compartments';
-    compart.className = 'panel';
-    const cph = document.createElement('h4');
-    cph.textContent = 'Отсеки (только свой корабль)';
-    compart.append(cph, this.compartBody);
-    left.appendChild(compart);
-
-    const crewPanel = document.createElement('div');
-    crewPanel.id = 'crew';
-    crewPanel.className = 'panel';
-    const crh = document.createElement('h4');
-    crh.textContent = 'Экипаж (текущая палуба)';
-    crewPanel.append(crh, this.crewBody);
-    left.appendChild(crewPanel);
-
-    const controls = document.createElement('div');
-    controls.id = 'controls';
-    controls.className = 'panel';
-    root.appendChild(controls);
-
-    const section = (title: string): HTMLDivElement => {
+    const section = (container: HTMLElement, title: string): HTMLDivElement => {
       const h = document.createElement('h4');
       h.textContent = title;
-      controls.appendChild(h);
+      container.appendChild(h);
       const row = document.createElement('div');
       row.className = 'row';
-      controls.appendChild(row);
+      container.appendChild(row);
+      return row;
+    };
+    const subsection = (container: HTMLElement, title: string): HTMLDivElement => {
+      const h = document.createElement('h5');
+      h.textContent = title;
+      container.appendChild(h);
+      const row = document.createElement('div');
+      row.className = 'row';
+      container.appendChild(row);
       return row;
     };
     const button = (row: HTMLElement, label: string, onClick: () => void, opts: BtnOpts = {}): HTMLButtonElement => {
@@ -229,54 +203,99 @@ export class Hud {
       l.append(s, input, v);
       row.appendChild(l);
     };
+    const flag = (row: HTMLElement, label: string, get: () => boolean, set: (v: boolean) => void): void => {
+      const b = button(row, label, () => set(!get()), { toggle: true });
+      this.toggles.push({ el: b, get });
+    };
 
-    const scen = section('Сценарий');
+    // ---- LEFT: the in-game HUD (what a player would eventually see) ----
+    const left = document.createElement('div');
+    left.id = 'left';
+    root.appendChild(left);
+
+    const combat = document.createElement('div');
+    combat.id = 'combat';
+    combat.className = 'panel';
+    const ch = document.createElement('h4');
+    ch.textContent = 'Бой';
+    this.targetInfo.className = 'tinfo';
+    combat.append(ch, this.hull.root, this.shield.root, this.energy.root, this.targetInfo);
+    const power = subsection(combat, 'Энергия и цели');
+    this.priorityBtns.set('shield', button(power, 'Щит', () => this.game.setPriority('shield')));
+    this.priorityBtns.set('weapons', button(power, 'Оружие', () => this.game.setPriority('weapons')));
+    const lockBtn = button(power, 'Нос → цель', () => this.game.setLockFace(!this.game.world.lockFace), { toggle: true });
+    this.toggles.push({ el: lockBtn, get: () => this.game.world.lockFace });
+    button(power, 'Снять цель', () => this.game.clearTargets());
+    const wh = document.createElement('h5');
+    wh.textContent = 'Орудия';
+    combat.append(wh, this.weaponBox);
+    left.appendChild(combat);
+
+    const runMode = document.createElement('div');
+    runMode.className = 'panel';
+    const rmRow = section(runMode, 'Управление');
+    flag(rmRow, 'Пауза', () => game.paused, (v) => (game.paused = v));
+    flag(rmRow, 'Замедление', () => game.slowMo, (v) => (game.slowMo = v));
+    flag(rmRow, 'Автопилот', () => game.world.autopilot, (v) => (game.world.autopilot = v));
+    left.appendChild(runMode);
+
+    const ship = document.createElement('div');
+    ship.className = 'panel';
+    const layers = section(ship, 'Палуба');
+    const names = ['Вне', 'Обш.', 'П1', 'П2', 'П3'];
+    for (let i = 0; i < names.length; i++) {
+      const idx = i === 0 ? OUTER_VIEW : i - 1;
+      this.layerBtns.push(button(layers, names[i], () => (this.game.scene.layerView = idx)));
+    }
+    subsection(ship, 'Отсеки');
+    const compartScroll = document.createElement('div');
+    compartScroll.className = 'scrollbox';
+    compartScroll.appendChild(this.compartBody);
+    ship.appendChild(compartScroll);
+    subsection(ship, 'Экипаж');
+    const crewScroll = document.createElement('div');
+    crewScroll.className = 'scrollbox';
+    crewScroll.appendChild(this.crewBody);
+    ship.appendChild(crewScroll);
+    left.appendChild(ship);
+
+    // ---- RIGHT: development / testing tools ----
+    const controls = document.createElement('div');
+    controls.id = 'controls';
+    controls.className = 'panel';
+    root.appendChild(controls);
+
+    this.stats = document.createElement('div');
+    this.stats.id = 'stats';
+    subsection(controls, 'Статы');
+    controls.appendChild(this.stats);
+
+    const scen = subsection(controls, 'Сценарий');
     for (const sc of SCENARIOS) this.scenarioBtns.set(sc.id, button(scen, sc.label, () => this.game.reset(undefined, sc.id)));
 
-    const ships = section('Корабль игрока');
+    const ships = subsection(controls, 'Корабль игрока');
     for (const s of SHIPS) this.shipBtns.set(s.id, button(ships, s.label, () => this.game.reset(s.id)));
     button(ships, 'Заново', () => this.game.reset());
 
-    const power = section('Энергия и цели');
-    this.priorityBtns.set('shield', button(power, 'Приоритет: щит', () => this.game.setPriority('shield')));
-    this.priorityBtns.set('weapons', button(power, 'Приоритет: оружие', () => this.game.setPriority('weapons')));
-    const lockBtn = button(power, 'Нос следит за целью', () => this.game.setLockFace(!this.game.world.lockFace), { toggle: true });
-    this.toggles.push({ el: lockBtn, get: () => this.game.world.lockFace });
-    button(power, 'Снять цель / орудия: авто', () => this.game.clearTargets());
-
-    const tools = section('Инструмент (ЛКМ)');
+    const tools = subsection(controls, 'Инструмент (ЛКМ)');
     this.toolBtns.set('fly', button(tools, 'Полёт / цель', () => this.setTool('fly')));
     this.toolBtns.set('crater', button(tools, 'Удар: кратер', () => this.setTool('crater')));
     slider(tools, 'Радиус', 1, 14, 0.5, game.crater.radius, (v) => (game.crater.radius = v));
     slider(tools, 'Урон', 5, 300, 5, game.crater.damage, (v) => (game.crater.damage = v));
     slider(tools, 'Пробитие', 0, 1, 0.05, game.crater.pen, (v) => (game.crater.pen = v));
 
-    const sandbox = section('Песочница');
+    const sandbox = subsection(controls, 'Песочница');
     button(sandbox, '+ Мишень', () => this.game.spawnTarget());
-    button(sandbox, 'Сломать двигатель', () => this.game.breakEngine());
+    button(sandbox, 'Сломать двиг.', () => this.game.breakEngine());
 
-    const layers = section('Вид (слой палубы)');
-    const names = ['Внешний', 'Обшивка', 'Палуба 1', 'Палуба 2', 'Палуба 3'];
-    for (let i = 0; i < names.length; i++) {
-      const idx = i === 0 ? OUTER_VIEW : i - 1;
-      this.layerBtns.push(button(layers, names[i], () => (this.game.scene.layerView = idx)));
-    }
-
-    const flags = section('Режимы');
-    const flag = (label: string, get: () => boolean, set: (v: boolean) => void): void => {
-      const b = button(flags, label, () => set(!get()), { toggle: true });
-      this.toggles.push({ el: b, get });
-    };
-    flag('Пауза', () => game.paused, (v) => (game.paused = v));
-    flag('Замедление', () => game.slowMo, (v) => (game.slowMo = v));
-    flag('Автопилот', () => game.world.autopilot, (v) => (game.world.autopilot = v));
-    flag('Следить', () => game.scene.follow, (v) => (game.scene.follow = v));
-    flag('Отладка', () => game.scene.showDebug, (v) => (game.scene.showDebug = v));
+    const devFlags = subsection(controls, 'Режимы (dev)');
+    flag(devFlags, 'Следить', () => game.scene.follow, (v) => (game.scene.follow = v));
+    flag(devFlags, 'Отладка', () => game.scene.showDebug, (v) => (game.scene.showDebug = v));
 
     const hint = document.createElement('div');
     hint.id = 'hint';
     hint.className = 'panel';
-    hint.textContent = 'ЛКМ по врагу — цель орудий (клик по конкретной клетке наводит на неё, например на реактор), по пустому месту — лететь. Выберите орудие в списке и кликните врага — цель только для него. ПКМ + перетаскивание — камера. Колесо — масштаб. Пауза не мешает отдавать приказы.';
+    hint.textContent = 'ЛКМ по врагу — цель; по пустому месту — лететь. ПКМ+drag — камера. Колесо — масштаб.';
     root.appendChild(hint);
 
     this.overlay.id = 'overlay';
@@ -380,7 +399,7 @@ export class Hud {
         this.compartBody.replaceChildren();
         const hint = document.createElement('div');
         hint.className = 'deckhint';
-        hint.textContent = 'Выберите «Палуба 1/2/3» слева, чтобы увидеть отсеки и двери своего корабля.';
+        hint.textContent = 'Выберите палубу выше.';
         this.compartBody.appendChild(hint);
       }
       return;
@@ -395,23 +414,24 @@ export class Hud {
       this.roomEls = [];
       this.doorEls = [];
       info.rooms.forEach((r, i) => {
-        const box = document.createElement('div');
-        box.className = 'room';
-        const name = document.createElement('div');
+        const row = document.createElement('div');
+        row.className = 'room';
+        const name = document.createElement('span');
         name.className = 'rname';
-        name.textContent = `Отсек ${nameOf(i)}`;
-        const pressure = makeBar('pressure');
-        const fire = makeBar('fire');
-        box.append(name, pressure.root, fire.root);
-        this.compartBody.appendChild(box);
-        this.roomEls.push({ id: r.id, pressure, fire });
+        name.textContent = nameOf(i);
+        const mbar = document.createElement('div');
+        mbar.className = 'mbar';
+        const fill = document.createElement('i');
+        mbar.appendChild(fill);
+        const pct = document.createElement('span');
+        pct.className = 'pct';
+        const fire = document.createElement('span');
+        fire.className = 'fire';
+        fire.textContent = '🔥';
+        row.append(name, mbar, pct, fire);
+        this.compartBody.appendChild(row);
+        this.roomEls.push({ id: r.id, row, name, pressureBar: fill, pct, fire });
       });
-      if (info.doors.length > 0) {
-        const dh = document.createElement('div');
-        dh.className = 'rname';
-        dh.textContent = 'Двери';
-        this.compartBody.appendChild(dh);
-      }
       for (const d of info.doors) {
         const row = document.createElement('div');
         row.className = 'drow';
@@ -428,22 +448,23 @@ export class Hud {
     for (const el of this.roomEls) {
       const r = info.rooms[roomIndex.get(el.id) ?? -1];
       if (!r) continue;
-      this.setBar(el.pressure, r.pressure, 'Давление', `${(r.pressure * 100).toFixed(0)}%`);
-      this.setBar(el.fire, r.fire, 'Огонь', r.fire > 0 ? `${(r.fire * 100).toFixed(0)}%` : '—');
+      el.pressureBar.style.width = `${Math.max(0, Math.min(1, r.pressure)) * 100}%`;
+      el.pct.textContent = `${(r.pressure * 100).toFixed(0)}%`;
+      el.fire.classList.toggle('on', r.fire > 0);
     }
     for (const el of this.doorEls) {
       const d = info.doors.find((x) => x.id === el.id);
       if (!d) continue;
       const ai = roomIndex.get(d.roomA) ?? -1;
       const bi = roomIndex.get(d.roomB) ?? -1;
-      el.label.textContent = `${nameOf(ai)} ↔ ${nameOf(bi)}`;
+      el.label.textContent = `${nameOf(ai)}↔${nameOf(bi)}`;
       if (d.destroyed) {
-        el.btn.textContent = 'РАЗРУШЕНА';
+        el.btn.textContent = 'НЕТ';
         el.btn.className = 'destroyed';
         el.btn.disabled = true;
       } else {
         el.btn.disabled = false;
-        el.btn.textContent = d.open ? 'ОТКРЫТА' : 'ЗАКРЫТА';
+        el.btn.textContent = d.open ? 'ОТКР' : 'ЗАКР';
         el.btn.className = d.open ? 'on' : '';
       }
     }
@@ -458,7 +479,7 @@ export class Hud {
         this.crewBody.replaceChildren();
         const hint = document.createElement('div');
         hint.className = 'deckhint';
-        hint.textContent = 'Выберите «Палуба 1/2/3» слева, чтобы увидеть экипаж на ней.';
+        hint.textContent = 'Выберите палубу выше.';
         this.crewBody.appendChild(hint);
       }
       return;
@@ -472,7 +493,7 @@ export class Hud {
       if (crew.length === 0) {
         const hint = document.createElement('div');
         hint.className = 'deckhint';
-        hint.textContent = 'На этой палубе никого нет.';
+        hint.textContent = 'Никого нет.';
         this.crewBody.appendChild(hint);
       }
       for (const c of crew) {
@@ -520,8 +541,8 @@ export class Hud {
     if (t?.sys) {
       const th = t.grid.cells / t.sys.cellsMax;
       const shield = t.sys.shieldMax > 0 ? ` · щит ${((t.sys.shield / t.sys.shieldMax) * 100).toFixed(0)}%${t.sys.shieldDown ? ' (упал)' : ''}` : '';
-      const warn = t.sys.countdown >= 0 ? `\nРЕАКТОР НЕСТАБИЛЕН: ${Math.max(0, t.sys.countdown).toFixed(1)} с` : '';
-      this.targetInfo.textContent = `${sys.focus ? 'Основная цель' : 'Авто-цель'}: ${t.sys.name} · корпус ${(th * 100).toFixed(0)}%${shield}${warn}`;
+      const warn = t.sys.countdown >= 0 ? `\nРЕАКТОР: ${Math.max(0, t.sys.countdown).toFixed(1)}с` : '';
+      this.targetInfo.textContent = `${sys.focus ? 'Цель' : 'Авто'}: ${t.sys.name} · ${(th * 100).toFixed(0)}%${shield}${warn}`;
     } else {
       this.targetInfo.textContent = 'Цели нет';
     }
@@ -536,7 +557,7 @@ export class Hud {
       let text: string;
       if (eff <= 0) text = 'разрушена';
       else {
-        const mode = w.target ? 'ручная цель' : sys.focus ? 'фокус' : 'авто';
+        const mode = w.target ? 'ручная' : sys.focus ? 'фокус' : 'авто';
         const act = w.firing ? '●' : w.cooldown > 0.05 ? '◌' : '';
         text = `${WEAPONS[w.type].short} · ${mode} ${act}`;
       }
@@ -552,27 +573,25 @@ export class Hud {
     const tot = g.totals();
     const p = g.world.player;
     const lines: string[] = [];
-    lines.push(`FPS ${g.scene.app.ticker.FPS.toFixed(0)}   физика ${g.stepMs.toFixed(2)} мс`);
-    lines.push(`тел ${tot.bodies} (обломков ${tot.debris})   клеток ${tot.cells}`);
+    lines.push(`FPS ${g.scene.app.ticker.FPS.toFixed(0)}  физ ${g.stepMs.toFixed(1)}мс`);
+    lines.push(`тел ${tot.bodies} (обл. ${tot.debris})  клеток ${tot.cells}`);
     if (p) {
       const e = p.engineSummary();
       const a = e.thrust / Math.max(p.mass, 1e-6);
       const gr = g.world.gravityAt(p.x, p.y);
       const deg = ((((p.angle * 180) / Math.PI) % 360) + 360) % 360;
-      lines.push(`позиция ${p.x.toFixed(0)}, ${p.y.toFixed(0)}`);
+      lines.push(`поз ${p.x.toFixed(0)},${p.y.toFixed(0)}  масса ${p.mass.toFixed(0)}`);
       const tg = g.world.target;
-      if (tg) lines.push(`цель ${tg.x.toFixed(0)}, ${tg.y.toFixed(0)}   дистанция ${Math.hypot(tg.x - p.x, tg.y - p.y).toFixed(0)}`);
-      lines.push(`масса ${p.mass.toFixed(0)}   палуб ${p.grid.depth}`);
-      lines.push(`двигатели ${e.alive}/${e.total}   тяга ${a.toFixed(1)} кл/с²`);
-      lines.push(`скорость ${Math.hypot(p.vx, p.vy).toFixed(1)} кл/с   курс ${deg.toFixed(0)}°`);
-      lines.push(`газ ${(p.throttle * 100).toFixed(0)}%   вращ ${p.w.toFixed(2)} рад/с`);
-      lines.push(`маневровые: тормоз ${(e.capBack / Math.max(p.mass, 1e-6)).toFixed(1)}  бок ${(e.capLeft / Math.max(p.mass, 1e-6)).toFixed(1)}/${(e.capRight / Math.max(p.mass, 1e-6)).toFixed(1)}`);
-      lines.push(`гравитация ${Math.hypot(gr.ax, gr.ay).toFixed(2)} кл/с²`);
+      if (tg) lines.push(`цель ${tg.x.toFixed(0)},${tg.y.toFixed(0)} d=${Math.hypot(tg.x - p.x, tg.y - p.y).toFixed(0)}`);
+      lines.push(`дв. ${e.alive}/${e.total}  тяга ${a.toFixed(1)}кл/с²`);
+      lines.push(`v ${Math.hypot(p.vx, p.vy).toFixed(1)}кл/с  курс ${deg.toFixed(0)}°`);
+      lines.push(`газ ${(p.throttle * 100).toFixed(0)}%  вращ ${p.w.toFixed(2)}рад/с`);
+      lines.push(`грав ${Math.hypot(gr.ax, gr.ay).toFixed(2)}кл/с²`);
     } else {
       lines.push('корабль уничтожен');
     }
     const cur = g.scene.cursor;
-    if (cur) lines.push(`курсор ${cur.x.toFixed(0)}, ${cur.y.toFixed(0)}`);
+    if (cur) lines.push(`курсор ${cur.x.toFixed(0)},${cur.y.toFixed(0)}`);
     this.stats.textContent = lines.join('\n');
   }
 }
