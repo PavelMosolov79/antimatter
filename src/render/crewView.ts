@@ -91,6 +91,11 @@ export class CrewView {
       const cy = Math.floor(c.y) + 0.5;
       const wp = body.localToWorld(cx, cy, { x: 0, y: 0 });
       s.position.set(wp.x, wp.y);
+      // The badge's position already orbits with the hull via localToWorld, but the
+      // sprite itself doesn't inherit the ship's rotation the way BodyView's hull
+      // sprite does — without this it stays screen-upright while the ship turns under
+      // it, reading as pinned to the screen instead of standing on the deck.
+      s.rotation = body.angle;
     }
     for (const [id, s] of this.sprites) {
       if (!seen.has(id)) s.visible = false;
