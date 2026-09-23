@@ -19,6 +19,10 @@ function run(world: World, seconds: number): void {
   for (let i = 0; i < steps; i++) world.step(DT);
 }
 
+function forceRng(world: World, value: number): void {
+  (world as unknown as { rng: () => number }).rng = () => value;
+}
+
 describe('crew roster', () => {
   it('spawns one crew per combat post plus mobile engineers, with only the primary bridge staffed', () => {
     const { ship } = makePlayer();
@@ -214,5 +218,70 @@ describe('crew across a hull fragmentation split', () => {
     expect(survivingShieldop).toBeDefined();
     if (!survivingGunner!.orphaned) expect(survivor.grid.modules[survivingGunner!.homeModule].kind).toBe('turret');
     if (!survivingShieldop!.orphaned) expect(survivor.grid.modules[survivingShieldop!.homeModule].kind).toBe('shield');
+  });
+});
+
+describe('ejection through a breach', () => {
+  it('sucks an unsuited crew member out through an actively venting breach and kills them', () => {
+    const { world, ship } = makePlayer();
+    forceRng(world, 0); // guarantees the per-tick ejection roll succeeds the instant it's eligible
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    const bridge = ship.grid.modules.find((m) => m.kind === 'bridge')!;
+    const [cell] = bridge.cells;
+    const x = ship.grid.xOf(cell);
+    const y = ship.grid.yOf(cell);
+    ship.grid.removeCell(ship.grid.idx(x, y, 0)); // breach the hull right above the bridge
+
+    expect(pilot.dead).toBe(false);
+    run(world, 3); // enough for pressure to fall below the ejection threshold
+    expect(pilot.task).toBe('ejected');
+    expect(pilot.suited).toBe(false);
+
+    run(world, 2); // enough to sail past the overshoot distance
+    expect(pilot.dead).toBe(true);
+  });
+
+  it('moves an ejected crew member visibly outward, away from where the breach was, before they die', () => {
+    const { world, ship } = makePlayer();
+    forceRng(world, 0);
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    const bridge = ship.grid.modules.find((m) => m.kind === 'bridge')!;
+    const [cell] = bridge.cells;
+    const x = ship.grid.xOf(cell);
+    const y = ship.grid.yOf(cell);
+    ship.grid.removeCell(ship.grid.idx(x, y, 0));
+    run(world, 3);
+    expect(pilot.task).toBe('ejected');
+    const atEjection = { x: pilot.x, y: pilot.y };
+
+    run(world, 1 / 60);
+    const movedDist = Math.hypot(pilot.x - atEjection.x, pilot.y - atEjection.y);
+    expect(movedDist).toBeGreaterThan(0.1); // a real, visible jump in one tick, not a crawl
+  });
+
+  it('does not eject an engineer actively bracing against the hull while sealing that exact breach', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[1];
+    const [cell] = shieldBay.cells;
+    const x = ship.grid.xOf(cell);
+    const y = ship.grid.yOf(cell);
+    ship.grid.removeCell(ship.grid.idx(x, y, 0));
+    run(world, 3); // drain pressure well below the ejection threshold
+
+    // Place the engineer directly at the post they'd otherwise have walked to, so this
+    // test isn't at the mercy of random travel time before they start sealing.
+    const engineer = ship.sys!.crew!.find((c) => c.role === 'engineer')!;
+    engineer.x = x + 0.5;
+    engineer.y = y + 0.5;
+    engineer.z = shieldBay.z;
+    engineer.roomId = -1;
+    engineer.waypoints = [];
+    engineer.destRoom = -1;
+
+    forceRng(world, 0); // would guarantee ejection for anyone still eligible
+    run(world, 1);
+    expect(engineer.task).toBe('seal');
+    expect(engineer.dead).toBe(false);
   });
 });

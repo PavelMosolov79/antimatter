@@ -5,7 +5,7 @@ import { Mat } from './materials';
 import type { World } from './world';
 
 export type CrewRole = 'pilot' | 'gunner' | 'shieldop' | 'engineer';
-export type CrewTask = 'atPost' | 'toPost' | 'seal' | 'extinguish' | 'flee' | 'idle';
+export type CrewTask = 'atPost' | 'toPost' | 'seal' | 'extinguish' | 'flee' | 'idle' | 'ejected';
 
 interface Waypoint {
   x: number;
@@ -36,6 +36,10 @@ export interface Crew {
   orphaned: boolean;
   dead: boolean;
   dangerTime: number;
+  /** Always false for now — no spacesuit mechanic exists yet, so nobody is protected
+   * from being pulled out through a breach. Kept as a field so that feature can hook in
+   * later without touching the ejection logic itself. */
+  suited: boolean;
 }
 
 const CREW = {
@@ -44,11 +48,20 @@ const CREW = {
   dangerPressure: 0.2,
   dangerFire: 0.3,
   deathTime: 6,
+  ejectSpeed: 14, // cells/sec — a decompression yanks you out far faster than anyone walks
+  ejectChance: 0.5, // per second, while exposed and unsuited
+  ejectOvershoot: 10, // cells to sail past the breach before being considered lost
 };
 
 function isDangerous(room: Room | null): boolean {
   if (!room) return false;
   return room.pressure < CREW.dangerPressure || room.fire > CREW.dangerFire;
+}
+
+/** Only the fire half of `isDangerous` — pressure danger is now handled by outright
+ * ejection through the breach instead of a slow exposure timer (see updateCrew). */
+function isDangerousFire(room: Room | null): boolean {
+  return !!room && room.fire > CREW.dangerFire;
 }
 
 function needsHelp(room: Room): boolean {
@@ -182,8 +195,51 @@ function buildRoute(grid: ShipGrid, graph: RoomGraph, fromRoomId: number, toRoom
   return waypoints;
 }
 
-function moveAlong(crew: Crew, dt: number): void {
-  let remaining = CREW.speed * dt;
+/** Nearest cell in `room` that's currently exposed to space (same test compartments.ts
+ * uses for breach detection), to aim an ejected crew member at the actual hole rather
+ * than the room's center. */
+function findNearestBreach(grid: ShipGrid, room: Room, fromX: number, fromY: number): { x: number; y: number } | null {
+  let bestX = -1;
+  let bestY = -1;
+  let bestD = Infinity;
+  for (const i of room.cells) {
+    const x = grid.xOf(i);
+    const y = grid.yOf(i);
+    const top = grid.topLayer(x, y);
+    if (top !== -1 && top < room.z) continue; // still shielded by something shallower
+    const dx = x + 0.5 - fromX;
+    const dy = y + 0.5 - fromY;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      bestX = x + 0.5;
+      bestY = y + 0.5;
+    }
+  }
+  return bestX >= 0 ? { x: bestX, y: bestY } : null;
+}
+
+/** Sends a crew member flying toward the nearest hole and out past the hull, along a
+ * straight line from where they're standing through the breach — the same direction the
+ * escaping air is going. */
+function beginEjection(crew: Crew, grid: ShipGrid, room: Room): void {
+  const breach = findNearestBreach(grid, room, crew.x, crew.y);
+  if (!breach) return;
+  const dx = breach.x - crew.x;
+  const dy = breach.y - crew.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const ux = dx / d;
+  const uy = dy / d;
+  crew.waypoints = [
+    { x: breach.x, y: breach.y, z: crew.z },
+    { x: breach.x + ux * CREW.ejectOvershoot, y: breach.y + uy * CREW.ejectOvershoot, z: crew.z },
+  ];
+  crew.task = 'ejected';
+  crew.destRoom = -1;
+}
+
+function moveAlong(crew: Crew, dt: number, speed: number = CREW.speed): void {
+  let remaining = speed * dt;
   while (remaining > 0 && crew.waypoints.length > 0) {
     const wp = crew.waypoints[0];
     if (wp.z !== crew.z) {
@@ -227,6 +283,7 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     orphaned: false,
     dead: false,
     dangerTime: 0,
+    suited: false,
   };
 }
 
@@ -347,7 +404,7 @@ function decideEngineer(crew: Crew, grid: ShipGrid, graph: RoomGraph): void {
   }
 }
 
-export function updateCrew(_world: World, body: GridBody, dt: number): void {
+export function updateCrew(world: World, body: GridBody, dt: number): void {
   const sys = body.sys;
   if (!sys || !sys.crew) return;
   const graph = ensureRooms(body);
@@ -360,6 +417,16 @@ export function updateCrew(_world: World, body: GridBody, dt: number): void {
 
   for (const crew of sys.crew) {
     if (crew.dead) continue;
+
+    if (crew.task === 'ejected') {
+      moveAlong(crew, dt, CREW.ejectSpeed);
+      if (crew.waypoints.length === 0) {
+        crew.dead = true;
+        const wp = body.localToWorld(crew.x, crew.y, { x: 0, y: 0 });
+        world.push({ t: 'crewLost', x: wp.x, y: wp.y });
+      }
+      continue;
+    }
 
     if (crew.role === 'engineer') decideEngineer(crew, grid, graph);
     else decideStationary(crew, grid, graph, sys.crew);
@@ -383,7 +450,17 @@ export function updateCrew(_world: World, body: GridBody, dt: number): void {
       continue;
     }
 
-    if (isDangerous(room)) {
+    // A hull breach doesn't just make a room unpleasant — while it's actively venting,
+    // anyone without a suit and not braced against it sealing the hole (task 'seal')
+    // risks being pulled out through the breach and lost, same as a real decompression
+    // accident. Rolled per tick rather than at a fixed instant so someone who reacts
+    // immediately has a real chance to reach safety before the dice catch up with them.
+    if (!crew.suited && crew.task !== 'seal' && room && room.breached && room.pressure < CREW.dangerPressure && world.rng() < CREW.ejectChance * dt) {
+      beginEjection(crew, grid, room);
+      continue;
+    }
+
+    if (isDangerousFire(room)) {
       crew.dangerTime += dt;
       if (crew.dangerTime > CREW.deathTime) crew.dead = true;
     } else {

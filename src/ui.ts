@@ -121,7 +121,7 @@ interface CrewEls {
 }
 
 const ROLE_LABEL: Record<string, string> = { pilot: 'Пилот', gunner: 'Арт.', shieldop: 'Щит', engineer: 'Инж.' };
-const TASK_LABEL: Record<string, string> = { atPost: 'на посту', toPost: 'к посту', seal: 'герметизирует', extinguish: 'тушит', flee: 'бежит', idle: 'свободен' };
+const TASK_LABEL: Record<string, string> = { atPost: 'на посту', toPost: 'к посту', seal: 'герметизирует', extinguish: 'тушит', flee: 'бежит', idle: 'свободен', ejected: 'ВЫБРОШЕН В ПРОБОИНУ' };
 const ROLE_DOT: Record<string, string> = { pilot: '#ffffff', gunner: '#ffb347', shieldop: '#6a86ff', engineer: '#ffe066' };
 
 export class Hud {

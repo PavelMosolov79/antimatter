@@ -20,7 +20,8 @@ export type SimEvent =
   | { t: 'shield'; x: number; y: number; shipId: number }
   | { t: 'warning'; x: number; y: number }
   | { t: 'detonate'; x: number; y: number; r: number }
-  | { t: 'dead'; x: number; y: number; shipId: number };
+  | { t: 'dead'; x: number; y: number; shipId: number }
+  | { t: 'crewLost'; x: number; y: number };
 
 export interface ShipOptions {
   name: string;

@@ -130,6 +130,15 @@ export class CombatFx {
           const sp = 6 + Math.random() * 30;
           particles.emit(e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.4 + Math.random() * 0.6, 1 + Math.random() * 1.6, 0xffa050, true, 1.5);
         }
+      } else if (e.t === 'crewLost') {
+        // A small pale vapor puff — the last trace of air going out with them — rather
+        // than a fiery burst, to read as a person lost, not a ship dying.
+        for (let i = 0; i < 16; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const sp = 2 + Math.random() * 8;
+          const c = i % 3 === 0 ? 0xffffff : 0xdfefff;
+          particles.emit(e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + Math.random() * 0.5, 0.5 + Math.random() * 0.7, c, true, 1.8);
+        }
       }
     }
   }
