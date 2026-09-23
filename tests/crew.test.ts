@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GridBody } from '../src/sim/body';
 import { ensureRooms, roomsOnDeck } from '../src/sim/compartments';
-import { pilotAvailable } from '../src/sim/crew';
+import { pilotAvailable, updateCrew } from '../src/sim/crew';
 import { splitBody } from '../src/sim/fragment';
 import { buildFighter } from '../src/sim/ships';
 import { World } from '../src/sim/world';
@@ -175,5 +175,44 @@ describe('crew across a hull fragmentation split', () => {
     const survivor = res!.main!;
     const stillThere = survivor.sys!.crew!.find((c) => c.id === pilot.id);
     expect(stillThere).toBeUndefined();
+  });
+
+  it('remaps a surviving stationary crew member onto their post\'s new module index instead of crashing on the next tick', () => {
+    // extractComponent() rebuilds grid.modules per piece by scanning the old array in
+    // order and skipping any module with zero surviving cells on this side of the
+    // break — so a module's index in the new (cropped) grid almost never matches its
+    // old index once an earlier module loses every cell here. If a crew member's
+    // homeModule is left pointing at the old index, it ends up referring to the wrong
+    // module (or past the end of the new, shorter array), and the next updateCrew()
+    // call throws reading `coreAlive` off undefined inside moduleEfficiency().
+    const { world, ship } = makePlayer();
+    const crew = ship.sys!.crew!;
+    const gunner = crew.find((c) => c.role === 'gunner')!;
+    const shieldop = crew.find((c) => c.role === 'shieldop')!;
+
+    // Destroy an earlier-indexed module (an engine, added before any turret or shield
+    // generator in ships.ts) entirely, so every later module's index shifts down by one
+    // once the grid is rebuilt for this piece.
+    const engine = ship.grid.modules.find((m) => m.kind === 'engine')!;
+    for (const cell of [...engine.cells]) ship.grid.removeCell(cell);
+
+    // Also sever the hull so this actually triggers a fragmentation split (destroying
+    // the engine alone doesn't disconnect anything).
+    for (let x = 0; x < ship.grid.width; x++) {
+      for (let z = 0; z < ship.grid.depth; z++) ship.grid.removeCell(ship.grid.idx(x, 34, z));
+    }
+
+    const res = splitBody(ship, () => 0.5, 0);
+    const survivor = res!.main!;
+    expect(survivor.grid).not.toBe(ship.grid);
+
+    expect(() => updateCrew(world, survivor, DT)).not.toThrow();
+
+    const survivingGunner = survivor.sys!.crew!.find((c) => c.id === gunner.id);
+    const survivingShieldop = survivor.sys!.crew!.find((c) => c.id === shieldop.id);
+    expect(survivingGunner).toBeDefined();
+    expect(survivingShieldop).toBeDefined();
+    if (!survivingGunner!.orphaned) expect(survivor.grid.modules[survivingGunner!.homeModule].kind).toBe('turret');
+    if (!survivingShieldop!.orphaned) expect(survivor.grid.modules[survivingShieldop!.homeModule].kind).toBe('shield');
   });
 });

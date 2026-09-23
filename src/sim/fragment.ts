@@ -70,7 +70,7 @@ export function findComponents(grid: ShipGrid): Components {
   return { labels, count, columns, mass };
 }
 
-function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { grid: ShipGrid; bx: number; by: number } {
+function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { grid: ShipGrid; bx: number; by: number; moduleMap: number[] } {
   const { width: w, height: h, depth } = src;
   let minX = w;
   let minY = h;
@@ -92,7 +92,9 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
       for (let z = 0; z < depth; z++) grid.copyCellFrom(src, src.idx(x, y, z), x - minX, y - minY, z);
     }
   }
-  for (const m of src.modules) {
+  const moduleMap: number[] = new Array(src.modules.length).fill(-1);
+  for (let mi = 0; mi < src.modules.length; mi++) {
+    const m = src.modules[mi];
     const cells: number[] = [];
     let core = -1;
     for (const i of m.cells) {
@@ -105,6 +107,7 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
       if (i === m.core) core = ni;
     }
     if (cells.length === 0) continue;
+    moduleMap[mi] = grid.modules.length;
     const nm: Module = {
       kind: m.kind,
       cells,
@@ -136,7 +139,7 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
     grid.doors.push({ cell: ni, open: d.open, destroyed: d.destroyed });
     grid.doorIdx[ni] = grid.doors.length;
   }
-  return { grid, bx: minX, by: minY };
+  return { grid, bx: minX, by: minY, moduleMap };
 }
 
 export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult | null {
@@ -151,6 +154,7 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
   let main: GridBody | null = null;
   let mainBx = 0;
   let mainBy = 0;
+  let mainModuleMap: number[] = [];
   let kickPx = 0;
   let kickPy = 0;
   const g = body.grid;
@@ -169,7 +173,7 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
       }
       continue;
     }
-    const { grid, bx, by } = extractComponent(g, comps.labels, label);
+    const { grid, bx, by, moduleMap } = extractComponent(g, comps.labels, label);
     const mp = grid.massProps();
     const wp = body.localToWorld(mp.comX + bx, mp.comY + by, { x: 0, y: 0 });
     const piece = new GridBody(grid, wp.x, wp.y, body.angle, label === mainLabel ? body.kind : 'debris');
@@ -186,6 +190,7 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
       main = piece;
       mainBx = bx;
       mainBy = by;
+      mainModuleMap = moduleMap;
     } else {
       const dx = wp.x - ox;
       const dy = wp.y - oy;
@@ -210,7 +215,7 @@ export function splitBody(body: GridBody, rng: Rng, time: number): SplitResult |
       main.sys.rooms = remapRoomGraph(main.sys.rooms, main.grid, mainBx, mainBy);
     }
     if (main.sys?.crew) {
-      main.sys.crew = remapCrew(main.sys.crew, main.grid, mainBx, mainBy);
+      main.sys.crew = remapCrew(main.sys.crew, main.grid, mainBx, mainBy, mainModuleMap);
     }
   }
   return { main, pieces, dust };

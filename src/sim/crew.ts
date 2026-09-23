@@ -404,10 +404,25 @@ export function crewOnDeck(crew: Crew[], z: number): Crew[] {
   return crew.filter((c) => !c.dead && c.z === z);
 }
 
-/** Counterpart to remapRoomGraph: translates crew positions into a cropped grid's local
+/**
+ * Counterpart to remapRoomGraph: translates crew positions into a cropped grid's local
  * coordinates after a hull fragmentation split. Crew whose position falls outside the
- * new grid (they were on the piece that broke away) are lost with it. */
-export function remapCrew(crew: Crew[], newGrid: ShipGrid, offsetX: number, offsetY: number): Crew[] {
+ * new grid (they were on the piece that broke away) are lost with it.
+ *
+ * `moduleMap` maps each module index in the *old* grid to its index in this new
+ * (cropped) grid, or -1 if that module has no surviving cells on this piece —
+ * extractComponent() in fragment.ts rebuilds `grid.modules` from scratch per piece, in
+ * whatever order it finds surviving modules, which essentially never matches the old
+ * indices once even one earlier module lost every cell on this side of the break.
+ * `homeModule` is a raw index into that array, so leaving it unmapped anywhere a crew
+ * member's own module (or bridge module, for a pilot who's off elsewhere) got split
+ * differently than expected left it pointing at the wrong module, or past the end of
+ * the new (usually shorter) array — moduleEfficiency() would then throw reading
+ * `coreAlive` off undefined the next time this crew member's post was checked. A
+ * post that didn't survive in this piece orphans its crew instead, same as if it had
+ * simply been destroyed.
+ */
+export function remapCrew(crew: Crew[], newGrid: ShipGrid, offsetX: number, offsetY: number, moduleMap: number[]): Crew[] {
   const out: Crew[] = [];
   for (const c of crew) {
     if (c.dead) continue;
@@ -421,6 +436,16 @@ export function remapCrew(crew: Crew[], newGrid: ShipGrid, offsetX: number, offs
     c.waypoints = [];
     c.roomId = -1;
     c.destRoom = -1;
+    if (!c.mobile) {
+      const mapped = c.homeModule >= 0 && c.homeModule < moduleMap.length ? moduleMap[c.homeModule] : -1;
+      if (mapped >= 0) {
+        c.homeModule = mapped;
+      } else {
+        c.homeModule = -1;
+        c.orphaned = true;
+        c.task = 'idle';
+      }
+    }
     out.push(c);
   }
   return out;
