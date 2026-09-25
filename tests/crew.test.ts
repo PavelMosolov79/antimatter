@@ -121,6 +121,38 @@ describe('pilot post and flight control', () => {
   });
 });
 
+describe('engineers save the ship from a reactor fire (MVP-2 acceptance scenario)', () => {
+  /** A burning reactor room with the engineers sent away to the bridge, so they have to run for it. */
+  function reactorFire(withEngineers: boolean): GridBody {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const reactorRoom = graph.rooms.find((r) => r.cells.some((i) => ship.grid.mod[i] !== 0 && ship.grid.modules[ship.grid.mod[i] - 1].kind === 'reactor'))!;
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    for (const c of ship.sys!.crew!) {
+      if (c.role !== 'engineer') continue;
+      if (!withEngineers) c.dead = true;
+      c.x = pilot.x;
+      c.y = pilot.y;
+      c.z = pilot.z;
+      c.waypoints = [];
+      c.roomId = -1;
+    }
+    reactorRoom.fire = 1;
+    for (let i = 0; i < 60 * 40 && ship.sys!.countdown < 0; i++) world.step(DT);
+    return ship;
+  }
+
+  it('left alone, the fire overheats the reactor and starts the detonation countdown', () => {
+    expect(reactorFire(false).sys!.countdown).toBeGreaterThanOrEqual(0);
+  });
+
+  it('engineers run from the bridge, put the fire out and the countdown never starts', () => {
+    const ship = reactorFire(true);
+    expect(ship.sys!.countdown).toBe(-1);
+    expect(ship.sys!.dead).toBe(false);
+  });
+});
+
 describe('engineers', () => {
   it('holds a breached room steady instead of letting it fully vent', () => {
     const { world, ship } = makePlayer();
