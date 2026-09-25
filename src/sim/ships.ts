@@ -268,6 +268,44 @@ function addReactor(grid: ShipGrid, x0: number, y0: number, z: number, size: num
   grid.addModule('reactor', cells, { core, power, capacity, blast });
 }
 
+/**
+ * A reactor whose central `coreSize` block is the glowing Mat.CORE instead of plain
+ * reactor casing — still one module, so the core cells count toward its efficiency and
+ * its blast exactly like the casing around them.
+ */
+function addReactorCore(grid: ShipGrid, x0: number, y0: number, z: number, size: number, coreSize: number, power: number, capacity: number, blast: number): void {
+  const cells: Array<[number, number, number]> = [];
+  const c0 = Math.floor((size - coreSize) / 2);
+  for (let dy = 0; dy < size; dy++) {
+    for (let dx = 0; dx < size; dx++) {
+      if (!grid.isOccupied(x0 + dx, y0 + dy)) continue;
+      const inCore = dx >= c0 && dx < c0 + coreSize && dy >= c0 && dy < c0 + coreSize;
+      grid.setCell(x0 + dx, y0 + dy, z, inCore ? Mat.CORE : Mat.REACTOR);
+      cells.push([x0 + dx, y0 + dy, z]);
+    }
+  }
+  const core: [number, number, number] = [x0 + Math.floor(size / 2), y0 + Math.floor(size / 2), z];
+  grid.addModule('reactor', cells, { core, power, capacity, blast });
+}
+
+/** Interior decor only ever replaces plain deck, same as the room helpers above. */
+function furnish(grid: ShipGrid, x0: number, x1: number, y0: number, y1: number, z: number, m: number): void {
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (grid.mat[grid.idx(x, y, z)] === Mat.DECK) grid.setCell(x, y, z, m);
+    }
+  }
+}
+
+/** A 2×2 seat facing toward smaller y (the renderer draws its rear row as the backrest). */
+function addSeat(grid: ShipGrid, x: number, y: number, z: number): void {
+  furnish(grid, x, x + 1, y, y + 1, z, Mat.SEAT);
+}
+
+function addConsole(grid: ShipGrid, x0: number, x1: number, y0: number, y1: number, z: number): void {
+  furnish(grid, x0, x1, y0, y1, z, Mat.CONSOLE);
+}
+
 function addShieldGen(grid: ShipGrid, x0: number, y0: number, z: number, shieldMax: number, regen: number): void {
   const cells: Array<[number, number, number]> = [];
   for (let dy = 0; dy < 2; dy++) {
@@ -432,6 +470,109 @@ export function buildCruiser(): ShipGrid {
   return g;
 }
 
+/**
+ * Wedge-hulled capital ship: pointed bow, flanks widening almost linearly to a wide flat
+ * stern. Hull plus two decks. Deck 1 is one nose-to-stern chain of compartments that
+ * share walls and open into each other (thruster access → service bay → shield bay →
+ * bridge → reactor); deck 2 holds turret access and engine control. The open deck left
+ * either side of the chain is deliberately empty — room for modules added later.
+ */
+const BATTLESHIP_PROFILE: Array<[number, number]> = [
+  [0, 0],
+  [20, 9],
+  [168, 57],
+  [186, 62],
+  [186.01, 0],
+];
+
+export function buildBattleship(): ShipGrid {
+  const g = hullShip(130, 190, 3, BATTLESHIP_PROFILE);
+
+  // Stern drive cluster: three big main engines with two smaller ones nested between them.
+  addEngine(g, 22, 166, 16, 16);
+  addEngine(g, 57, 166, 16, 16);
+  addEngine(g, 92, 166, 16, 16);
+  addEngine(g, 42, 158, 12, 12);
+  addEngine(g, 76, 158, 12, 12);
+  addNoseThruster(g, 60);
+  addNoseThruster(g, 69);
+  for (const y of [65, 128, 165]) {
+    addSideThruster(g, y, 'left');
+    addSideThruster(g, y, 'right');
+  }
+
+  addTurret(g, 50, 45, 2, 'pulse', -0.3, 1.7);
+  addTurret(g, 79, 45, 2, 'pulse', 0.3, 1.7);
+  addTurret(g, 36, 85, 3, 'pulse', -0.5, 1.6);
+  addTurret(g, 92, 85, 3, 'pulse', 0.5, 1.6);
+  addTurret(g, 28, 108, 3, 'heavy', -0.6, 1.3);
+  addTurret(g, 100, 108, 3, 'heavy', 0.6, 1.3);
+  addTurret(g, 18, 148, 3, 'heavy', -0.7, 1.2);
+  addTurret(g, 110, 148, 3, 'heavy', 0.7, 1.2);
+  addTurret(g, 8, 176, 3, 'beam', Math.PI, 1.5);
+  addTurret(g, 118, 176, 3, 'beam', Math.PI, 1.5);
+
+  // Deck 1: each compartment's north wall is the previous one's south wall, with the
+  // door between them on the x=64 spine.
+  room(g, 1, 55, 74, 20, 38, { n: -1, s: 64, w: -1, e: -1 }); // thruster access
+  room(g, 1, 54, 75, 38, 57, { n: 64, s: 64, w: -1, e: -1 }); // service bay
+  room(g, 1, 48, 81, 57, 87, { n: 64, s: 64, w: -1, e: -1 }); // shield bay
+  room(g, 1, 39, 90, 87, 124, { n: 64, s: 64, w: -1, e: -1 }); // bridge
+  room(g, 1, 42, 87, 124, 171, { n: 64, s: -1, w: -1, e: -1 }); // reactor, sealed aft
+  // Deck 2: turret access and engine control share the x=64 wall and its door.
+  room(g, 2, 40, 64, 140, 163, { n: -1, s: -1, w: -1, e: 151 });
+  room(g, 2, 64, 102, 140, 165, { n: -1, s: -1, w: 151, e: -1 });
+
+  addBridge(g, 61, 108, 8, 3, 1); // primary helm, in front of the captain's chair
+  addShieldGen(g, 64, 70, 1, 900, 60);
+  addReactorCore(g, 59, 141, 1, 12, 4, 110, 600, 70);
+  addBlock(g, 57, 48, 4, 3, 1); // service bay equipment
+  addBridge(g, 81, 148, 6, 3, 2); // reserve helm in engine control
+
+  // Bridge: forward instrument banks either side of the walkway with their crew seats,
+  // two pits of three stations down the flanks, the captain's chair behind the helm.
+  addConsole(g, 48, 60, 89, 90, 1);
+  addConsole(g, 69, 81, 89, 90, 1);
+  for (const x of [52, 57, 71, 76]) addSeat(g, x, 92, 1);
+  for (const y of [98, 106, 114]) {
+    addConsole(g, 43, 49, y, y, 1);
+    addSeat(g, 45, y + 1, 1);
+    addConsole(g, 80, 86, y, y, 1);
+    addSeat(g, 82, y + 1, 1);
+  }
+  addSeat(g, 64, 112, 1);
+  // Reactor: engineer stations in the four corners watching the core.
+  addConsole(g, 46, 52, 128, 128, 1);
+  addSeat(g, 48, 129, 1);
+  addConsole(g, 77, 83, 128, 128, 1);
+  addSeat(g, 79, 129, 1);
+  addConsole(g, 46, 52, 162, 162, 1);
+  addSeat(g, 48, 163, 1);
+  addConsole(g, 77, 83, 162, 162, 1);
+  addSeat(g, 79, 163, 1);
+  // Shield bay: operator and backup either side of the generator.
+  addConsole(g, 54, 60, 78, 78, 1);
+  addSeat(g, 56, 79, 1);
+  addConsole(g, 69, 75, 78, 78, 1);
+  addSeat(g, 71, 79, 1);
+  // Thruster access and service bay: one monitoring post each.
+  addConsole(g, 60, 69, 32, 32, 1);
+  addSeat(g, 64, 33, 1);
+  addConsole(g, 63, 70, 44, 44, 1);
+  addSeat(g, 66, 45, 1);
+  // Engine control: a long instrument bank with four seats; turret access gets one post.
+  addConsole(g, 67, 100, 141, 142, 2);
+  for (const x of [70, 76, 90, 96]) addSeat(g, x, 143, 2);
+  addConsole(g, 46, 58, 146, 146, 2);
+  addSeat(g, 51, 147, 2);
+
+  addLadder(g, 50, 150, 1, 2);
+  addLadder(g, 80, 150, 1, 2);
+
+  tuneShip(g, { accel: 12, rcsPerThrust: 30, backShare: 0.5, sideShare: 0.22 });
+  return g;
+}
+
 export function buildScout(): ShipGrid {
   const g = hullShip(21, 28, 2, [
     [0, 0],
@@ -477,6 +618,7 @@ export function buildFreighter(): ShipGrid {
 export const SHIPS: ShipSpec[] = [
   { id: 'fighter', label: 'Истребитель', build: () => buildFighter('strike') },
   { id: 'cruiser', label: 'Крейсер', build: buildCruiser },
+  { id: 'battleship', label: 'Линкор', build: buildBattleship },
 ];
 
 export interface EnemySpec {

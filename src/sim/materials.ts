@@ -13,6 +13,9 @@ export const Mat = {
   DOOR: 11,
   LADDER: 12,
   BRIDGE: 13,
+  SEAT: 14,
+  CONSOLE: 15,
+  CORE: 16,
 } as const;
 
 export interface MaterialDef {
@@ -37,4 +40,9 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'door', hp: 20, mass: 0.6, color: 0xe0b34e },
   { name: 'ladder', hp: 14, mass: 0.5, color: 0x4fae7a },
   { name: 'bridge', hp: 24, mass: 1.5, color: 0xd8e6ff },
+  // Interior decor: fixtures a room is furnished with rather than systems it runs.
+  // Flimsy and light — they die to the same hits the deck under them would.
+  { name: 'seat', hp: 10, mass: 0.4, color: 0x7a8296 },
+  { name: 'console', hp: 12, mass: 0.6, color: 0x2c333d },
+  { name: 'core', hp: 120, mass: 4, color: 0xff6fa0 },
 ];
