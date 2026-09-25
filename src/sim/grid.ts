@@ -89,6 +89,14 @@ export class ShipGrid {
   readonly colCount: Uint8Array;
   modules: Module[] = [];
   doors: Door[] = [];
+  /**
+   * Optional hand-drawn look, one colour per cell (r,g,b as 0..~400 so over-bright
+   * highlights survive until shading). Ships that have it render these colours instead
+   * of their materials' flat ones; the material still decides everything else.
+   */
+  paintRGB: Uint16Array | null = null;
+  /** Per cell: bit 1 = painted, bit 2 = self-lit (ignores shading). */
+  paintFlags: Uint8Array | null = null;
   mass = 0;
   columns = 0;
   cells = 0;
@@ -163,10 +171,26 @@ export class ShipGrid {
     if (isStructural(m)) this.structVersion++;
   }
 
+  setPaint(i: number, r: number, g: number, b: number, glow: boolean): void {
+    if (!this.paintRGB) {
+      this.paintRGB = new Uint16Array(this.mat.length * 3);
+      this.paintFlags = new Uint8Array(this.mat.length);
+    }
+    const clamp = (v: number): number => (v < 0 ? 0 : v > 65535 ? 65535 : Math.round(v));
+    this.paintRGB[i * 3] = clamp(r);
+    this.paintRGB[i * 3 + 1] = clamp(g);
+    this.paintRGB[i * 3 + 2] = clamp(b);
+    this.paintFlags![i] = glow ? 3 : 1;
+  }
+
   copyCellFrom(src: ShipGrid, sidx: number, x: number, y: number, z: number): void {
     const m = src.mat[sidx];
     if (m === 0) return;
     const i = this.idx(x, y, z);
+    if (src.paintFlags && src.paintFlags[sidx]) {
+      const p = src.paintRGB!;
+      this.setPaint(i, p[sidx * 3], p[sidx * 3 + 1], p[sidx * 3 + 2], (src.paintFlags[sidx] & 2) !== 0);
+    }
     this.mat[i] = m;
     this.hp[i] = src.hp[sidx];
     const col = y * this.width + x;
