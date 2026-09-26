@@ -48,7 +48,9 @@ export function updateAi(world: World, b: GridBody): void {
   const foe = tp.body;
   const p = PARAMS[ai.kind];
   const hullLow = b.grid.cells < sys.cellsMax * 0.45;
-  const range = p.range * (hullLow ? 1.7 : 1);
+  // Big hulls keep a berth proportional to both ships' size; for the small classes this
+  // never exceeds their own preferred range, so it only ever pushes a capital ship out.
+  const range = Math.max(p.range, (b.radius + foe.radius) * 1.3) * (hullLow ? 1.7 : 1);
 
   let dx = b.x - foe.x;
   let dy = b.y - foe.y;

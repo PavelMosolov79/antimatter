@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     if (e.code === 'Space') {
       game.paused = !game.paused;
       e.preventDefault();
-    } else if (e.code === 'KeyR') game.reset();
+    } else if (e.code === 'KeyR' && game.mode === 'sandbox') game.reset();
   });
 
   app.ticker.add((t) => {

@@ -25,6 +25,8 @@ export interface WeaponState {
 
 export interface Module {
   kind: ModuleKind;
+  /** Creation index on the ship as built — stays the same when a hull split rebuilds the module list. */
+  key: number;
   cells: number[];
   total: number;
   alive: number;
@@ -308,6 +310,7 @@ export class ShipGrid {
     const core = opts.core ? this.idx(opts.core[0], opts.core[1], opts.core[2]) : idxs[0];
     const module: Module = {
       kind,
+      key: this.modules.length,
       cells: idxs,
       total: idxs.length,
       alive: idxs.length,

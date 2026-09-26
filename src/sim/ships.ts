@@ -493,6 +493,23 @@ export function buildBattleship(): ShipGrid {
   return g;
 }
 
+/**
+ * The run's final boss: the battleship under AI control, cut down to something a fighter
+ * can survive — every other turret left unarmed and half the shield.
+ */
+export const BOSS = { shieldShare: 0.5 };
+
+export function buildBossBattleship(): ShipGrid {
+  const g = buildBattleship();
+  g.modules
+    .filter((m) => m.kind === 'turret')
+    .forEach((m, i) => {
+      if (i % 2 === 1) m.weapon = undefined;
+    });
+  for (const m of g.modules) if (m.kind === 'shield') m.shieldMax *= BOSS.shieldShare;
+  return g;
+}
+
 export function buildScout(): ShipGrid {
   const g = hullShip(21, 28, 2, [
     [0, 0],
@@ -552,4 +569,5 @@ export const ENEMIES: EnemySpec[] = [
   { id: 'scout', label: 'Разведчик', ai: 'scout', build: buildScout },
   { id: 'raider', label: 'Налётчик', ai: 'raider', build: () => buildFighter('raider') },
   { id: 'hunter', label: 'Охотник за реактором', ai: 'hunter', build: () => buildFighter('hunter') },
+  { id: 'boss', label: 'Линкор', ai: 'raider', build: buildBossBattleship },
 ];

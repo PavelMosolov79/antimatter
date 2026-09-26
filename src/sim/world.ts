@@ -96,6 +96,41 @@ export class World implements DamageSink {
     return b;
   }
 
+  /**
+   * Brings the player's ship over from a previous battle exactly as it left it — hull
+   * damage, crew, compartments — parked at (x, y) and at rest. Only what can't outlive
+   * the old world is dropped: motion, targets that pointed at its ships, the manual nav.
+   */
+  adoptPlayer(b: GridBody, x: number, y: number, angle = 0): GridBody {
+    b.removed = false;
+    b.x = x;
+    b.y = y;
+    b.angle = angle;
+    b.vx = 0;
+    b.vy = 0;
+    b.w = 0;
+    b.throttle = 0;
+    b.rcsTorque = 0;
+    b.tBack = 0;
+    b.tRight = 0;
+    b.tLeft = 0;
+    b.splitTag = 0;
+    b.splitTime = -1;
+    b.syncTrig();
+    b.isPlayer = true;
+    b.kind = 'ship';
+    if (b.sys) {
+      b.sys.focus = null;
+      b.sys.autoTarget = null;
+      b.sys.nav = { target: null, face: null };
+      b.sys.lastHit = -100;
+    }
+    for (const m of b.grid.modules) if (m.weapon) m.weapon.target = null;
+    this.bodies.push(b);
+    this.player = b;
+    return b;
+  }
+
   findShip(shipId: number): GridBody | null {
     for (const b of this.bodies) {
       if (!b.removed && b.shipId === shipId && b.kind === 'ship' && b.sys && !b.sys.dead) return b;

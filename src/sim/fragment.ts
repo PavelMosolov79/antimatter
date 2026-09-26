@@ -110,6 +110,7 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
     moduleMap[mi] = grid.modules.length;
     const nm: Module = {
       kind: m.kind,
+      key: m.key,
       cells,
       total: m.total,
       alive: cells.length,

@@ -1,5 +1,6 @@
 import { Game, SCENARIOS, type Tool } from './game';
 import { OUTER_VIEW } from './render/shipView';
+import { RunScreen } from './runScreen';
 import { SHIPS } from './sim/ships';
 import { moduleEfficiency } from './sim/grid';
 import { WEAPONS } from './sim/weapons';
@@ -142,6 +143,9 @@ export class Hud {
   private weaponKey = '';
   private overlay = document.createElement('div');
   private overlayTitle = document.createElement('h2');
+  private sandboxButtons = document.createElement('div');
+  private runButton = document.createElement('button');
+  private runScreen: RunScreen;
   private compartBody = document.createElement('div');
   private compartKey = '';
   private roomEls: RoomEls[] = [];
@@ -271,6 +275,7 @@ export class Hud {
     controls.appendChild(this.stats);
 
     const scen = subsection(controls, 'Сценарий');
+    button(scen, 'Забег (док)', () => this.game.openDock());
     for (const sc of SCENARIOS) this.scenarioBtns.set(sc.id, button(scen, sc.label, () => this.game.reset(undefined, sc.id)));
 
     const ships = subsection(controls, 'Корабль игрока');
@@ -307,9 +312,12 @@ export class Hud {
     const sandboxBtn = document.createElement('button');
     sandboxBtn.textContent = 'В песочницу';
     sandboxBtn.addEventListener('click', () => this.game.reset(undefined, 'sandbox'));
-    box.append(this.overlayTitle, again, sandboxBtn);
+    this.sandboxButtons.append(again, sandboxBtn);
+    this.runButton.addEventListener('click', () => this.game.continueRun());
+    box.append(this.overlayTitle, this.sandboxButtons, this.runButton);
     this.overlay.appendChild(box);
     root.appendChild(this.overlay);
+    this.runScreen = new RunScreen(game, root);
 
     const toggle = document.createElement('button');
     toggle.id = 'panelToggle';
@@ -360,8 +368,8 @@ export class Hud {
     const g = this.game;
     g.scene.craterPreview = g.tool === 'crater' ? g.crater.radius : 0;
     for (const [t, b] of this.toolBtns) b.classList.toggle('on', g.tool === t);
-    for (const [id, b] of this.shipBtns) b.classList.toggle('on', g.shipId === id);
-    for (const [id, b] of this.scenarioBtns) b.classList.toggle('on', g.scenarioId === id);
+    for (const [id, b] of this.shipBtns) b.classList.toggle('on', g.mode === 'sandbox' && g.shipId === id);
+    for (const [id, b] of this.scenarioBtns) b.classList.toggle('on', g.mode === 'sandbox' && g.scenarioId === id);
     const pri = g.world.player?.sys?.priority;
     for (const [id, b] of this.priorityBtns) b.classList.toggle('on', pri === id);
     const depth = g.world.player?.grid.depth ?? 0;
@@ -374,12 +382,18 @@ export class Hud {
     for (const t of this.toggles) t.el.classList.toggle('on', t.get());
     for (const w of this.weaponEls) w.name.classList.toggle('sel', g.selectedWeapon === w.id);
 
-    const over = g.state !== 'playing';
+    const inRun = g.mode === 'run';
+    const over = g.state !== 'playing' && (!inRun || g.runPhase === 'battle');
     this.overlay.style.display = over ? 'flex' : 'none';
     if (over) {
-      this.overlayTitle.textContent = g.state === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ';
+      const boss = g.run?.fighting?.kind === 'boss';
+      this.overlayTitle.textContent = !inRun ? (g.state === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ') : g.state === 'won' ? (boss ? 'БОСС ПОВЕРЖЕН' : 'БОЙ ВЫИГРАН') : 'КОРАБЛЬ УНИЧТОЖЕН';
       this.overlayTitle.className = g.state;
+      this.sandboxButtons.style.display = inRun ? 'none' : '';
+      this.runButton.style.display = inRun ? '' : 'none';
+      this.runButton.textContent = g.state === 'won' && !boss ? 'На карту ▸' : 'Итоги забега';
     }
+    this.runScreen.update();
 
     if (now - this.last < 150) return;
     this.last = now;
