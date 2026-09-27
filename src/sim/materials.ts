@@ -16,6 +16,9 @@ export const Mat = {
   SEAT: 14,
   CONSOLE: 15,
   CORE: 16,
+  CRUISE: 17,
+  BRAKE: 18,
+  TURN: 19,
 } as const;
 
 export interface MaterialDef {
@@ -30,7 +33,7 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'hull', hp: 30, mass: 1, color: 0x8c96a8 },
   { name: 'armor', hp: 80, mass: 2, color: 0x5d6b82 },
   { name: 'deck', hp: 14, mass: 0.5, color: 0x9a8f7c },
-  { name: 'engine', hp: 45, mass: 3, color: 0xd9822b },
+  { name: 'engine', hp: 45, mass: 3, color: 0xf2cf3a }, // impulse drive
   { name: 'module', hp: 24, mass: 1.5, color: 0x3fb8a6 },
   { name: 'thruster', hp: 22, mass: 0.8, color: 0x52d4ee },
   { name: 'turret', hp: 35, mass: 1.5, color: 0x5b6478 },
@@ -45,4 +48,8 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'seat', hp: 10, mass: 0.4, color: 0x7a8296 },
   { name: 'console', hp: 12, mass: 0.6, color: 0x2c333d },
   { name: 'core', hp: 120, mass: 4, color: 0xff6fa0 },
+  // Drive family (see propulsion.ts): cruise main drive, nose brakes, turning nozzles.
+  { name: 'cruise', hp: 55, mass: 4, color: 0xd8423a },
+  { name: 'brake', hp: 22, mass: 0.8, color: 0xeef2f6 },
+  { name: 'turn', hp: 22, mass: 0.8, color: 0xa362e8 },
 ];

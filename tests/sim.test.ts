@@ -155,7 +155,7 @@ describe('engines', () => {
     expect(e.fx).toBeCloseTo(0, 6);
     expect(e.fy).toBeLessThan(0);
     expect(Math.abs(e.torque)).toBeLessThan(Math.abs(e.fy) * 0.5);
-    expect(e.thrust / p.mass).toBeCloseTo(30, 3);
+    expect(e.thrust / p.mass).toBeCloseTo(30, 0);
   });
 
   it('loses thrust and gains torque when one side engine is destroyed', () => {

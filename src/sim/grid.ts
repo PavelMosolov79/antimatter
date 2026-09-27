@@ -1,6 +1,9 @@
 import { Mat, MATERIALS } from './materials';
 
-export type ModuleKind = 'engine' | 'thruster' | 'turret' | 'reactor' | 'shield' | 'bridge' | 'generic';
+export type ModuleKind = 'engine' | 'thruster' | 'brake' | 'turn' | 'turret' | 'reactor' | 'shield' | 'bridge' | 'generic';
+
+/** The five drive types (propulsion.ts): which one a thrust-producing module is. */
+export type DriveType = 'cruise' | 'impulse' | 'maneuver' | 'brake' | 'turn';
 
 export type WeaponType = 'pulse' | 'beam' | 'heavy';
 
@@ -36,6 +39,12 @@ export interface Module {
   rcs: number;
   dirX: number;
   dirY: number;
+  drive?: DriveType;
+  /** Seconds a drive takes to wind up to full output, and to wind back down; 0 is instant. */
+  spoolUp: number;
+  spoolDown: number;
+  /** Current output 0..1 — a main drive's spooled level, a nozzle's firing this tick. */
+  out: number;
   weapon?: WeaponState;
   power: number;
   capacity: number;
@@ -57,6 +66,9 @@ export interface ModuleOptions {
   rcs?: number;
   dirX?: number;
   dirY?: number;
+  drive?: DriveType;
+  spoolUp?: number;
+  spoolDown?: number;
   weapon?: WeaponState;
   power?: number;
   capacity?: number;
@@ -320,6 +332,10 @@ export class ShipGrid {
       rcs: opts.rcs ?? 0,
       dirX: opts.dirX ?? 0,
       dirY: opts.dirY ?? -1,
+      drive: opts.drive,
+      spoolUp: opts.spoolUp ?? 0,
+      spoolDown: opts.spoolDown ?? 0,
+      out: 0,
       weapon: opts.weapon,
       power: opts.power ?? 0,
       capacity: opts.capacity ?? 0,

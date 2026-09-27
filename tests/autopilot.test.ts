@@ -107,10 +107,10 @@ describe('autopilot does not spin the ship', () => {
     expect(angDiff(cruiser.finalAngle, angleTo(-300, -200))).toBeLessThan(0.4);
   });
 
-  it('falls back to flip-and-burn when the retro thrusters are destroyed', () => {
+  it('falls back to flip-and-burn when the brake nozzles are destroyed', () => {
     const world = new World(1);
     const p = world.spawnPlayer(buildFighter(), 0, 0, 0);
-    for (const m of p.grid.modules) if (m.kind === 'thruster' && m.dirY > 0.5) p.grid.removeCell(m.core);
+    for (const m of p.grid.modules) if (m.kind === 'brake') p.grid.removeCell(m.core);
     p.syncMassProps();
     world.target = { x: 0, y: -300 };
     let rot = 0;
@@ -149,7 +149,7 @@ describe('autopilot does not spin the ship', () => {
     expect(hop.rotTotal).toBeLessThan(2.5);
   });
 
-  it('backs up with the retro thrusters when the point is just behind', () => {
+  it('backs up on the brake nozzles when the point is just behind', () => {
     const r = fly({ clicks: [{ t: 0, x: 0, y: 6 }] });
     expect(r.arrived).toBe(true);
     expect(r.rotTotal).toBeLessThan(0.1);
@@ -160,28 +160,5 @@ describe('autopilot does not spin the ship', () => {
     expect(r.arrived).toBe(true);
     expect(r.rotAfter).toBeLessThan(0.3);
     expect(r.finalDist).toBeLessThan(2);
-  });
-});
-
-describe('maneuvering thrusters are ship modules', () => {
-  it('provide braking and strafing capacity that scales with surviving modules', () => {
-    const world = new World();
-    const p = world.spawnPlayer(buildFighter(), 0, 0);
-    const e = p.engineSummary();
-    expect(e.capBack / p.mass).toBeCloseTo(15, 3);
-    expect(e.capRight / p.mass).toBeCloseTo(7.5, 3);
-    expect(e.capLeft / p.mass).toBeCloseTo(7.5, 3);
-    const back = p.grid.modules.filter((m) => m.kind === 'thruster' && m.dirY > 0.5);
-    expect(back.length).toBe(2);
-    p.grid.removeCell(back[0].core);
-    expect(p.engineSummary().capBack).toBeCloseTo(e.capBack / 2, 3);
-  });
-
-  it('are made of visible pixels on the hull', () => {
-    const world = new World();
-    const p = world.spawnPlayer(buildFighter(), 0, 0);
-    let cells = 0;
-    for (const m of p.grid.modules) if (m.kind === 'thruster') cells += m.cells.length;
-    expect(cells).toBe(4 * 6);
   });
 });

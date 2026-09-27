@@ -8,6 +8,7 @@ import { DUST_MIN_COLUMNS, splitBody, type SplitResult } from './fragment';
 import { gravityAt, isSolid, type Celestial } from './gravity';
 import type { ShipGrid } from './grid';
 import { MATERIALS } from './materials';
+import { applyPropulsion } from './propulsion';
 import { mulberry32, type Rng } from './rng';
 import { SYSTEMS, createSys, updateSystems, type EnergyPriority, type Nav } from './systems';
 import { stepProjectiles, updateWeapons, type Beam, type Projectile } from './weapons';
@@ -114,6 +115,7 @@ export class World implements DamageSink {
     b.tBack = 0;
     b.tRight = 0;
     b.tLeft = 0;
+    for (const m of b.grid.modules) m.out = 0;
     b.splitTag = 0;
     b.splitTime = -1;
     b.syncTrig();
@@ -319,13 +321,7 @@ export class World implements DamageSink {
     b.tBack = ctl.back;
     b.tRight = ctl.right;
     b.tLeft = ctl.left;
-    b.rcsTorque = ctl.torque;
-    const th = ctl.main;
-    const fx = eng.fx * th + eng.capRight * ctl.right - eng.capLeft * ctl.left;
-    const fy = eng.fy * th + eng.capBack * ctl.back;
-    b.vx += (b.c * fx - b.s * fy) * b.invMass * dt;
-    b.vy += (b.s * fx + b.c * fy) * b.invMass * dt;
-    b.w += (eng.torque * th + ctl.torque) * b.invInertia * dt;
+    applyPropulsion(b, ctl, eng, dt);
   }
 
   step(dt: number): void {

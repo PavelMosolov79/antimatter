@@ -1,6 +1,7 @@
 import { ShipGrid, type WeaponState, type WeaponType } from './grid';
 import { buildBattleshipArt } from './battleshipArt';
 import { Mat } from './materials';
+import { DRIVES } from './propulsion';
 
 function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number): void {
   for (let z = z0; z <= z1; z++) {
@@ -118,17 +119,19 @@ function hullShip(width: number, height: number, depth: number, profile: Profile
   return grid;
 }
 
-function addEngine(grid: ShipGrid, x0: number, y0: number, w: number, h: number): void {
+/** A main drive pushing the ship forward. Its thrust is per cell of the drive type (propulsion.ts) unless tuneShip overrides it. */
+function addEngine(grid: ShipGrid, x0: number, y0: number, w: number, h: number, drive: 'cruise' | 'impulse' = 'impulse'): void {
+  const spec = DRIVES[drive];
   const cells: Array<[number, number, number]> = [];
   for (let y = y0; y < y0 + h; y++) {
     for (let x = x0; x < x0 + w; x++) {
       if (!grid.isOccupied(x, y)) continue;
-      grid.setCell(x, y, 0, Mat.ENGINE);
+      grid.setCell(x, y, 0, spec.mat);
       cells.push([x, y, 0]);
     }
   }
   const core: [number, number, number] = [x0 + Math.floor(w / 2), y0 + Math.floor(h / 2), 0];
-  grid.addModule('engine', cells, { core, dirX: 0, dirY: -1 });
+  grid.addModule('engine', cells, { core, dirX: 0, dirY: -1, drive, thrust: spec.thrustPerCell * cells.length, spoolUp: spec.spoolUp, spoolDown: spec.spoolDown });
 }
 
 function addBlock(grid: ShipGrid, x0: number, y0: number, w: number, h: number, z: number): void {
@@ -163,7 +166,9 @@ function addBridge(grid: ShipGrid, x0: number, y0: number, w: number, h: number,
   grid.addModule('bridge', cells, { core: [x0 + Math.floor(w / 2), y0 + Math.floor(h / 2), z] });
 }
 
-function addThruster(grid: ShipGrid, x0: number, y0: number, dirX: number, dirY: number): boolean {
+/** A 2×2 nozzle on the hull edge pushing along (dirX, dirY): maneuvering, brake or turning. */
+function addThruster(grid: ShipGrid, x0: number, y0: number, dirX: number, dirY: number, drive: 'maneuver' | 'brake' | 'turn' = 'maneuver'): boolean {
+  const spec = DRIVES[drive];
   const cells: Array<[number, number, number]> = [];
   for (let dy = 0; dy < 2; dy++) {
     for (let dx = 0; dx < 2; dx++) {
@@ -171,8 +176,8 @@ function addThruster(grid: ShipGrid, x0: number, y0: number, dirX: number, dirY:
       cells.push([x0 + dx, y0 + dy, 0]);
     }
   }
-  for (const [x, y] of cells) grid.setCell(x, y, 0, Mat.THRUSTER);
-  grid.addModule('thruster', cells, { core: cells[0], dirX, dirY });
+  for (const [x, y] of cells) grid.setCell(x, y, 0, spec.mat);
+  grid.addModule(spec.kind, cells, { core: cells[0], dirX, dirY, drive, thrust: spec.thrustPerCell * cells.length });
   return true;
 }
 
@@ -181,12 +186,12 @@ function topOccupied(grid: ShipGrid, x: number): number {
   return -1;
 }
 
-function addNoseThruster(grid: ShipGrid, x0: number): void {
+function addNoseThruster(grid: ShipGrid, x0: number, drive: 'maneuver' | 'brake' = 'maneuver'): void {
   const y0 = Math.max(topOccupied(grid, x0), topOccupied(grid, x0 + 1));
-  addThruster(grid, x0, y0, 0, 1);
+  addThruster(grid, x0, y0, 0, 1, drive);
 }
 
-function addSideThruster(grid: ShipGrid, y0: number, side: 'left' | 'right'): void {
+function addSideThruster(grid: ShipGrid, y0: number, side: 'left' | 'right', drive: 'maneuver' | 'turn' = 'maneuver'): void {
   const first = (y: number): number => {
     for (let x = 0; x < grid.width; x++) if (grid.isOccupied(x, y)) return x;
     return -1;
@@ -195,8 +200,8 @@ function addSideThruster(grid: ShipGrid, y0: number, side: 'left' | 'right'): vo
     for (let x = grid.width - 1; x >= 0; x--) if (grid.isOccupied(x, y)) return x;
     return -1;
   };
-  if (side === 'left') addThruster(grid, Math.max(first(y0), first(y0 + 1)), y0, 1, 0);
-  else addThruster(grid, Math.min(last(y0), last(y0 + 1)) - 1, y0, -1, 0);
+  if (side === 'left') addThruster(grid, Math.max(first(y0), first(y0 + 1)), y0, 1, 0, drive);
+  else addThruster(grid, Math.min(last(y0), last(y0 + 1)) - 1, y0, -1, 0, drive);
 }
 
 interface Tuning {
@@ -302,17 +307,25 @@ const FIGHTER_PROFILE: Array<[number, number]> = [
   [44, 6.5],
 ];
 
+const FIGHTER_TURN_ROWS = [13, 37];
+
 function fighterHull(): ShipGrid {
   const g = hullShip(31, 44, 3, FIGHTER_PROFILE);
-  addEngine(g, 13, 40, 5, 4);
-  addEngine(g, 4, 36, 3, 4);
-  addEngine(g, 24, 36, 3, 4);
+  // The full drive family: a cruise drive on the axis flanked by two impulse drives,
+  // brakes on the nose, maneuvering nozzles amidships, turning pairs at bow and stern.
+  addEngine(g, 13, 40, 5, 4, 'cruise');
+  addEngine(g, 4, 36, 3, 4, 'impulse');
+  addEngine(g, 24, 36, 3, 4, 'impulse');
   addBridge(g, 13, 12, 5, 3, 1);
-  addNoseThruster(g, 11);
-  addNoseThruster(g, 18);
+  addNoseThruster(g, 11, 'brake');
+  addNoseThruster(g, 18, 'brake');
   for (const y of [22, 30]) {
     addSideThruster(g, y, 'left');
     addSideThruster(g, y, 'right');
+  }
+  for (const y of FIGHTER_TURN_ROWS) {
+    addSideThruster(g, y, 'left', 'turn');
+    addSideThruster(g, y, 'right', 'turn');
   }
   return g;
 }
@@ -351,7 +364,6 @@ export function buildFighter(loadout: FighterLoadout = 'strike'): ShipGrid {
   room(g, 2, 18, 26, 29, 35, { n: -1, s: -1, w: 32 });
   addLadder(g, 15, 30, 1, 2);
 
-  tuneShip(g, { accel: loadout === 'hunter' ? 32 : 30, rcsPerThrust: 10, backShare: 0.5, sideShare: 0.25 });
   return g;
 }
 

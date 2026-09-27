@@ -1,4 +1,5 @@
 import { moduleEfficiency, type ShipGrid } from './grid';
+import { nozzleTorqueCaps } from './propulsion';
 import type { ShipSys } from './systems';
 
 let nextBodyId = 1;
@@ -141,6 +142,11 @@ export class GridBody {
     let alive = 0;
     let total = 0;
     for (const m of g.modules) {
+      if (m.kind === 'brake') {
+        capBack += m.thrust * moduleEfficiency(m);
+        continue;
+      }
+      if (m.kind === 'turn') continue;
       if (m.kind === 'thruster') {
         const f = m.thrust * moduleEfficiency(m);
         if (m.dirY > 0.5) capBack += f;
@@ -173,6 +179,9 @@ export class GridBody {
       torque += rx * fyi - ry * fxi;
       rcs += m.rcs * eff;
     }
+    // Nozzles turn the ship for real; plan with the weaker way round.
+    const caps = nozzleTorqueCaps(this);
+    rcs += Math.min(caps.pos, caps.neg);
     return { fx, fy, torque, rcs, capBack, capRight, capLeft, thrust: Math.hypot(fx, fy), alive, total };
   }
 }

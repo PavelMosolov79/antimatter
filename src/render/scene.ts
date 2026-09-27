@@ -1,6 +1,7 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { GridBody } from '../sim/body';
 import { moduleEfficiency } from '../sim/grid';
+import { DRIVES, driveOf, isNozzle, liveCentroid } from '../sim/propulsion';
 import type { World } from '../sim/world';
 import { CombatFx } from './combatFx';
 import { CrewView } from './crewView';
@@ -10,8 +11,6 @@ import { BodyView, OUTER_VIEW } from './shipView';
 import { Starfield } from './starfield';
 
 export const BASE_PX = 4;
-
-const FLAME_COLORS = [0xfff2c0, 0xffc060, 0xff8a30, 0xff5a20];
 
 export class Scene {
   readonly app: Application;
@@ -111,32 +110,17 @@ export class Scene {
     this.drawDebug(world);
   }
 
+  /** Nozzle puffs: every brake, maneuvering and turning nozzle shows what it fired this tick, in its own colour. */
   private emitThrusters(b: GridBody): void {
     const g = b.grid;
-    const eng = b.engineSummary();
-    const tn = eng.rcs > 0 ? b.rcsTorque / eng.rcs : 0;
     for (const m of g.modules) {
-      if (m.kind !== 'thruster') continue;
-      const eff = moduleEfficiency(m);
-      if (eff <= 0) continue;
-      let sx = 0;
-      let sy = 0;
-      let n = 0;
-      for (const i of m.cells) {
-        if (g.mat[i] === 0) continue;
-        sx += g.xOf(i) + 0.5;
-        sy += g.yOf(i) + 0.5;
-        n++;
-      }
-      if (n === 0) continue;
-      const cx = sx / n;
-      const cy = sy / n;
-      let act = m.dirY > 0.5 ? b.tBack : m.dirX > 0.5 ? b.tRight : m.dirX < -0.5 ? b.tLeft : 0;
-      const tau = (cx - b.comX) * m.dirY - (cy - b.comY) * m.dirX;
-      if (Math.abs(tau) > 1 && tau * tn > 0) act = Math.max(act, Math.min(1, Math.abs(tn)) * 0.8);
-      act *= eff;
+      if (!isNozzle(m)) continue;
+      const act = m.out * moduleEfficiency(m);
       if (act < 0.04) continue;
-      const wp = b.localToWorld(cx, cy, { x: 0, y: 0 });
+      const c = liveCentroid(g, m);
+      if (!c) continue;
+      const colors = DRIVES[driveOf(m)!].exhaust;
+      const wp = b.localToWorld(c.x, c.y, { x: 0, y: 0 });
       const ex = -(b.c * m.dirX - b.s * m.dirY);
       const ey = -(b.s * m.dirX + b.c * m.dirY);
       const count = act * 3;
@@ -152,7 +136,7 @@ export class Scene {
           b.vy + ey * speed + ex * jitter,
           0.14 + Math.random() * 0.18,
           1 + Math.random() * 0.9,
-          Math.random() < 0.5 ? 0xd8f6ff : 0x7fdcff,
+          colors[Math.floor(Math.random() * colors.length)],
           true,
           2,
         );
@@ -160,26 +144,21 @@ export class Scene {
     }
   }
 
+  /** Main drive flames, sized by each drive's actual (spooled) output and coloured by its type. */
   private emitFlames(b: GridBody): void {
     this.emitThrusters(b);
-    if (b.throttle < 0.02) return;
     const g = b.grid;
     for (const m of g.modules) {
-      if (m.kind !== 'engine' || moduleEfficiency(m) <= 0) continue;
-      let sx = 0;
-      let sy = 0;
-      let n = 0;
-      for (const i of m.cells) {
-        if (g.mat[i] === 0) continue;
-        sx += g.xOf(i) + 0.5;
-        sy += g.yOf(i) + 0.5;
-        n++;
-      }
-      if (n === 0) continue;
-      const wp = b.localToWorld(sx / n, sy / n, { x: 0, y: 0 });
+      if (m.kind !== 'engine') continue;
+      const act = m.out * moduleEfficiency(m);
+      if (act < 0.02) continue;
+      const c = liveCentroid(g, m);
+      if (!c) continue;
+      const colors = DRIVES[driveOf(m)!].exhaust;
+      const wp = b.localToWorld(c.x, c.y, { x: 0, y: 0 });
       const bx = -(b.c * m.dirX - b.s * m.dirY);
       const by = -(b.s * m.dirX + b.c * m.dirY);
-      const count = b.throttle * 2.5 * moduleEfficiency(m);
+      const count = act * 2.5;
       let emit = Math.floor(count) + (Math.random() < count % 1 ? 1 : 0);
       while (emit-- > 0) {
         const speed = 22 + Math.random() * 16;
@@ -187,7 +166,7 @@ export class Scene {
         const vx = b.vx + bx * speed - by * jitter;
         const vy = b.vy + by * speed + bx * jitter;
         const off = 1 + Math.random() * 2;
-        this.particles.emit(wp.x + bx * off, wp.y + by * off, vx, vy, 0.18 + Math.random() * 0.25, 1 + Math.random() * 1.2, FLAME_COLORS[Math.floor(Math.random() * FLAME_COLORS.length)], true, 1.5);
+        this.particles.emit(wp.x + bx * off, wp.y + by * off, vx, vy, 0.18 + Math.random() * 0.25, 1 + Math.random() * 1.2, colors[Math.floor(Math.random() * colors.length)], true, 1.5);
       }
     }
   }
