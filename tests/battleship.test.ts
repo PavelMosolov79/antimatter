@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildBattleshipArt } from '../src/sim/battleshipArt';
+import { DRIVES } from '../src/sim/propulsion';
 import { buildRooms, type RoomGraph } from '../src/sim/compartments';
 import { spawnCrew } from '../src/sim/crew';
 import { Mat } from '../src/sim/materials';
@@ -72,7 +73,9 @@ describe('battleship', () => {
     expect(count('bridge')).toBe(2);
     expect(count('reactor')).toBe(1);
     expect(count('shield')).toBe(1);
-    expect(count('thruster')).toBeGreaterThanOrEqual(4);
+    expect(count('thruster')).toBe(4);
+    expect(count('brake')).toBe(2);
+    expect(count('turn')).toBe(4);
   });
 
   it('uses the new decor materials inside, and the reactor core is part of the reactor module', () => {
@@ -117,5 +120,57 @@ describe('battleship', () => {
     expect(() => {
       for (let i = 0; i < 120; i++) world.step(1 / 60);
     }).not.toThrow();
+  });
+
+  describe('drive family', () => {
+    it('fits every drive type where the concept draws it, each in its own material', () => {
+      const g = buildBattleship();
+      const drives = g.modules.filter((m) => m.drive);
+      const count = (d: string) => drives.filter((m) => m.drive === d).length;
+      expect(count('cruise')).toBe(3);
+      expect(count('impulse')).toBe(2);
+      expect(count('brake')).toBe(2);
+      expect(count('maneuver')).toBe(4);
+      expect(count('turn')).toBe(4);
+      for (const m of drives) {
+        for (const i of m.cells) {
+          expect(g.mat[i]).toBe(DRIVES[m.drive!].mat);
+          expect(g.zOf(i)).toBe(0);
+        }
+      }
+      // Brakes on the nose, the main drives at the stern.
+      for (const m of drives.filter((d) => d.drive === 'brake')) expect(g.yOf(m.core)).toBeLessThan(40);
+      for (const m of drives.filter((d) => d.kind === 'engine')) expect(g.yOf(m.core)).toBeGreaterThan(150);
+    });
+
+    it('flies like the battleship it was, but turns only on its nozzles', () => {
+      const world = new World(1);
+      const p = world.spawnPlayer(buildBattleship(), 0, 0, 0);
+      const e = p.engineSummary();
+      expect(e.thrust / p.mass).toBeCloseTo(12, 1);
+      expect(e.capBack / p.mass).toBeCloseTo(6, 1);
+      expect(e.capRight / p.mass).toBeCloseTo(2.64, 1);
+      for (const m of p.grid.modules) expect(m.rcs).toBe(0);
+      // Cruise cells still push harder than impulse cells, as in DRIVES.
+      const perCell = (d: string) => {
+        const m = p.grid.modules.find((x) => x.drive === d)!;
+        return m.thrust / m.total;
+      };
+      expect(perCell('cruise') / perCell('impulse')).toBeCloseTo(DRIVES.cruise.thrustPerCell / DRIVES.impulse.thrustPerCell, 3);
+      // Without its turning nozzles it can hardly turn.
+      const full = e.rcs;
+      for (const m of p.grid.modules) if (m.kind === 'turn') p.grid.removeCell(m.core);
+      expect(p.engineSummary().rcs).toBeLessThan(full * 0.25);
+    });
+
+    it('the autopilot flies it to a point and stops there', () => {
+      const world = new World(1);
+      const p = world.spawnPlayer(buildBattleship(), 0, 0, 0);
+      world.target = { x: 260, y: -200 };
+      for (let i = 0; i < 60 * 60; i++) world.step(1 / 60);
+      expect(Math.hypot(p.x - 260, p.y + 200)).toBeLessThan(1.5);
+      expect(Math.hypot(p.vx, p.vy)).toBeLessThan(0.2);
+      expect(Math.abs(p.w)).toBeLessThan(0.01);
+    });
   });
 });

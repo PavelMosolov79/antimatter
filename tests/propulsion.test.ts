@@ -17,8 +17,8 @@ function drives(p: GridBody, type: DriveType) {
 }
 
 function command(p: GridBody, ctl: Partial<Control>, seconds: number): void {
-  const full: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0, ...ctl };
-  for (let i = 0; i < seconds / DT; i++) applyPropulsion(p, full, p.engineSummary(), DT);
+  const full: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0, arrived: false, heading: null, ...ctl };
+  for (let i = 0; i < seconds / DT; i++) applyPropulsion(p, full, DT);
 }
 
 describe('the drive family on the fighter', () => {

@@ -31,6 +31,7 @@ const CSS = `
 #runscreen svg .node.reach circle { stroke: #59e6ff; stroke-width: 2.5; }
 #runscreen svg .node.reach:hover circle { stroke: #ffffff; }
 #runscreen svg .node.here circle { stroke: #ffffff; stroke-width: 3; }
+#runscreen svg .node circle.hit { stroke: none !important; }
 #runscreen svg text { font: 11px ui-monospace, Menlo, Consolas, monospace; fill: #0a0e18; font-weight: 700; pointer-events: none; }
 #runscreen .legend { display: flex; flex-wrap: wrap; gap: 12px; color: #8fa4cc; font-size: 10.5px; margin-bottom: 10px; }
 #runscreen .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
@@ -80,7 +81,7 @@ export class RunScreen {
       return;
     }
     const run = g.run;
-    const key = [phase, g.shipId, run?.current, run?.visited.length, run?.note, run?.outcome].join('|');
+    const key = [phase, g.shipId, run?.current, run?.visited.length, run?.note, run?.outcome, window.innerWidth > window.innerHeight].join('|');
     if (key === this.key) return;
     this.key = key;
     this.root.className = phase === 'dock' ? 'dock' : 'dim';
@@ -126,6 +127,8 @@ export class RunScreen {
     const go = el('div', 'rs-row');
     go.style.marginTop = '12px';
     go.appendChild(btn('В поход ▸', () => this.game.startRun(), true));
+    // Free flight on the chosen ship: no run, no enemies, the sandbox tools to hand.
+    go.appendChild(btn('В песочницу', () => this.game.reset(this.game.shipId, 'sandbox')));
     box.appendChild(go);
   }
 
@@ -136,14 +139,20 @@ export class RunScreen {
     box.appendChild(this.statsRow());
     box.appendChild(text('rs-note', run.note));
 
-    const W = 700;
-    const H = 300;
+    // A tall narrow screen (phone held upright) gets the map on its side: start at the
+    // bottom, boss at the top, so the nodes stay big enough to hit with a finger.
+    const vertical = window.innerHeight > window.innerWidth && window.innerWidth < 600;
+    const W = vertical ? 360 : 700;
+    const H = vertical ? 600 : 300;
     const pad = 34;
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     const pos = (id: number) => {
       const n = run.map.nodes[id];
-      return { x: pad + (n.col * (W - pad * 2)) / (run.map.cols - 1), y: pad + n.row * (H - pad * 2) };
+      const along = n.col / (run.map.cols - 1);
+      return vertical
+        ? { x: pad + n.row * (W - pad * 2), y: H - pad - along * (H - pad * 2) }
+        : { x: pad + along * (W - pad * 2), y: pad + n.row * (H - pad * 2) };
     };
     const visited = new Set(run.visited);
     for (const n of run.map.nodes) {
@@ -166,6 +175,14 @@ export class RunScreen {
       const reach = g.canTravel(n.id);
       const grp = document.createElementNS(SVG_NS, 'g');
       grp.setAttribute('class', 'node' + (reach ? ' reach' : '') + (n.id === run.current ? ' here' : ''));
+      // A bigger invisible target round each node, so it can be hit with a finger.
+      const hit = document.createElementNS(SVG_NS, 'circle');
+      hit.setAttribute('cx', String(p.x));
+      hit.setAttribute('cy', String(p.y));
+      hit.setAttribute('r', '26');
+      hit.setAttribute('fill', 'transparent');
+      hit.setAttribute('class', 'hit');
+      grp.appendChild(hit);
       const c = document.createElementNS(SVG_NS, 'circle');
       c.setAttribute('cx', String(p.x));
       c.setAttribute('cy', String(p.y));

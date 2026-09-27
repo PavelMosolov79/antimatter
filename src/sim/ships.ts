@@ -1,4 +1,4 @@
-import { ShipGrid, type WeaponState, type WeaponType } from './grid';
+import { ShipGrid, type Module, type WeaponState, type WeaponType } from './grid';
 import { buildBattleshipArt } from './battleshipArt';
 import { Mat } from './materials';
 import { DRIVES } from './propulsion';
@@ -228,6 +228,49 @@ function tuneShip(grid: ShipGrid, t: Tuning): void {
     const mods = grid.modules.filter((m) => m.kind === 'thruster' && grp.match(m.dirX, m.dirY));
     for (const m of mods) m.thrust = (mainThrust * grp.share) / mods.length;
   }
+}
+
+/**
+ * Sizes a ship's drive family to the ship. The drive types keep their per-cell balance
+ * from DRIVES (a cruise cell pushes 1250 to an impulse cell's 700), but the totals are
+ * set by the hull: main thrust for `accel`, brakes and each side's maneuvering nozzles
+ * a share of that, and the turning nozzles as much torque (the weaker way round, about
+ * the centre of mass) as `turnPerThrust` × main thrust — so a big hull with big nozzles
+ * flies like a big ship, not like a fighter with the thrust multiplied by its cells.
+ * No built-in turning: only nozzles turn the ship.
+ */
+function tuneDrives(grid: ShipGrid, t: { accel: number; turnPerThrust: number; backShare: number; sideShare: number }): void {
+  const { comX, comY } = grid.massProps();
+  const mainThrust = t.accel * grid.mass;
+  const perCell = (m: Module) => DRIVES[m.drive ?? 'impulse'].thrustPerCell * m.total;
+  const share = (mods: Module[], total: number) => {
+    const raw = mods.reduce((s, m) => s + perCell(m), 0);
+    for (const m of mods) m.thrust = raw > 0 ? (total * perCell(m)) / raw : 0;
+  };
+  share(grid.modules.filter((m) => m.kind === 'engine'), mainThrust);
+  for (const m of grid.modules) if (m.kind === 'engine') m.rcs = 0;
+  share(grid.modules.filter((m) => m.kind === 'brake'), mainThrust * t.backShare);
+  share(grid.modules.filter((m) => m.kind === 'thruster' && m.dirX > 0.5), mainThrust * t.sideShare);
+  share(grid.modules.filter((m) => m.kind === 'thruster' && m.dirX < -0.5), mainThrust * t.sideShare);
+
+  // Turning nozzles: scale so the weaker direction reaches the wanted torque.
+  const turns = grid.modules.filter((m) => m.kind === 'turn');
+  let pos = 0;
+  let neg = 0;
+  for (const m of turns) {
+    let sx = 0;
+    let sy = 0;
+    for (const i of m.cells) {
+      sx += grid.xOf(i) + 0.5;
+      sy += grid.yOf(i) + 0.5;
+    }
+    const f = perCell(m);
+    const tau = (sx / m.total - comX) * m.dirY * f - (sy / m.total - comY) * m.dirX * f;
+    if (tau > 0) pos += tau;
+    else neg -= tau;
+  }
+  const k = Math.min(pos, neg) > 0 ? (mainThrust * t.turnPerThrust) / Math.min(pos, neg) : 0;
+  for (const m of turns) m.thrust = perCell(m) * k;
 }
 
 let nextWeaponId = 1;
@@ -482,7 +525,13 @@ export function buildBattleship(): ShipGrid {
     const arcCenter = side === 0 ? (n % 2 === 0 ? 0 : Math.PI) : side * (0.35 + (1.9 * ty) / art.h);
     g.addModule('turret', t.cells, { core: t.core, weapon: makeWeapon(g, type, arcCenter, side === 0 ? 1.9 : 1.4) });
   });
-  for (const e of art.modules.filter((m) => m.kind === 'engine')) g.addModule('engine', e.cells, { core: e.core, dirX: 0, dirY: -1 });
+  // The drive family, where the drawing puts it: cruise and impulse bells at the stern,
+  // brake, maneuvering and turning pods around the hull.
+  for (const e of art.modules) {
+    if ((e.kind !== 'engine' && e.kind !== 'nozzle') || !e.drive) continue;
+    const spec = DRIVES[e.drive];
+    g.addModule(spec.kind, e.cells, { core: e.core, dirX: e.dirX, dirY: e.dirY, drive: e.drive, spoolUp: spec.spoolUp, spoolDown: spec.spoolDown });
+  }
   for (const m of art.modules) {
     if (m.kind === 'bridge' && !m.reserve) g.addModule('bridge', m.cells, { core: m.core });
   }
@@ -495,13 +544,7 @@ export function buildBattleship(): ShipGrid {
     if (m.kind === 'bridge' && m.reserve) g.addModule('bridge', m.cells, { core: m.core });
   }
 
-  addNoseThruster(g, 64);
-  for (const y of [65, 128, 150]) {
-    addSideThruster(g, y, 'left');
-    addSideThruster(g, y, 'right');
-  }
-
-  tuneShip(g, { accel: 12, rcsPerThrust: 30, backShare: 0.5, sideShare: 0.22 });
+  tuneDrives(g, { accel: 12, turnPerThrust: 30, backShare: 0.5, sideShare: 0.22 });
   return g;
 }
 

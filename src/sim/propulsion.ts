@@ -1,5 +1,5 @@
 import type { Control } from './autopilot';
-import type { EngineSummary, GridBody } from './body';
+import type { GridBody } from './body';
 import { moduleEfficiency, type DriveType, type Module, type ModuleKind, type ShipGrid } from './grid';
 import { Mat } from './materials';
 
@@ -148,7 +148,7 @@ function spendTier(tier: 0 | 1, want: number): number {
  * built-in turning of legacy main drives, then side maneuvering nozzles as a reserve.
  * Every push then acts from where its module actually sits on the hull.
  */
-export function applyPropulsion(b: GridBody, ctl: Control, eng: EngineSummary, dt: number): void {
+export function applyPropulsion(b: GridBody, ctl: Control, dt: number): void {
   const g = b.grid;
   let fx = 0;
   let fy = 0;
@@ -181,13 +181,12 @@ export function applyPropulsion(b: GridBody, ctl: Control, eng: EngineSummary, d
     nozzles.push({ m, f, tau: torqueOf(b, c, m, f) });
   }
 
-  // The controller's torque assumed the main drives push at the commanded throttle and
-  // that braking and sliding push through the centre of mass. The turning nozzles make up
-  // the difference: whatever the drives actually push while spooling, and the twist the
-  // brake and side nozzles give by sitting off the centre.
+  // The controller asks for the net torque on the ship. The turning nozzles make up the
+  // difference from what the other drives already twist it by: a lopsided or spooling
+  // main drive, and brake and side nozzles sitting off the centre of mass.
   let tauTrans = 0;
   for (const n of nozzles) tauTrans += n.tau * n.m.out;
-  let want = ctl.torque + eng.torque * ctl.main - tauEng - tauTrans;
+  let want = ctl.torque - tauEng - tauTrans;
   b.rcsTorque = want;
   want = spendTier(0, want);
   const built = Math.max(-legacy, Math.min(legacy, want));

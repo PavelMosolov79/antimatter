@@ -98,8 +98,10 @@ export class Game {
     this.scenarioId = scenarioId;
     const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
     const lock = this.world ? this.world.lockFace : true;
+    const autopilot = this.world ? this.world.autopilot : true;
     this.world = new World(this.seed++);
     this.world.lockFace = lock;
+    this.world.autopilot = autopilot;
     this.world.celestials = arena();
     this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
     const enemies = this.scenario.enemies;
@@ -186,8 +188,10 @@ export class Game {
     const enc = encounterFor(run.map, node);
     const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
     const lock = this.world.lockFace;
+    const autopilot = this.world.autopilot;
     this.world = new World(this.seed++);
     this.world.lockFace = lock;
+    this.world.autopilot = autopilot;
     this.world.celestials = enc.celestials;
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
     else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
@@ -273,6 +277,30 @@ export class Game {
     const b = this.world.spawn(buildFreighter(), cx, cy, angle ?? this.world.rng() * Math.PI * 2, 'ship');
     b.w = (this.world.rng() - 0.5) * 0.3;
     return b;
+  }
+
+  /**
+   * Sandbox: a ship of the given enemy kind appears some way off the player, facing it.
+   * An ally flies for the player's side (same team) and picks fights with the enemies.
+   */
+  spawnShip(id: string, ally = false): void {
+    if (this.mode === 'run') return;
+    const es = ENEMIES.find((e) => e.id === id);
+    if (!es) return;
+    const p = this.world.player;
+    const a = this.world.rng() * Math.PI * 2;
+    const dist = ally ? 120 : id === 'boss' ? 560 : 360;
+    const x = (p ? p.x : 0) + Math.cos(a) * dist;
+    const y = (p ? p.y : 0) + Math.sin(a) * dist;
+    const heading = p ? Math.atan2(p.x - x, -(p.y - y)) : 0;
+    this.world.spawnShip(es.build(), x, y, ally ? (p?.angle ?? 0) : heading, { name: ally ? 'Союзник' : es.label, team: ally ? 0 : 1, ai: es.ai });
+  }
+
+  /** Sandbox: everything but the player's own ship leaves the scene. */
+  clearScene(): void {
+    if (this.mode === 'run') return;
+    for (const b of this.world.bodies) if (b !== this.world.player) b.removed = true;
+    this.clearTargets();
   }
 
   breakEngine(): void {

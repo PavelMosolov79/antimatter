@@ -66,7 +66,93 @@ const CSS = `
 #hint { left: 8px; bottom: 8px; color: #7f95bf; font-size: 9.5px; max-width: 340px; pointer-events: none; }
 #panelToggle { position: fixed; right: 8px; bottom: 8px; pointer-events: auto; background: rgba(10,14,24,.85); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 10px; cursor: pointer; z-index: 5; }
 .collapsed #left, .collapsed #controls, .collapsed #hint { display: none; }
+
+/* ---- phone / touch layout: status strip on top, tabbed toolbar at the bottom, details in a sheet ---- */
+#hud.mobile { font-size: 12px; }
+#hud.mobile .panel button { font-size: 12px; padding: 6px 9px; min-height: 34px; touch-action: manipulation; }
+#hud.mobile .panel h4 { font-size: 11px; }
+#hud.mobile .panel h5 { font-size: 10.5px; }
+#hud.mobile .panel .row { gap: 6px; margin-bottom: 8px; }
+#hud.mobile .bar { height: 17px; }
+#hud.mobile .bar > span { line-height: 17px; font-size: 11px; }
+#hud.mobile .wrow .wname, #hud.mobile .wrow .wtoggle { width: auto; min-width: 56px; }
+#hud.mobile .drow button { width: auto; min-width: 72px; }
+#hud.mobile .scrollbox { max-height: none; }
+#hud.mobile #runscreen button { padding: 10px 14px; font-size: 13px; }
+#hud.mobile #overlay button { padding: 10px 16px; }
+#hud.mobile .panel label span { width: auto; }
+
+#mstatus { position: fixed; left: 0; right: 0; top: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; border-radius: 0 0 10px 10px; border-top: none;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) 6px max(8px, env(safe-area-inset-left, 0px)); }
+#mstatus .bar { margin: 0; height: 16px; }
+#mstatus .bar > span { font-size: 10.5px; line-height: 16px; left: 3px; right: 3px; }
+#mstatus[hidden], #mbar[hidden] { display: none; }
+
+#mbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 6px; border-radius: 10px 10px 0 0; border-bottom: none;
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+#mbar .mpage { display: flex; flex-direction: column; gap: 6px; }
+#mbar .mpage[hidden] { display: none; }
+#mbar .mrow { display: flex; gap: 5px; align-items: center; overflow-x: auto; scrollbar-width: none; margin: 0; padding-bottom: 1px; }
+#mbar .mrow::-webkit-scrollbar { display: none; }
+/* Rows that run off the edge fade out there, hinting they scroll sideways. */
+#mbar .mrow.scroll { -webkit-mask-image: linear-gradient(to right, #000 85%, transparent); mask-image: linear-gradient(to right, #000 85%, transparent); padding-right: 24px; }
+#mbar .mrow > * { flex: 0 0 auto; }
+#mbar .mlabel { color: #5f759f; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; margin-right: 2px; }
+#hud.mobile #mbar button { min-height: 32px; padding: 4px 9px; font-size: 11.5px; }
+#hud.mobile #mbar button.icon { width: 38px; height: 38px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+#mbar button.icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+#mbar button.icon svg .f { fill: currentColor; stroke: none; }
+#mbar .mrow.icons { justify-content: space-between; }
+#mbar .sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 12px; }
+#mbar .sliders label { display: flex; align-items: center; gap: 6px; }
+#mbar .sliders label span { color: #8fa4cc; font-size: 10.5px; }
+#mbar .sliders input[type=range] { flex: 1; min-width: 0; accent-color: #59e6ff; }
+#mbar .sliders .val { width: 30px; text-align: right; font-size: 10.5px; }
+#mbar .mtabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 40px; gap: 4px; border-top: 1px solid #202c46; padding-top: 5px; }
+#hud.mobile #mbar .mtabs button.info { font-style: italic; font-weight: 700; font-family: Georgia, 'Times New Roman', serif; font-size: 14px; padding: 0; }
+#mbar .help { max-height: min(42vh, 320px); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+#mbar .help h6 { margin: 4px 0 0; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: #5f759f; font-weight: 600; }
+#mbar .help .hitem { display: grid; grid-template-columns: 30px 1fr; gap: 8px; align-items: start; font-size: 11.5px; line-height: 1.4; color: #8fa4cc; }
+#mbar .help .hitem b { color: #cfe0ff; font-weight: 600; }
+#mbar .help .hico { width: 30px; height: 30px; border: 1px solid #2a3a5c; border-radius: 5px; background: #182238; color: #cfe0ff; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+#mbar .help .hico svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+#mbar .help .hico svg .f { fill: currentColor; stroke: none; }
+#hud.mobile #mbar .mtabs button { min-height: 30px; font-size: 11px; background: transparent; border-color: transparent; color: #7f95bf; }
+#hud.mobile #mbar .mtabs button.on { color: #59e6ff; border-color: #2a4a66; background: #14304a; }
+
+#sheet { position: fixed; left: 0; right: 0; bottom: var(--mbar-h, 140px); top: auto; max-height: 55vh; display: flex; flex-direction: column; border-radius: 10px 10px 0 0; padding: 8px 10px; }
+#sheet[hidden] { display: none; }
+#sheet .tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-shrink: 0; }
+#sheet .tabs button { flex: 1 1 0; }
+#sheet .tabs button.close { flex: 0 0 auto; min-width: 44px; }
+#sheet .tabbody { overflow-y: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
+#sheet .tabbody > div[hidden] { display: none; }
+#sheet .tabbody .panel { position: static; width: auto; max-height: none; overflow: visible; border: none; background: none; padding: 0; backdrop-filter: none; }
+#sheet .tabbody .panel + .panel { margin-top: 10px; border-top: 1px solid #202c46; padding-top: 8px; border-radius: 0; }
+#sheet #hint { max-width: none; color: #7f95bf; }
+#sheet #combat > h4, #sheet #combat > .bar { display: none; } /* already in the status strip */
+@media (orientation: landscape) {
+  #mstatus { left: 50%; right: auto; width: min(560px, 70vw); transform: translateX(-50%); }
+  #mbar { left: 50%; right: auto; width: min(620px, 94vw); transform: translateX(-50%); }
+  #sheet { left: auto; top: var(--top-h, 30px); bottom: var(--mbar-h, 140px); width: min(360px, 50vw); max-height: none; border-radius: 10px 0 0 10px; }
+}
 `;
+
+/** Line icons for the phone toolbar (24×24, stroked in the button's text colour). */
+const ICONS = {
+  autopilot: '<circle cx="12" cy="12" r="8.5"/><path class="f" d="M12 6.2l3.4 9.6-3.4-2.1-3.4 2.1z"/>',
+  pause: '<path d="M9 6.5v11M15 6.5v11"/>',
+  slow: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v4.8l3 1.8"/>',
+  lock: '<circle cx="12" cy="12" r="6"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/><circle class="f" cx="12" cy="12" r="1.6"/>',
+  untarget: '<circle cx="12" cy="12" r="6"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M9.5 9.5l5 5M14.5 9.5l-5 5"/>',
+  follow: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle class="f" cx="12" cy="12" r="2.4"/>',
+  panels: '<path d="M5 7h14M5 12h14M5 17h9"/>',
+};
+
+/** Phones and tablets: a finger is the pointer, or the screen is too small for the desktop panels. */
+export function isTouchLayout(): boolean {
+  return window.matchMedia('(pointer: coarse)').matches || Math.min(window.innerWidth, window.innerHeight) < 600;
+}
 
 interface BtnOpts {
   toggle?: boolean;
@@ -154,6 +240,13 @@ export class Hud {
   private crewKey = '';
   private crewEls: CrewEls[] = [];
   private last = 0;
+  /** Phone layout: compact copies of the status bars, kept in step with the full ones. */
+  private mirrors = new Map<BarEls, { copy: BarEls; label: string }>();
+  private mbar: HTMLDivElement | null = null;
+  private mstatus: HTMLDivElement | null = null;
+  /** Phone-only controls that are unavailable in some states (sandbox-only tools in a run). */
+  private disablers: Array<{ el: HTMLButtonElement; get: () => boolean }> = [];
+  private mDecks: Array<{ el: HTMLButtonElement; idx: number }> = [];
 
   constructor(game: Game, root: HTMLElement) {
     this.game = game;
@@ -325,7 +418,250 @@ export class Hud {
     toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
     root.appendChild(toggle);
 
+    if (isTouchLayout()) this.buildPhoneLayout(root, { left, toggle, combat, ship, controls, hint, button });
+
     this.setTool('fly');
+  }
+
+  /**
+   * Phone layout: the status bars in one strip at the top; at the bottom a toolbar with
+   * three tabs — ship control (icon buttons and decks), the scene around the ship (add
+   * enemies, allies, targets; scenarios and ships), and destruction (the crater tool);
+   * the detailed panels (weapons, compartments, crew, stats) open as a sheet.
+   */
+  private buildPhoneLayout(
+    root: HTMLElement,
+    parts: {
+      left: HTMLElement;
+      toggle: HTMLElement;
+      combat: HTMLElement;
+      ship: HTMLElement;
+      controls: HTMLElement;
+      hint: HTMLElement;
+      button: (row: HTMLElement, label: string, onClick: () => void) => HTMLButtonElement;
+    },
+  ): void {
+    const g = this.game;
+    const { button } = parts;
+    root.classList.add('mobile');
+    parts.hint.textContent = 'Тап по врагу — цель; по пустому месту — лететь. Палец — камера, два пальца — масштаб.';
+    const on = (el: HTMLButtonElement, get: () => boolean) => this.toggles.push({ el, get });
+    const row = (parent: HTMLElement, cls = 'mrow', label?: string) => {
+      const r = document.createElement('div');
+      r.className = cls;
+      if (label) {
+        const l = document.createElement('span');
+        l.className = 'mlabel';
+        l.textContent = label;
+        r.appendChild(l);
+      }
+      parent.appendChild(r);
+      return r;
+    };
+    const icon = (parent: HTMLElement, name: keyof typeof ICONS, title: string, onClick: () => void) => {
+      const b = button(parent, '', onClick);
+      b.className = 'icon';
+      b.title = title;
+      b.setAttribute('aria-label', title);
+      b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+      return b;
+    };
+
+    // ---- top: status strip ----
+    const status = document.createElement('div');
+    status.id = 'mstatus';
+    status.className = 'panel';
+    const labels = ['Корп', 'Щит', 'Эн'];
+    [this.hull, this.shield, this.energy].forEach((full, i) => {
+      const copy = makeBar(full.root.className.replace('bar ', ''));
+      this.mirrors.set(full, { copy, label: labels[i] });
+      status.appendChild(copy.root);
+    });
+
+    // ---- bottom: tabbed toolbar ----
+    const bar = document.createElement('div');
+    bar.id = 'mbar';
+    bar.className = 'panel';
+    const pages: HTMLDivElement[] = [];
+    const page = () => {
+      const p = document.createElement('div');
+      p.className = 'mpage';
+      bar.appendChild(p);
+      pages.push(p);
+      return p;
+    };
+
+    // Tab 1: ship control.
+    const ctl = page();
+    const icons = row(ctl, 'mrow icons');
+    on(icon(icons, 'autopilot', 'Автопилот', () => (g.world.autopilot = !g.world.autopilot)), () => g.world.autopilot);
+    on(icon(icons, 'pause', 'Пауза', () => (g.paused = !g.paused)), () => g.paused);
+    on(icon(icons, 'slow', 'Замедление', () => (g.slowMo = !g.slowMo)), () => g.slowMo);
+    on(icon(icons, 'lock', 'Нос → цель', () => g.setLockFace(!g.world.lockFace)), () => g.world.lockFace);
+    icon(icons, 'untarget', 'Снять цель', () => g.clearTargets());
+    on(icon(icons, 'follow', 'К кораблю', () => (g.scene.follow = !g.scene.follow)), () => g.scene.follow);
+    const sheetBtn = icon(icons, 'panels', 'Панели: орудия, отсеки, экипаж', () => (sheet.hidden = !sheet.hidden));
+    on(sheetBtn, () => !sheet.hidden);
+    const decks = row(ctl, 'mrow', 'Палуба');
+    ['Вне', 'Обшивка', 'П1', 'П2', 'П3'].forEach((label, i) => {
+      const idx = i === 0 ? OUTER_VIEW : i - 1;
+      this.mDecks.push({ el: button(decks, label, () => (g.scene.layerView = idx)), idx });
+    });
+
+    // Tab 2: the scene around the ship (sandbox).
+    const env = page();
+    const add = row(env, 'mrow scroll', 'Добавить');
+    const sandboxOnly = (b: HTMLButtonElement) => this.disablers.push({ el: b, get: () => g.mode === 'run' });
+    sandboxOnly(button(add, '+ Разведчик', () => g.spawnShip('scout')));
+    sandboxOnly(button(add, '+ Налётчик', () => g.spawnShip('raider')));
+    sandboxOnly(button(add, '+ Охотник', () => g.spawnShip('hunter')));
+    sandboxOnly(button(add, '+ Линкор-босс', () => g.spawnShip('boss')));
+    sandboxOnly(button(add, '+ Союзник', () => g.spawnShip('raider', true)));
+    sandboxOnly(button(add, '+ Мишень', () => g.spawnTarget()));
+    sandboxOnly(button(add, 'Убрать всех', () => g.clearScene()));
+    const scen = row(env, 'mrow scroll', 'Сцена');
+    for (const sc of SCENARIOS) on(button(scen, sc.label, () => g.reset(undefined, sc.id)), () => g.mode === 'sandbox' && g.scenarioId === sc.id);
+    button(scen, 'Заново', () => g.reset());
+    button(scen, 'Док', () => g.openDock());
+    const ships = row(env, 'mrow scroll', 'Корабль');
+    for (const sp of SHIPS) on(button(ships, sp.label, () => g.reset(sp.id)), () => g.mode === 'sandbox' && g.shipId === sp.id);
+
+    // Tab 3: destruction.
+    const dmg = page();
+    const tools = row(dmg, 'mrow');
+    on(button(tools, 'Полёт / цель', () => this.setTool('fly')), () => g.tool === 'fly');
+    on(button(tools, 'Удар: кратер', () => this.setTool('crater')), () => g.tool === 'crater');
+    sandboxOnly(button(tools, 'Сломать двигатель', () => g.breakEngine()));
+    const sliders = row(dmg, 'sliders');
+    const slider = (label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void) => {
+      const l = document.createElement('label');
+      const name = document.createElement('span');
+      name.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = String(step);
+      input.value = String(get());
+      const v = document.createElement('span');
+      v.className = 'val';
+      v.textContent = String(get());
+      input.addEventListener('input', () => {
+        set(Number(input.value));
+        v.textContent = input.value;
+      });
+      l.append(name, input, v);
+      sliders.appendChild(l);
+    };
+    slider('Радиус', 1, 14, 0.5, () => g.crater.radius, (v) => (g.crater.radius = v));
+    slider('Урон', 5, 300, 5, () => g.crater.damage, (v) => (g.crater.damage = v));
+    slider('Пробитие', 0, 1, 0.05, () => g.crater.pen, (v) => (g.crater.pen = v));
+
+    // Tab 4: help — what every icon and gesture does.
+    const help = document.createElement('div');
+    help.className = 'help';
+    page().appendChild(help);
+    const heading = (text: string) => {
+      const h = document.createElement('h6');
+      h.textContent = text;
+      help.appendChild(h);
+    };
+    const item = (mark: keyof typeof ICONS | string, title: string, text: string) => {
+      const it = document.createElement('div');
+      it.className = 'hitem';
+      const ico = document.createElement('span');
+      ico.className = 'hico';
+      if (mark in ICONS) ico.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[mark as keyof typeof ICONS]}</svg>`;
+      else ico.textContent = mark;
+      const t = document.createElement('span');
+      const b = document.createElement('b');
+      b.textContent = title;
+      t.append(b, document.createTextNode(` — ${text}`));
+      it.append(ico, t);
+      help.appendChild(it);
+    };
+    heading('Жесты');
+    item('☝', 'Тап', 'по врагу — выбрать его целью (нос и орудия наводятся на него); по пустому месту — лететь туда. В режиме «Удар: кратер» тап взрывает точку.');
+    item('↔', 'Палец по экрану', 'двигает камеру. Камера перестаёт следовать за кораблём — вернуть её можно значком «К кораблю».');
+    item('⤢', 'Два пальца', 'сведите или разведите — масштаб; камера двигается вслед за пальцами.');
+    heading('Строка сверху');
+    item('Корп', 'Корпус', 'сколько корабля осталось. Корабль гибнет, когда остаётся пятая часть корпуса или меньше — или когда взрывается реактор.');
+    item('Щит', 'Щит', 'заряд щита; стрелка ↓ — щит упал и восстанавливается.');
+    item('Эн', 'Энергия', 'запас энергии и сколько реактор даёт в секунду; её тратят орудия и щит.');
+    heading('Управление');
+    item('autopilot', 'Автопилот', 'включён: корабль летит к точке и останавливается на ней. Выключен: долетает до точки, точка пропадает, корабль летит дальше с набранной скоростью.');
+    item('pause', 'Пауза', 'останавливает время. Приказы (точка, цель, двери) можно отдавать и на паузе.');
+    item('slow', 'Замедление', 'время идёт вчетверо медленнее — удобно в горячем бою.');
+    item('lock', 'Нос → цель', 'нос всё время смотрит на выбранного врага, а к точке корабль летит боком или задом на соплах. Выключено — нос смотрит туда, куда летим.');
+    item('untarget', 'Снять цель', 'сбрасывает цель корабля и всех орудий; они снова выбирают ближайшего врага сами.');
+    item('follow', 'К кораблю', 'камера снова следует за кораблём.');
+    item('panels', 'Панели', 'подробности: орудия и приоритет энергии, отсеки и двери, экипаж, статистика.');
+    item('П1', 'Палуба', '«Вне» — корабль снаружи, «Обшивка» — внешний слой, П1–П3 — палубы внутри: отсеки, экипаж, пожары. Серые кнопки — таких палуб на корабле нет.');
+    heading('Окружение (песочница)');
+    item('+', 'Добавить', 'разведчик, налётчик, охотник за реактором, линкор-босс — враги; союзник — истребитель на вашей стороне; мишень — неподвижная цель для стрельбы.');
+    item('✕', 'Убрать всех', 'оставляет на сцене только ваш корабль.');
+    item('▶', 'Сцена и корабль', 'готовые сценарии боя, «Заново», выход в док, смена своего корабля.');
+    heading('Разрушение');
+    item('✺', 'Удар: кратер', 'тап взрывает точку с заданным радиусом, уроном и пробитием (насколько глубоко уходит в палубы). «Полёт / цель» возвращает обычное управление.');
+    item('⚙', 'Сломать двигатель', 'выбивает случайный двигатель корабля — посмотреть, как он летит без него.');
+
+    const tabs = row(bar, 'mtabs');
+    const tabBtns = ['Управление', 'Окружение', 'Разрушение', 'i'].map((label, n) =>
+      button(tabs, label, () => {
+        pages.forEach((p, i) => (p.hidden = i !== n));
+        tabBtns.forEach((b, i) => b.classList.toggle('on', i === n));
+      }),
+    );
+    tabBtns[3].className = 'info';
+    tabBtns[3].title = 'Справка';
+    tabBtns[3].setAttribute('aria-label', 'Справка');
+    tabBtns[0].click();
+
+    // ---- details sheet: weapons, compartments, crew, dev stats ----
+    const sheet = document.createElement('div');
+    sheet.id = 'sheet';
+    sheet.className = 'panel';
+    sheet.hidden = true;
+    const stabs = document.createElement('div');
+    stabs.className = 'tabs';
+    const body = document.createElement('div');
+    body.className = 'tabbody';
+    sheet.append(stabs, body);
+    const sheetPages: Array<[string, HTMLElement[]]> = [
+      ['Бой', [parts.combat, parts.hint]],
+      ['Корабль', [parts.ship]],
+      ['Статы', [parts.controls]],
+    ];
+    const sBtns: HTMLButtonElement[] = [];
+    const sEls: HTMLDivElement[] = [];
+    const show = (n: number) => {
+      sEls.forEach((p, i) => (p.hidden = i !== n));
+      sBtns.forEach((b, i) => b.classList.toggle('on', i === n));
+    };
+    sheetPages.forEach(([label, els], n) => {
+      const p = document.createElement('div');
+      for (const el of els) p.appendChild(el);
+      body.appendChild(p);
+      sEls.push(p);
+      sBtns.push(button(stabs, label, () => show(n)));
+    });
+    button(stabs, '✕', () => (sheet.hidden = true)).className = 'close';
+    show(0);
+
+    parts.left.remove();
+    parts.toggle.remove();
+    root.append(status, sheet, bar);
+    this.mbar = bar;
+    this.mstatus = status;
+    // The sheet sits between the strip and the toolbar; keep it there as they resize.
+    const place = () => {
+      root.style.setProperty('--mbar-h', `${bar.offsetHeight}px`);
+      root.style.setProperty('--top-h', `${status.offsetHeight}px`);
+    };
+    const ro = new ResizeObserver(place);
+    ro.observe(bar);
+    ro.observe(status);
+    place();
   }
 
   private setTool(t: Tool): void {
@@ -362,6 +698,8 @@ export class Hud {
     bar.fill.style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
     bar.left.textContent = left;
     bar.right.textContent = right;
+    const m = this.mirrors.get(bar);
+    if (m) this.setBar(m.copy, frac, left.includes('упал') ? `${m.label}↓` : m.label, right);
   }
 
   update(now: number): void {
@@ -394,6 +732,17 @@ export class Hud {
       this.runButton.textContent = g.state === 'won' && !boss ? 'На карту ▸' : 'Итоги забега';
     }
     this.runScreen.update();
+    // The dock and the sector map are full screens of their own: no battle bar under them.
+    if (this.mbar && this.mstatus) {
+      const offScreen = g.mode === 'run' && g.runPhase !== 'battle';
+      this.mbar.hidden = offScreen;
+      this.mstatus.hidden = offScreen;
+      for (const d of this.disablers) d.el.disabled = d.get();
+      for (const d of this.mDecks) {
+        d.el.classList.toggle('on', d.idx === g.scene.layerView);
+        d.el.disabled = d.idx >= 0 && d.idx >= depth;
+      }
+    }
 
     if (now - this.last < 150) return;
     this.last = now;

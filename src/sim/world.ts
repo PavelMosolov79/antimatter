@@ -1,5 +1,5 @@
 import { createAi, updateAi, type AiKind } from './ai';
-import { computeControl, type Control, type Target } from './autopilot';
+import { computeControl, type Control, type NavMode, type Target } from './autopilot';
 import { collideGridCircle, collideGridGrid, type DamageSink } from './collision';
 import { updateCompartments } from './compartments';
 import { GridBody } from './body';
@@ -64,7 +64,9 @@ export class World implements DamageSink {
   private damaged = new Set<GridBody>();
   private buf: number[] = [];
   private grav = { ax: 0, ay: 0 };
-  private ctl: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0 };
+  private ctl: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0, arrived: false, heading: null };
+  /** The player's drive commands from the last step (for the HUD and tests). */
+  readonly playerControl: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0, arrived: false, heading: null };
 
   constructor(seed = 1) {
     this.rng = mulberry32(seed);
@@ -305,23 +307,26 @@ export class World implements DamageSink {
     return Math.atan2(t.x - b.x, -(t.y - b.y));
   }
 
-  private drive(b: GridBody, nav: Nav, on: boolean, dt: number): void {
+  private drive(b: GridBody, nav: Nav, on: boolean, dt: number, mode: NavMode = 'stop'): Control {
     const eng = b.engineSummary();
     const g = this.gravityAt(b.x, b.y);
     const ctl = this.ctl;
-    if (on) computeControl(b, nav.target, g.ax, g.ay, eng, ctl, nav.face);
+    if (on) computeControl(b, nav.target, g.ax, g.ay, eng, ctl, nav.face, mode);
     else {
       ctl.main = 0;
       ctl.back = 0;
       ctl.right = 0;
       ctl.left = 0;
       ctl.torque = 0;
+      ctl.arrived = false;
+      ctl.heading = null;
     }
     b.throttle = ctl.main;
     b.tBack = ctl.back;
     b.tRight = ctl.right;
     b.tLeft = ctl.left;
-    applyPropulsion(b, ctl, eng, dt);
+    applyPropulsion(b, ctl, dt);
+    return ctl;
   }
 
   step(dt: number): void {
@@ -335,7 +340,11 @@ export class World implements DamageSink {
       if (b.isPlayer) {
         this.playerNav.target = this.target;
         this.playerNav.face = this.lockFace ? this.faceAngleTo(b) : null;
-        this.drive(b, this.playerNav, this.autopilot && pilotAvailable(b), dt);
+        // Autopilot on: fly to the point and stop there. Off: fly to it, then the point
+        // is gone and the ship keeps its speed.
+        const ctl = this.drive(b, this.playerNav, pilotAvailable(b), dt, this.autopilot ? 'stop' : 'pass');
+        Object.assign(this.playerControl, ctl);
+        if (!this.autopilot && ctl.arrived) this.target = null;
       }
       else if (b.sys && !b.sys.dead) this.drive(b, b.sys.nav, true, dt);
     }

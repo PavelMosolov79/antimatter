@@ -1,3 +1,4 @@
+import type { DriveType } from './grid';
 import { Mat } from './materials';
 import { hash2 } from './rng';
 
@@ -32,16 +33,25 @@ const C = {
   stripe: hex(0xd23c3c),
   door: hex(0xe0b34e),
   ladder: hex(0x4fae7a),
+  // The drive family, in the game's material colours (materials.ts).
+  cruise: hex(0xd8423a),
+  impulse: hex(0xf2cf3a),
+  brake: hex(0xeef2f6),
+  turn: hex(0xa362e8),
 };
 const HAZARD_DARK: RGB = { r: 20, g: 20, b: 22 };
 const HAZARD_YELLOW: RGB = { r: 232, g: 196, b: 80 };
 
-export type ArtModuleKind = 'turret' | 'engine' | 'bridge' | 'reactor' | 'shield' | 'generic';
+export type ArtModuleKind = 'turret' | 'engine' | 'nozzle' | 'bridge' | 'reactor' | 'shield' | 'generic';
 
 export interface ArtModule {
   kind: ArtModuleKind;
   /** Primary helm vs. reserve console, for bridges. */
   reserve?: boolean;
+  /** For engines and nozzle pods: which drive it is, and the way it pushes the ship. */
+  drive?: DriveType;
+  dirX?: number;
+  dirY?: number;
   cells: Array<[number, number, number]>;
   core: [number, number, number];
 }
@@ -189,19 +199,40 @@ function tower(x: number, y: number): RGB | null {
   return Math.abs(x - CX) > half - 1.4 ? mix(C.wall, 0.85) : toWhite(C.wall, 0.12);
 }
 
-const NOZZLES = [
-  { x: 28, y: 181, r: 11, hub: C.thruster },
-  { x: 65, y: 181, r: 11, hub: C.reactor },
-  { x: 102, y: 181, r: 11, hub: C.thruster },
-  { x: 44, y: 165, r: 8, hub: C.thruster },
-  { x: 86, y: 165, r: 8, hub: C.thruster },
+/** Stern drive bells: the three big ones are cruise drives, the two small ones impulse drives. */
+const NOZZLES: Array<{ x: number; y: number; r: number; drive: 'cruise' | 'impulse' }> = [
+  { x: 28, y: 181, r: 11, drive: 'cruise' },
+  { x: 65, y: 181, r: 11, drive: 'cruise' },
+  { x: 102, y: 181, r: 11, drive: 'cruise' },
+  { x: 44, y: 165, r: 8, drive: 'impulse' },
+  { x: 86, y: 165, r: 8, drive: 'impulse' },
 ];
+
+/**
+ * Nozzle pods of the rest of the drive family, in hull cells, exactly as the concept
+ * places them. dir is the way each pushes the ship (x to starboard, y toward the stern).
+ */
+export const DRIVE_PODS: Array<{ drive: 'brake' | 'maneuver' | 'turn'; x: number; y: number; r: number; dir: [number, number] }> = [
+  { drive: 'brake', x: 59, y: 27, r: 2.2, dir: [0, 1] },
+  { drive: 'brake', x: 71, y: 27, r: 2.2, dir: [0, 1] },
+  { drive: 'turn', x: 52, y: 45, r: 2.2, dir: [1, 0] },
+  { drive: 'turn', x: 78, y: 45, r: 2.2, dir: [-1, 0] },
+  { drive: 'maneuver', x: 31, y: 112, r: 2.2, dir: [1, 0] },
+  { drive: 'maneuver', x: 99, y: 112, r: 2.2, dir: [-1, 0] },
+  { drive: 'maneuver', x: 22, y: 140, r: 2.2, dir: [1, 0] },
+  { drive: 'maneuver', x: 108, y: 140, r: 2.2, dir: [-1, 0] },
+  { drive: 'turn', x: 15, y: 158, r: 2.2, dir: [1, 0] },
+  { drive: 'turn', x: 115, y: 158, r: 2.2, dir: [-1, 0] },
+];
+const POD_COLOR: Record<'brake' | 'maneuver' | 'turn', RGB> = { brake: C.brake, maneuver: C.thruster, turn: C.turn };
+const POD_MAT: Record<'brake' | 'maneuver' | 'turn', number> = { brake: Mat.BRAKE, maneuver: Mat.THRUSTER, turn: Mat.TURN };
 
 interface Px {
   c: RGB;
   glow?: boolean;
   turret?: number;
   engine?: number;
+  pod?: number;
 }
 
 function nozzle(x: number, y: number): Px | null {
@@ -212,11 +243,31 @@ function nozzle(x: number, y: number): Px | null {
     if (d > R) continue;
     const ang = Math.atan2(y + 0.5 - nz.y, x + 0.5 - nz.x);
     const ao = 1 - 0.34 * Math.max(0, Math.cos(ang - Math.PI * 0.72));
-    if (d > R - 1) return { c: toWhite(C.hull, (0.24 - 0.08 * (R - d)) * ao), engine: n };
-    if (d > R - 3.4) return { c: mix(C.wall, (0.4 + 0.05 * (R - d)) * ao), engine: n };
-    if (d < R * 0.3) return { c: mix(nz.hub, (1.4 - 0.75 * (d / (R * 0.3))) * Math.min(1, ao + 0.3)), glow: true, engine: n };
+    // Collar and hub in the drive's own colour, so its type reads even when it's cold.
+    const dc = C[nz.drive];
+    if (d > R - 1) return { c: mix(dc, (1.02 - 0.1 * (R - d)) * ao), engine: n };
+    if (d > R - 3.4) return { c: mix(dc, (0.42 + 0.06 * (R - d)) * ao), engine: n };
+    if (d < R * 0.3) return { c: mix(toWhite(dc, 0.25), (1.4 - 0.75 * (d / (R * 0.3))) * Math.min(1, ao + 0.3)), glow: true, engine: n };
     const blade = Math.sin(ang * 8 + d * 0.12) > 0;
     return { c: mix(blade ? C.turret : C.wall, (0.55 + 0.35 * (d / R)) * ao), engine: n };
+  }
+  return null;
+}
+
+/** A nozzle pod: a square housing of the drive's colour around a dark bore with a lit hub. */
+function drivePod(x: number, y: number): Px | null {
+  for (let n = 0; n < DRIVE_PODS.length; n++) {
+    const p = DRIVE_PODS[n];
+    const dx = x + 0.5 - p.x;
+    const dy = y + 0.5 - p.y;
+    const h = p.r + 0.9;
+    if (Math.abs(dx) > h || Math.abs(dy) > h) continue;
+    const c = POD_COLOR[p.drive];
+    const d = Math.hypot(dx, dy);
+    if (d <= p.r * 0.5) return { c: mix(toWhite(c, 0.35), 1.15), glow: true, pod: n };
+    if (d <= p.r) return { c: mix(C.wall, 0.32 + (0.12 * d) / p.r), pod: n };
+    const edge = Math.abs(dx) > h - 1 || Math.abs(dy) > h - 1;
+    return { c: mix(c, edge ? 0.68 : 0.92 + 0.08 * hash2(x, y, 501)), pod: n };
   }
   return null;
 }
@@ -259,6 +310,8 @@ function greeble(x: number, y: number): Px | null {
   if (dSh <= 9) return { c: mix(C.shieldgen, 1.22 - 0.078 * dSh) };
   const nz = nozzle(x, y);
   if (nz) return nz;
+  const pod = drivePod(x, y);
+  if (pod) return pod;
   if (y >= 155) return { c: panelMix(C.engine, x, y) };
   const tur = turret(x, y);
   if (tur) return tur;
@@ -647,6 +700,7 @@ export function buildBattleshipArt(): BattleshipArt {
   const hull = new ArtLayer(W, H);
   const turretCells = new Map<number, Array<[number, number, number]>>();
   const engineCells = new Map<number, Array<[number, number, number]>>();
+  const podCells = new Map<number, Array<[number, number, number]>>();
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
@@ -661,9 +715,13 @@ export function buildBattleshipArt(): BattleshipArt {
           if (!turretCells.has(g.turret)) turretCells.set(g.turret, []);
           turretCells.get(g.turret)!.push([x, y, 0]);
         } else if (g.engine !== undefined) {
-          hull.mat[i] = Mat.ENGINE;
+          hull.mat[i] = NOZZLES[g.engine].drive === 'cruise' ? Mat.CRUISE : Mat.ENGINE;
           if (!engineCells.has(g.engine)) engineCells.set(g.engine, []);
           engineCells.get(g.engine)!.push([x, y, 0]);
+        } else if (g.pod !== undefined) {
+          hull.mat[i] = POD_MAT[DRIVE_PODS[g.pod].drive];
+          if (!podCells.has(g.pod)) podCells.set(g.pod, []);
+          podCells.get(g.pod)!.push([x, y, 0]);
         }
       } else {
         hull.setColor(i, panelMix(dist[i] === 1 ? C.armor : C.hull, x, y));
@@ -695,8 +753,12 @@ export function buildBattleshipArt(): BattleshipArt {
   for (const cells of [...turretCells.values()].sort((a, b) => centroid(a)[1] - centroid(b)[1] || centroid(a)[0] - centroid(b)[0])) {
     modules.push({ kind: 'turret', cells, core: centroid(cells) });
   }
-  for (const [, cells] of [...engineCells.entries()].sort((a, b) => a[0] - b[0])) {
-    modules.push({ kind: 'engine', cells, core: centroid(cells) });
+  for (const [n, cells] of [...engineCells.entries()].sort((a, b) => a[0] - b[0])) {
+    modules.push({ kind: 'engine', drive: NOZZLES[n].drive, dirX: 0, dirY: -1, cells, core: centroid(cells) });
+  }
+  for (const [n, cells] of [...podCells.entries()].sort((a, b) => a[0] - b[0])) {
+    const p = DRIVE_PODS[n];
+    modules.push({ kind: 'nozzle', drive: p.drive, dirX: p.dir[0], dirY: p.dir[1], cells, core: centroid(cells) });
   }
 
   // Decks: floor wherever the hull is thick enough (same 2z+1 rule as hullShip), rooms blitted on top.
