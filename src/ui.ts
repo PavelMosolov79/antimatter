@@ -368,6 +368,7 @@ export class Hud {
     controls.appendChild(this.stats);
 
     const scen = subsection(controls, 'Сценарий');
+    button(scen, 'Главное меню', () => (this.game.screen = 'title'));
     button(scen, 'Забег (док)', () => this.game.openDock());
     for (const sc of SCENARIOS) this.scenarioBtns.set(sc.id, button(scen, sc.label, () => this.game.reset(undefined, sc.id)));
 
@@ -521,6 +522,7 @@ export class Hud {
     sandboxOnly(button(add, 'Убрать всех', () => g.clearScene()));
     const scen = row(env, 'mrow scroll', 'Сцена');
     for (const sc of SCENARIOS) on(button(scen, sc.label, () => g.reset(undefined, sc.id)), () => g.mode === 'sandbox' && g.scenarioId === sc.id);
+    button(scen, 'Меню', () => (g.screen = 'title'));
     button(scen, 'Заново', () => g.reset());
     button(scen, 'Док', () => g.openDock());
     const ships = row(env, 'mrow scroll', 'Корабль');
@@ -600,7 +602,7 @@ export class Hud {
     heading('Окружение (песочница)');
     item('+', 'Добавить', 'разведчик, налётчик, охотник за реактором, линкор-босс — враги; союзник — истребитель на вашей стороне; мишень — неподвижная цель для стрельбы.');
     item('✕', 'Убрать всех', 'оставляет на сцене только ваш корабль.');
-    item('▶', 'Сцена и корабль', 'готовые сценарии боя, «Заново», выход в док, смена своего корабля.');
+    item('▶', 'Сцена и корабль', '«Меню» — главное меню; готовые сценарии боя, «Заново», выход в док, смена своего корабля.');
     heading('Разрушение');
     item('✺', 'Удар: кратер', 'тап взрывает точку с заданным радиусом, уроном и пробитием (насколько глубоко уходит в палубы). «Полёт / цель» возвращает обычное управление.');
     item('⚙', 'Сломать двигатель', 'выбивает случайный двигатель корабля — посмотреть, как он летит без него.');

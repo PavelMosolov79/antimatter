@@ -75,6 +75,10 @@ export class Game {
   state: BattleState = 'playing';
   mode: Mode = 'run';
   runPhase: RunPhase = 'dock';
+  /** What's on screen: the title (loading screen and main menu) or the game itself. */
+  screen: 'title' | 'game' = 'title';
+  /** The player has been into the game since loading — the menu can offer "Continue". */
+  hasSession = false;
   run: RunSession | null = null;
   selectedWeapon: number | null = null;
   stepMs = 0;
@@ -409,6 +413,8 @@ export class Game {
   }
 
   tick(frameDt: number): void {
+    // Behind the title the world stands still and isn't drawn.
+    if (this.screen === 'title') return;
     const dt = Math.min(frameDt, 0.05);
     let simDt = 0;
     const halted = this.mode === 'run' && this.runPhase !== 'battle';

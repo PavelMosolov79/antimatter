@@ -1,9 +1,18 @@
 import { Application } from 'pixi.js';
 import { Game } from './game';
 import { Scene } from './render/scene';
+import { prepareShipCards } from './runScreen';
+import { TitleScreen } from './title/titleScreen';
 import { Hud } from './ui';
 
+/** Lets the loading screen draw a frame between two pieces of work. */
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
 async function main(): Promise<void> {
+  // The loading screen goes up first; each real step of the start-up moves the core on.
+  const title = new TitleScreen(document.body);
+  title.step(0, 'Запуск магнитной ловушки');
+  await nextFrame();
   const app = new Application();
   await app.init({
     resizeTo: window,
@@ -14,9 +23,23 @@ async function main(): Promise<void> {
   });
   document.body.insertBefore(app.canvas, document.body.firstChild);
 
+  title.step(0.15, 'Сборка корпусов');
+  await nextFrame();
+  prepareShipCards();
+
+  title.step(0.4, 'Расчёт сектора');
+  await nextFrame();
   const scene = new Scene(app);
   const game = new Game(scene);
+
+  title.step(0.65, 'Прогрев реактора');
+  await nextFrame();
   const hud = new Hud(game, document.getElementById('hud')!);
+  hud.update(performance.now());
+
+  title.step(0.9, 'Стабилизация ядра');
+  await Promise.race([document.fonts?.ready ?? Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]);
+  title.finish(game);
 
   let panning = false;
   let lastX = 0;
@@ -140,6 +163,7 @@ async function main(): Promise<void> {
     { passive: false },
   );
   window.addEventListener('keydown', (e) => {
+    if (game.screen === 'title') return;
     if (e.code === 'Space') {
       game.paused = !game.paused;
       e.preventDefault();
@@ -149,6 +173,7 @@ async function main(): Promise<void> {
   app.ticker.add((t) => {
     game.tick(t.deltaMS / 1000);
     hud.update(performance.now());
+    title.watch();
   });
 
   (window as unknown as { game: Game }).game = game;

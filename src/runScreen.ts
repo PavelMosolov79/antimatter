@@ -55,12 +55,30 @@ interface ShipCard {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+let shipCards: ShipCard[] | null = null;
+/**
+ * The dock's ship cards (cells, guns, shield per ship). Building every ship grid — the
+ * battleship's especially — is real work, so the loading screen does it up front.
+ */
+export function prepareShipCards(): ShipCard[] {
+  shipCards ??= SHIPS.map((s) => {
+    const grid = s.build();
+    let shield = 0;
+    let guns = 0;
+    for (const m of grid.modules) {
+      if (m.weapon) guns++;
+      shield += m.shieldMax;
+    }
+    return { id: s.id, label: s.label, cells: grid.cells, guns, shield };
+  });
+  return shipCards;
+}
+
 /** Dock, sector map and run result — the screens between battles. */
 export class RunScreen {
   private readonly game: Game;
   private readonly root = document.createElement('div');
   private key = '';
-  private cards: ShipCard[] | null = null;
 
   constructor(game: Game, parent: HTMLElement) {
     this.game = game;
@@ -94,19 +112,7 @@ export class RunScreen {
   }
 
   private shipCards(): ShipCard[] {
-    if (!this.cards) {
-      this.cards = SHIPS.map((s) => {
-        const grid = s.build();
-        let shield = 0;
-        let guns = 0;
-        for (const m of grid.modules) {
-          if (m.weapon) guns++;
-          shield += m.shieldMax;
-        }
-        return { id: s.id, label: s.label, cells: grid.cells, guns, shield };
-      });
-    }
-    return this.cards;
+    return prepareShipCards();
   }
 
   private renderDock(box: HTMLElement): void {
@@ -129,6 +135,7 @@ export class RunScreen {
     go.appendChild(btn('В поход ▸', () => this.game.startRun(), true));
     // Free flight on the chosen ship: no run, no enemies, the sandbox tools to hand.
     go.appendChild(btn('В песочницу', () => this.game.reset(this.game.shipId, 'sandbox')));
+    go.appendChild(btn('Главное меню', () => (this.game.screen = 'title')));
     box.appendChild(go);
   }
 
@@ -215,6 +222,7 @@ export class RunScreen {
     box.appendChild(legend);
     const row = el('div', 'rs-row');
     row.appendChild(btn('Отступить в док', () => this.game.retreat()));
+    row.appendChild(btn('Главное меню', () => (this.game.screen = 'title')));
     box.appendChild(row);
   }
 
