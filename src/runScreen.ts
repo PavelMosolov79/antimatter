@@ -7,7 +7,6 @@ const CSS = `
 #runscreen.dim { background: rgba(3,6,12,.74); }
 #runscreen .rs-box { pointer-events: auto; position: absolute; left: 50%; transform: translateX(-50%); background: rgba(8,12,22,.94); border: 1px solid #2c3d63; border-radius: 12px; padding: 18px 22px; box-sizing: border-box; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
 #runscreen.dim .rs-box { top: 50%; transform: translate(-50%, -50%); }
-#runscreen.dock .rs-box { bottom: 16px; }
 #runscreen h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: .14em; }
 #runscreen h2.victory { color: #63e07a; }
 #runscreen h2.defeat { color: #ff5a4a; }
@@ -45,36 +44,9 @@ const KIND: Record<NodeKind, { color: string; letter: string; label: string }> =
   boss: { color: '#c77dff', letter: '★', label: 'Босс' },
 };
 
-interface ShipCard {
-  id: string;
-  label: string;
-  cells: number;
-  guns: number;
-  shield: number;
-}
-
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-let shipCards: ShipCard[] | null = null;
-/**
- * The dock's ship cards (cells, guns, shield per ship). Building every ship grid — the
- * battleship's especially — is real work, so the loading screen does it up front.
- */
-export function prepareShipCards(): ShipCard[] {
-  shipCards ??= SHIPS.map((s) => {
-    const grid = s.build();
-    let shield = 0;
-    let guns = 0;
-    for (const m of grid.modules) {
-      if (m.weapon) guns++;
-      shield += m.shieldMax;
-    }
-    return { id: s.id, label: s.label, cells: grid.cells, guns, shield };
-  });
-  return shipCards;
-}
-
-/** Dock, sector map and run result — the screens between battles. */
+/** Sector map and run result — the screens between battles (the dock has its own screen, dock/dockScreen.ts). */
 export class RunScreen {
   private readonly game: Game;
   private readonly root = document.createElement('div');
@@ -92,7 +64,7 @@ export class RunScreen {
   update(): void {
     const g = this.game;
     const phase = g.mode === 'run' ? g.runPhase : null;
-    const visible = phase === 'dock' || phase === 'map' || phase === 'over';
+    const visible = phase === 'map' || phase === 'over';
     this.root.style.display = visible ? 'block' : 'none';
     if (!visible) {
       this.key = '';
@@ -102,41 +74,12 @@ export class RunScreen {
     const key = [phase, g.shipId, run?.current, run?.visited.length, run?.note, run?.outcome, window.innerWidth > window.innerHeight].join('|');
     if (key === this.key) return;
     this.key = key;
-    this.root.className = phase === 'dock' ? 'dock' : 'dim';
+    this.root.className = 'dim';
     this.root.replaceChildren();
     const box = el('div', 'rs-box');
     this.root.appendChild(box);
-    if (phase === 'dock') this.renderDock(box);
-    else if (phase === 'map') this.renderMap(box);
+    if (phase === 'map') this.renderMap(box);
     else this.renderOver(box);
-  }
-
-  private shipCards(): ShipCard[] {
-    return prepareShipCards();
-  }
-
-  private renderDock(box: HTMLElement): void {
-    box.append(title('ДОК'), text('rs-sub', 'Выберите корабль для вылета. Повреждения будут переноситься между узлами забега.'));
-    const row = el('div', 'rs-row');
-    for (const c of this.shipCards()) {
-      const b = document.createElement('button');
-      b.className = 'ship' + (c.id === this.game.shipId ? ' on' : '');
-      const name = document.createElement('b');
-      name.textContent = c.label;
-      const info = document.createElement('span');
-      info.textContent = `клеток ${c.cells} · орудий ${c.guns} · щит ${c.shield}`;
-      b.append(name, info);
-      b.addEventListener('click', () => this.game.openDock(c.id));
-      row.appendChild(b);
-    }
-    box.appendChild(row);
-    const go = el('div', 'rs-row');
-    go.style.marginTop = '12px';
-    go.appendChild(btn('В поход ▸', () => this.game.startRun(), true));
-    // Free flight on the chosen ship: no run, no enemies, the sandbox tools to hand.
-    go.appendChild(btn('В песочницу', () => this.game.reset(this.game.shipId, 'sandbox')));
-    go.appendChild(btn('Главное меню', () => (this.game.screen = 'title')));
-    box.appendChild(go);
   }
 
   private renderMap(box: HTMLElement): void {

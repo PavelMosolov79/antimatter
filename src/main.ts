@@ -1,7 +1,7 @@
 import { Application } from 'pixi.js';
+import { DockScreen, prepareDockSprites } from './dock/dockScreen';
 import { Game } from './game';
 import { Scene } from './render/scene';
-import { prepareShipCards } from './runScreen';
 import { TitleScreen } from './title/titleScreen';
 import { Hud } from './ui';
 
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
   title.step(0.15, 'Сборка корпусов');
   await nextFrame();
-  prepareShipCards();
+  prepareDockSprites();
 
   title.step(0.4, 'Расчёт сектора');
   await nextFrame();
@@ -35,6 +35,7 @@ async function main(): Promise<void> {
   title.step(0.65, 'Прогрев реактора');
   await nextFrame();
   const hud = new Hud(game, document.getElementById('hud')!);
+  const dock = new DockScreen(game, document.body);
   hud.update(performance.now());
 
   title.step(0.9, 'Стабилизация ядра');
@@ -173,6 +174,7 @@ async function main(): Promise<void> {
   app.ticker.add((t) => {
     game.tick(t.deltaMS / 1000);
     hud.update(performance.now());
+    dock.update();
     title.watch();
   });
 

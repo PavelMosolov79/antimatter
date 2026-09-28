@@ -28,6 +28,12 @@ export interface TitleLayout {
  * portrait one (logo, the core, the list below it) at 144 art pixels across.
  */
 export function titleLayout(vw: number, vh: number): TitleLayout {
+  // A window with no size yet (a background tab, a hidden frame): lay out for 16:9 and
+  // let the resize handler fit the real size once there is one.
+  if (!(vw > 0) || !(vh > 0)) {
+    vw = 1280;
+    vh = 720;
+  }
   if (vh / vw >= 1.4) {
     const u = Math.min(vw / 144, vh / 256);
     const W = Math.ceil(vw / u);

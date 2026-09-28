@@ -413,8 +413,8 @@ export class Game {
   }
 
   tick(frameDt: number): void {
-    // Behind the title the world stands still and isn't drawn.
-    if (this.screen === 'title') return;
+    // Behind the title and the dock (both full screens of their own) the world stands still and isn't drawn.
+    if (this.screen === 'title' || (this.mode === 'run' && this.runPhase === 'dock')) return;
     const dt = Math.min(frameDt, 0.05);
     let simDt = 0;
     const halted = this.mode === 'run' && this.runPhase !== 'battle';

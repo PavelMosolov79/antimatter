@@ -37,6 +37,19 @@ describe('title layout', () => {
     expect(L.menuCore.y + RRING + 6).toBeLessThan(167);
   });
 
+  it('survives a window that has no size yet (a background tab) instead of breaking the start-up', () => {
+    for (const [w, h] of [
+      [0, 0],
+      [0, 720],
+      [1280, 0],
+    ]) {
+      const L = titleLayout(w, h);
+      expect(Number.isFinite(L.W) && L.W > 0).toBe(true);
+      expect(Number.isFinite(L.H) && L.H > 0).toBe(true);
+      expect(L.u).toBeGreaterThan(0);
+    }
+  });
+
   it('keeps a squarish window in landscape, never narrower than the design', () => {
     const L = titleLayout(800, 800);
     expect(L.mode).toBe('landscape');
