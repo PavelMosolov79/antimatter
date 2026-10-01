@@ -54,13 +54,15 @@ const CSS = U(`
 #mods .decks button.drop { background: rgba(80,230,150,.28); border-color: #50e696; color: #aaffd0; }
 #mods .status { left: 0; right: 0; top: calc(U(6.4) + env(safe-area-inset-top, 0px)); text-align: center; font-size: U(1.05); letter-spacing: .22em; text-transform: uppercase; color: #6c77a0; pointer-events: none; }
 #mods .status.hot { color: #63e07a; }
-#mods .deck { left: U(30); right: U(35); top: calc(U(9.2) + env(safe-area-inset-top, 0px)); bottom: U(3); display: flex; align-items: center; justify-content: center; }
-#mods canvas.view { max-width: 100%; max-height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; filter: drop-shadow(0 0 U(1.6) rgba(89,230,255,.12)); }
+#mods .deck { left: U(30); right: U(35); top: calc(U(9.2) + env(safe-area-inset-top, 0px)); bottom: U(3); display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+#mods .zoom { position: absolute; right: U(.8); bottom: U(.8); display: flex; flex-direction: column; gap: U(.6); z-index: 2; }
+#mods .zoom button { width: U(3.4); height: U(3.4); padding: 0; justify-content: center; font-size: U(2); letter-spacing: 0; }
+#mods canvas.view { transform-origin: 50% 50%; will-change: transform; max-width: 100%; max-height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; filter: drop-shadow(0 0 U(1.6) rgba(89,230,255,.12)); }
 #mods canvas.view.tool-module { cursor: grab; }
-#mods .pool { right: U(3.2); width: U(29.6); top: calc(U(9.2) + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: U(.8); padding: U(1.2); background: rgba(6,9,18,.72); border: 1px solid rgba(89,230,255,.18); }
+#mods .pool { right: U(3.2); width: U(29.6); top: calc(U(9.2) + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: U(.8); padding: U(1.2); background: rgba(6,9,18,.72); border: 1px solid rgba(89,230,255,.18); max-height: calc(100% - U(23.5) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; touch-action: pan-y; }
 #mods .head { font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 700; font-size: U(1.1); letter-spacing: .16em; text-transform: uppercase; color: #f3e8ff; }
 #mods .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: U(.6); }
-#mods .pc { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: U(.4); padding: U(.6) U(.2); border: 1px solid rgba(89,230,255,.14); background: rgba(10,13,24,.8); cursor: grab; touch-action: none;
+#mods .pc { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: U(.4); padding: U(.6) U(.2); border: 1px solid rgba(89,230,255,.14); background: rgba(10,13,24,.8); cursor: grab; touch-action: pan-y;
   text-align: center; font-size: U(.95); line-height: 1.25; color: #9aa4c8; text-shadow: none; }
 #mods .pc:hover { border-color: rgba(89,230,255,.5); color: #fff; }
 #mods .pc canvas { width: U(4.6); height: auto; image-rendering: pixelated; }
@@ -85,6 +87,9 @@ const CSS = U(`
 #mods.portrait { display: flex; flex-direction: column; gap: U(1.8); padding: calc(U(3.5) + env(safe-area-inset-top, 0px)) U(4) calc(U(4) + env(safe-area-inset-bottom, 0px)); }
 #mods.portrait[hidden] { display: none; }
 #mods.portrait > * { position: static; }
+#mods.portrait .deck { position: relative; left: auto; right: auto; top: auto; bottom: auto; }
+#mods.portrait .zoom button { width: U(7.2); height: U(7.2); font-size: U(4.2); }
+#mods.portrait .zoom { right: U(1.4); bottom: U(1.4); gap: U(1.2); }
 #mods.portrait button { font-size: U(2.5); padding: U(1.8) U(2.2); }
 #mods.portrait .ttl { align-items: center; text-align: center; gap: U(.6); }
 #mods.portrait .ttl b { font-size: U(5.6); }
@@ -95,10 +100,10 @@ const CSS = U(`
 #mods.portrait .decks button { font-size: U(2.5); padding: U(1.7) U(2.4); }
 #mods.portrait .status { font-size: U(2); }
 #mods.portrait .deck { flex: 1 1 0; min-height: 0; }
-#mods.portrait .pool { width: auto; padding: U(2.2); gap: U(1.4); }
+#mods.portrait .pool { width: auto; padding: U(2.2); gap: U(1.4); overflow: visible; max-height: none; touch-action: auto; }
 #mods.portrait .head { font-size: U(2.3); }
-#mods.portrait .cards { display: flex; overflow-x: auto; gap: U(1.3); padding-bottom: U(1); scrollbar-width: thin; }
-#mods.portrait .pc { flex: 0 0 U(17); font-size: U(2); padding: U(1.2) U(.3); gap: U(.8); }
+#mods.portrait .cards { display: flex; overflow-x: auto; gap: U(1.3); padding-bottom: U(1); scrollbar-width: thin; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; touch-action: pan-x; }
+#mods.portrait .pc { touch-action: pan-x; flex: 0 0 U(17); font-size: U(2); padding: U(1.2) U(.3); gap: U(.8); }
 #mods.portrait .pc canvas { width: U(10); }
 #mods.portrait .pc.lad canvas { width: U(5); margin: U(2.5) 0; }
 #mods.portrait .note { display: none; }
@@ -162,6 +167,16 @@ export class ModulesScreen {
   private painting = false;
   private lastCell: { x: number; y: number } | null = null;
   private flashTimer = 0;
+  private deckBox = document.createElement('div');
+  /** View of the deck: zoom and the shift of the picture, kept in CSS pixels from the centred position. */
+  private view = { s: 1, tx: 0, ty: 0 };
+  private touches = new Map<number, { x: number; y: number }>();
+  private pinch: { d: number; s: number; tx: number; ty: number; mx: number; my: number } | null = null;
+  /** After a pinch the lifted fingers must not start a drag or a stroke until every finger is up. */
+  private gestureLock = false;
+  private panning: { x: number; y: number; tx: number; ty: number } | null = null;
+  /** A touch on a pool card waits to see whether it scrolls the pool or pulls a module out of it. */
+  private pending: { id: number; x: number; y: number; spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean } } | null = null;
 
   constructor(
     private onDone: (shipId: string) => void,
@@ -187,9 +202,22 @@ export class ModulesScreen {
     this.els.decks.className = 'decks';
     nav.append(prev, this.els.decks, next);
     this.els.status.className = 'status';
-    const deck = div('deck');
+    const deck = this.deckBox;
+    deck.className = 'deck';
     this.els.canvas.className = 'view';
-    deck.appendChild(this.els.canvas);
+    const zoom = div('zoom');
+    for (const [label, name, fn] of [
+      ['+', 'Приблизить', () => this.zoomBy(1.5)],
+      ['−', 'Отдалить', () => this.zoomBy(1 / 1.5)],
+      ['⤢', 'Вся палуба', () => this.resetView()],
+    ] as Array<[string, string, () => void]>) {
+      const zb = button(label, fn);
+      zb.setAttribute('aria-label', name);
+      zb.title = name;
+      zoom.appendChild(zb);
+    }
+    deck.append(this.els.canvas, zoom);
+    deck.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     const pool = div('pool');
     const head = div('head', 'Пул модулей');
     this.els.pool.className = 'cards';
@@ -197,15 +225,15 @@ export class ModulesScreen {
       const c = div('pc');
       c.title = `${MODULE_INFO[id].name} — ${MODULE_INFO[id].desc}`;
       c.append(spriteCanvas(id, 1, 1, 5), span(MODULE_INFO[id].name));
-      c.addEventListener('pointerdown', (e) => this.startDrag(e, { type: id, tw: 1, th: 1, id: null, ladder: false }));
+      c.addEventListener('pointerdown', (e) => this.poolDown(e, { type: id, tw: 1, th: 1, id: null, ladder: false }));
       this.els.pool.appendChild(c);
     }
     const lc = div('pc lad');
     lc.title = `Лестница 5×5: ${MODULE_INFO.ladder.desc}`;
     lc.append(spriteCanvas('ladder', 1, 1, 10), span('Лестница'));
-    lc.addEventListener('pointerdown', (e) => this.startDrag(e, { type: 'ladder', tw: 1, th: 1, id: null, ladder: true }));
+    lc.addEventListener('pointerdown', (e) => this.poolDown(e, { type: 'ladder', tw: 1, th: 1, id: null, ladder: true }));
     this.els.pool.appendChild(lc);
-    pool.append(head, this.els.pool, div('note', 'Тяните в палубу. Чтобы убрать, верните в пул.'));
+    pool.append(head, this.els.pool, div('note', 'Тяните в палубу. Чтобы убрать, верните в пул. Колесо или щипок — масштаб.'));
     this.els.info.className = 'card';
     this.els.tools.className = 'tools';
     for (const [t, label] of [
@@ -246,6 +274,7 @@ export class ModulesScreen {
     parent.appendChild(r);
 
     this.els.canvas.addEventListener('pointerdown', (e) => this.canvasDown(e));
+    this.els.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('pointermove', (e) => this.move(e));
     window.addEventListener('pointerup', (e) => this.up(e));
     window.addEventListener('pointercancel', (e) => this.up(e));
@@ -287,6 +316,8 @@ export class ModulesScreen {
     this.layout = currentLayout(shipId, this.geo);
     this.deck = 1;
     this.hover = null;
+    this.view = { s: 1, tx: 0, ty: 0 };
+    this.applyView();
     this.refresh();
   }
 
@@ -302,6 +333,94 @@ export class ModulesScreen {
     this.root.classList.toggle('portrait', this.portrait);
     const u = this.portrait ? Math.min(vw, (vh * 9) / 16) / 100 : Math.min(vw, (vh * 16) / 9) / 100;
     this.root.style.setProperty('--u', `${u}px`);
+  }
+
+  // ---------------------------------------------------------------- zoom
+
+  private applyView(): void {
+    const v = this.view;
+    this.els.canvas.style.transform = v.s === 1 && v.tx === 0 && v.ty === 0 ? '' : `translate(${v.tx}px, ${v.ty}px) scale(${v.s})`;
+  }
+
+  private resetView(): void {
+    this.view = { s: 1, tx: 0, ty: 0 };
+    this.applyView();
+  }
+
+  /** Zoom by `k` keeping the point (cx, cy) in client pixels where it is; the deck centre by default. */
+  private zoomAt(k: number, cx?: number, cy?: number): void {
+    const v = this.view;
+    const rect = this.els.canvas.getBoundingClientRect();
+    const box = this.deckBox.getBoundingClientRect();
+    const px = cx ?? box.left + box.width / 2;
+    const py = cy ?? box.top + box.height / 2;
+    const s2 = Math.max(1, Math.min(8, v.s * k));
+    const c0x = rect.left + rect.width / 2 - v.tx;
+    const c0y = rect.top + rect.height / 2 - v.ty;
+    const qx = (px - c0x - v.tx) / v.s;
+    const qy = (py - c0y - v.ty) / v.s;
+    this.view = { s: s2, tx: px - c0x - qx * s2, ty: py - c0y - qy * s2 };
+    this.clampView();
+  }
+
+  private zoomBy(k: number): void {
+    this.zoomAt(k);
+  }
+
+  /** Keep the picture over the deck: it can be pulled aside only by as much as it overhangs. */
+  private clampView(): void {
+    const v = this.view;
+    if (v.s <= 1.001) {
+      this.view = { s: 1, tx: 0, ty: 0 };
+    } else {
+      const box = this.deckBox.getBoundingClientRect();
+      const w = this.els.canvas.offsetWidth * v.s;
+      const h = this.els.canvas.offsetHeight * v.s;
+      const mx = Math.max(0, (w - box.width) / 2) + box.width * 0.2;
+      const my = Math.max(0, (h - box.height) / 2) + box.height * 0.2;
+      v.tx = Math.max(-mx, Math.min(mx, v.tx));
+      v.ty = Math.max(-my, Math.min(my, v.ty));
+    }
+    this.applyView();
+  }
+
+  private wheel(e: WheelEvent): void {
+    e.preventDefault();
+    this.zoomAt(Math.exp(-e.deltaY * 0.0018), e.clientX, e.clientY);
+  }
+
+  private pinchStart(): void {
+    const [a, b] = [...this.touches.values()];
+    this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, s: this.view.s, tx: this.view.tx, ty: this.view.ty, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    this.gestureLock = true;
+    this.panning = null;
+    if (this.drag) {
+      this.drag = null;
+      this.floater?.remove();
+      this.floater = null;
+    }
+    if (this.painting) {
+      this.painting = false;
+      this.lastCell = null;
+      this.save();
+    }
+    this.draw();
+  }
+
+  private pinchMove(): void {
+    const p = this.pinch;
+    if (!p || this.touches.size < 2) return;
+    const [a, b] = [...this.touches.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    // Restore the state the pinch began in, then zoom about its first midpoint and follow the fingers' drift.
+    this.view = { s: p.s, tx: p.tx, ty: p.ty };
+    this.applyView();
+    this.zoomAt(d / p.d, p.mx, p.my);
+    this.view.tx += mx - p.mx;
+    this.view.ty += my - p.my;
+    this.clampView();
   }
 
   private flash(msg: string): void {
@@ -462,11 +581,13 @@ export class ModulesScreen {
 
   private cellOf(e: PointerEvent): { x: number; y: number; inside: boolean } {
     const r = this.els.canvas.getBoundingClientRect();
+    const box = this.deckBox.getBoundingClientRect();
     const g = this.geo;
+    const inBox = e.clientX >= box.left && e.clientX <= box.right && e.clientY >= box.top && e.clientY <= box.bottom;
     return {
       x: Math.floor(((e.clientX - r.left) / r.width) * g.w),
       y: Math.floor(((e.clientY - r.top) / r.height) * g.h),
-      inside: e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom,
+      inside: inBox && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom,
     };
   }
 
@@ -480,8 +601,16 @@ export class ModulesScreen {
     return -1;
   }
 
+  private poolDown(e: PointerEvent, spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean }): void {
+    if (e.pointerType === 'mouse') {
+      this.startDrag(e, spec);
+      return;
+    }
+    this.pending = { id: e.pointerId, x: e.clientX, y: e.clientY, spec };
+  }
+
   private startDrag(e: PointerEvent, spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean }): void {
-    if (e.button !== undefined && e.button !== 0) return;
+    if (e.type === 'pointerdown' && e.button !== 0) return;
     e.preventDefault();
     const cur = spec.ladder && spec.id !== null ? this.layout.lads.find((l) => l.id === spec.id) : undefined;
     this.drag = { ...spec, z0: cur ? cur.z0 : this.deck < this.geo.depth - 1 ? this.deck : this.deck - 1, over: false, valid: false, i: 0, j: 0, tab: null };
@@ -536,6 +665,32 @@ export class ModulesScreen {
 
   private move(e: PointerEvent): void {
     if (!this.open_) return;
+    if (this.touches.has(e.pointerId)) {
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pinch) {
+        this.pinchMove();
+        return;
+      }
+    }
+    if (this.gestureLock) return;
+    const pd = this.pending;
+    if (pd && pd.id === e.pointerId) {
+      const dx = e.clientX - pd.x;
+      const dy = e.clientY - pd.y;
+      if (Math.hypot(dx, dy) > 8) {
+        this.pending = null;
+        // The pool scrolls along one axis; pulling across it takes the module out.
+        if (this.portrait ? Math.abs(dy) > Math.abs(dx) : Math.abs(dx) > Math.abs(dy)) this.startDrag(e, pd.spec);
+      }
+      return;
+    }
+    if (this.panning) {
+      const pn = this.panning;
+      this.view.tx = pn.tx + e.clientX - pn.x;
+      this.view.ty = pn.ty + e.clientY - pn.y;
+      this.clampView();
+      return;
+    }
     if (this.painting) {
       this.paintAt(e);
       return;
@@ -573,6 +728,13 @@ export class ModulesScreen {
 
   private up(e: PointerEvent): void {
     if (!this.open_) return;
+    if (this.pending && this.pending.id === e.pointerId) this.pending = null;
+    if (this.touches.delete(e.pointerId)) {
+      if (this.touches.size < 2) this.pinch = null;
+      if (this.touches.size === 0) this.gestureLock = false;
+    }
+    this.panning = null;
+    if (this.gestureLock) return;
     if (this.painting) {
       this.painting = false;
       this.lastCell = null;
@@ -622,9 +784,20 @@ export class ModulesScreen {
   private canvasDown(e: PointerEvent): void {
     if (e.button !== undefined && e.button !== 0) return;
     e.preventDefault();
+    if (e.pointerType === 'touch') {
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.touches.size === 2) {
+        this.pinchStart();
+        return;
+      }
+      if (this.gestureLock) return;
+    }
     if (this.tool === 'module') {
       const k = this.entAt(this.cellOf(e));
-      if (k < 0 || !this.lastPlan) return;
+      if (k < 0 || !this.lastPlan) {
+        if (this.view.s > 1) this.panning = { x: e.clientX, y: e.clientY, tx: this.view.tx, ty: this.view.ty };
+        return;
+      }
       const ent = this.lastPlan.ents[k];
       if (ent.kind === 'lad') this.startDrag(e, { type: 'ladder', tw: 1, th: 1, id: (ent.ref as { id: number }).id, ladder: true });
       else this.startDrag(e, { type: ent.type as ModuleId, tw: ent.tw, th: ent.th, id: (ent.ref as { id: number }).id, ladder: false });
