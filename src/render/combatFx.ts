@@ -66,6 +66,26 @@ function getBarrelTexture(type: WeaponType): Texture {
   return tex;
 }
 
+let glowTexture: Texture | null = null;
+
+/** A white radial falloff: tinted and drawn additively it is a soft halo of any colour. */
+function getGlowTexture(): Texture {
+  if (glowTexture) return glowTexture;
+  const n = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = n;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.3, 'rgba(255,255,255,0.7)');
+  grad.addColorStop(0.6, 'rgba(255,255,255,0.26)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, n, n);
+  glowTexture = Texture.from(canvas);
+  return glowTexture;
+}
+
 interface BarrelDraw {
   x: number;
   y: number;
@@ -84,6 +104,7 @@ export class CombatFx {
   private readonly barrelLayer = new Container();
   private readonly textLayer = new Container();
   private bolts: Sprite[] = [];
+  private halos: Sprite[] = [];
   private barrelSprites: Sprite[] = [];
   private muzzleSprites: Sprite[] = [];
   private texts = new Map<number, Text>();
@@ -276,7 +297,7 @@ export class CombatFx {
       this.barrelSprites.push(s);
     }
     while (this.muzzleSprites.length < list.length) {
-      const s = new Sprite(Texture.WHITE);
+      const s = new Sprite(getGlowTexture());
       s.anchor.set(0.5);
       s.blendMode = 'add';
       this.barrelLayer.addChild(s);
@@ -299,7 +320,7 @@ export class CombatFx {
       m.visible = d.firing;
       if (d.firing) {
         m.tint = 0xfff3d0;
-        m.width = m.height = d.type === 'heavy' ? 1.6 : d.type === 'beam' ? 1.1 : 0.8;
+        m.width = m.height = d.type === 'heavy' ? 7 : d.type === 'beam' ? 5 : 4;
         m.position.set(d.tipX, d.tipY);
       }
     }
@@ -327,15 +348,29 @@ export class CombatFx {
       s.blendMode = 'add';
       this.boltLayer.addChild(s);
       this.bolts.push(s);
+      const h = new Sprite(getGlowTexture());
+      h.anchor.set(0.5);
+      h.blendMode = 'add';
+      this.boltLayer.addChildAt(h, 0);
+      this.halos.push(h);
     }
     for (let i = 0; i < this.bolts.length; i++) {
       const s = this.bolts[i];
+      const h = this.halos[i];
       if (i >= list.length) {
         s.visible = false;
+        h.visible = false;
         continue;
       }
       const p = list[i];
       s.visible = true;
+      h.visible = true;
+      h.tint = p.color;
+      h.alpha = 0.85;
+      h.width = p.type === 'heavy' ? 20 : 11;
+      h.height = p.type === 'heavy' ? 28 : 18;
+      h.position.set(p.x, p.y);
+      h.rotation = Math.atan2(p.vx, -p.vy);
       s.tint = p.color;
       s.width = p.type === 'heavy' ? 2.2 : 0.9;
       s.height = p.type === 'heavy' ? 7 : 4.5;

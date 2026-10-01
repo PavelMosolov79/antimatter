@@ -6,7 +6,7 @@ import { GridBody } from './body';
 import { pilotAvailable, spawnCrew, updateCrew } from './crew';
 import { DUST_MIN_COLUMNS, splitBody, type SplitResult } from './fragment';
 import { gravityAt, isSolid, type Celestial } from './gravity';
-import type { ShipGrid } from './grid';
+import type { Module, ShipGrid } from './grid';
 import { MATERIALS } from './materials';
 import { applyPropulsion } from './propulsion';
 import { mulberry32, type Rng } from './rng';
@@ -38,6 +38,16 @@ interface Blast {
   y: number;
   r: number;
   dmg: number;
+  /** The exploding ship itself: it breaks apart instead of being hit by its own blast. */
+  src: GridBody;
+}
+
+/** Wreck pieces of a detonated ship get thrown outward once the split has happened. */
+interface Shatter {
+  body: GridBody;
+  x: number;
+  y: number;
+  speed: number;
 }
 
 /** Not a game limit — ships have none — just a ceiling that keeps the numbers (and the collisions) sane. */
@@ -65,6 +75,7 @@ export class World implements DamageSink {
   projectiles: Projectile[] = [];
   beams: Beam[] = [];
   private blasts: Blast[] = [];
+  private shatters: Shatter[] = [];
   readonly rng: Rng;
   private damaged = new Set<GridBody>();
   private buf: number[] = [];
@@ -165,19 +176,50 @@ export class World implements DamageSink {
     const reactor = b.grid.modules.find((m) => m.kind === 'reactor');
     const r = reactor && reactor.blast > 0 ? reactor.blast : 40;
     sys.dead = true;
+    b.kind = 'debris';
+    if (b.isPlayer) {
+      b.isPlayer = false;
+      if (this.player === b) this.player = null;
+    }
     this.push({ t: 'detonate', x: b.x, y: b.y, r });
+    this.fracture(b, reactor);
+    this.blasts.push({ x: b.x, y: b.y, r, dmg: SYSTEMS.blastDamage, src: b });
+    this.shatters.push({ body: b, x: b.x, y: b.y, speed: 14 + Math.min(26, b.radius * 0.5) });
+    this.push({ t: 'dead', x: b.x, y: b.y, shipId: b.shipId });
+  }
+
+  /** The reactor blows a hole in its own hull and sends cracks out to the rim: the wreck falls into chunks. */
+  private fracture(b: GridBody, reactor: Module | undefined): void {
     const g = b.grid;
-    for (let y = 0; y < g.height; y += 2) {
-      for (let x = 0; x < g.width; x += 2) {
-        const z = g.topLayer(x, y);
-        if (z < 0) continue;
-        const p = b.localToWorld(x + 0.5, y + 0.5, tmpPt);
-        this.push({ t: 'cell', x: p.x, y: p.y, color: MATERIALS[g.mat[g.idx(x, y, z)]].color });
+    let cx = g.width / 2;
+    let cy = g.height / 2;
+    if (reactor) {
+      let sx = 0;
+      let sy = 0;
+      let n = 0;
+      for (const i of reactor.cells) {
+        sx += g.xOf(i) + 0.5;
+        sy += g.yOf(i) + 0.5;
+        n++;
+      }
+      if (n > 0) {
+        cx = sx / n;
+        cy = sy / n;
       }
     }
-    this.blasts.push({ x: b.x, y: b.y, r, dmg: SYSTEMS.blastDamage });
-    this.removeBody(b);
-    this.push({ t: 'dead', x: b.x, y: b.y, shipId: b.shipId });
+    const reach = Math.hypot(g.width, g.height);
+    this.buf.length = 0;
+    g.applyCrater(cx, cy, Math.max(3, b.radius * 0.28), 1e4, 1, this.buf);
+    const rays = 4 + Math.round(b.radius / 12);
+    const a0 = this.rng() * Math.PI * 2;
+    for (let k = 0; k < rays; k++) {
+      const a = a0 + ((k + this.rng() * 0.6) / rays) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      for (let t = 0; t < reach; t += 0.6) g.applyCrater(cx + dx * t, cy + dy * t, 1.1, 1e4, 1, this.buf);
+    }
+    this.flushDestroyed(b);
+    this.damaged.add(b);
   }
 
   gravityAt(x: number, y: number): { ax: number; ay: number } {
@@ -277,6 +319,20 @@ export class World implements DamageSink {
       }
     }
     this.bodies = this.bodies.filter((b) => !b.removed);
+  }
+
+  private throwWreck(sh: Shatter): void {
+    for (const p of this.bodies) {
+      if (p.removed) continue;
+      if (p !== sh.body && !(p.splitTag === sh.body.id && p.splitTime === this.time)) continue;
+      const dx = p.x - sh.x;
+      const dy = p.y - sh.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const k = sh.speed * (0.5 + this.rng() * 0.8) * Math.min(1, 0.4 + d / 12);
+      p.vx += (dx / d) * k;
+      p.vy += (dy / d) * k;
+      p.w += (this.rng() - 0.5) * 3;
+    }
   }
 
   private dustBody(b: GridBody): void {
@@ -383,7 +439,7 @@ export class World implements DamageSink {
     if (this.blasts.length > 0) {
       for (const bl of this.blasts) {
         for (const o of this.bodies) {
-          if (o.removed) continue;
+          if (o.removed || o === bl.src) continue;
           if (Math.hypot(o.x - bl.x, o.y - bl.y) > bl.r + o.radius) continue;
           this.damageCrater(o, bl.x, bl.y, bl.r, bl.dmg, 1);
         }
@@ -392,6 +448,10 @@ export class World implements DamageSink {
       this.blasts.length = 0;
     }
     this.processDamaged();
+    if (this.shatters.length > 0) {
+      for (const sh of this.shatters) this.throwWreck(sh);
+      this.shatters.length = 0;
+    }
 
     for (const b of this.bodies) {
       if (b.kind === 'debris' && Math.hypot(b.x, b.y) > FAR_LIMIT) this.removeBody(b);

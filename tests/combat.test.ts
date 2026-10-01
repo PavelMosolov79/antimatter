@@ -197,6 +197,21 @@ describe('reactor', () => {
     expect(world.events.some((e) => e.t === 'detonate')).toBe(true);
   });
 
+  it('a detonating ship breaks into debris that flies apart instead of vanishing', () => {
+    const world = new World(5);
+    const a = world.spawnShip(noShield(buildCruiser()), 0, 0, 0, { name: 'A', team: 1 });
+    for (const m of a.grid.modules) if (m.weapon) m.weapon.enabled = false;
+    const cells = a.grid.cells;
+    world.detonate(a);
+    world.step(1 / 60);
+    const wreck = world.bodies.filter((b) => !b.removed && b.kind === 'debris');
+    expect(wreck.length).toBeGreaterThanOrEqual(2);
+    expect(wreck.reduce((n, b) => n + b.grid.cells, 0)).toBeLessThan(cells);
+    expect(wreck.reduce((n, b) => n + b.grid.cells, 0)).toBeGreaterThan(cells * 0.1);
+    expect(wreck.some((b) => Math.hypot(b.vx, b.vy) > 6)).toBe(true);
+    expect(world.findShip(a.shipId)).toBeNull();
+  });
+
   it('heavy damage to the reactor raises instability and triggers the countdown', () => {
     const world = new World(3);
     const a = world.spawnShip(noShield(buildFighter('raider')), 0, 0, 0, { name: 'A', team: 1 });

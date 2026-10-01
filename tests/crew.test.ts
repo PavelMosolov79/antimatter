@@ -157,19 +157,20 @@ describe('engineers', () => {
   it('holds a breached room steady instead of letting it fully vent', () => {
     const { world, ship } = makePlayer();
     const graph = ensureRooms(ship);
-    const shieldBay = roomsOnDeck(graph, 1)[1];
+    // The big aft room on deck 1: the engineers wait on deck 2 and now have to climb the ladder to it (no more teleporting).
+    const shieldBay = roomsOnDeck(graph, 1)[2];
     const [cell] = shieldBay.cells;
     const x = ship.grid.xOf(cell);
     const y = ship.grid.yOf(cell);
     ship.grid.removeCell(ship.grid.idx(x, y, 0));
 
-    run(world, 3); // engineer arrives and starts sealing before it fully vents
+    run(world, 4); // engineer arrives and starts sealing before it fully vents
     expect(shieldBay.sealing).toBe(true);
     const pressureAtSeal = shieldBay.pressure;
     expect(pressureAtSeal).toBeGreaterThan(0);
 
     run(world, 5);
-    expect(shieldBay.pressure).toBeCloseTo(pressureAtSeal, 2);
+    expect(shieldBay.pressure).toBeGreaterThanOrEqual(pressureAtSeal - 0.01); // held, not vented (it even recovers a little)
   });
 
   it('extinguishes a fire faster than it would decay on its own in vacuum', () => {
@@ -177,7 +178,7 @@ describe('engineers', () => {
     const graph = ensureRooms(ship);
     const bridge = roomsOnDeck(graph, 1)[0];
     bridge.fire = 0.9;
-    run(world, 6);
+    run(world, 14); // the engineers walk from deck 2 to the bridge first
     expect(bridge.fire).toBe(0);
   });
 });

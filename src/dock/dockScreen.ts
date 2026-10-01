@@ -1,6 +1,7 @@
 import type { Game } from '../game';
 import type { ShipGrid } from '../sim/grid';
 import { SHIPS } from '../sim/ships';
+import type { ModulesScreen } from './modulesScreen';
 import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockLayout, type DockSprite } from './dockArt';
 
 /**
@@ -190,10 +191,13 @@ export class DockScreen {
     sand.className = 'sand';
     actions.append(go, sand);
     for (const label of ['Ремонт', 'Модули', 'Экипаж']) {
-      const b = btn('', () => {});
+      const mods = label === 'Модули';
+      const b = btn('', () => {
+        if (mods) this.openModules();
+      });
       b.className = 'later';
-      b.disabled = true;
-      b.innerHTML = `<span>${label}</span><small>MVP-4</small>`;
+      b.disabled = !mods;
+      b.innerHTML = mods ? `<span>${label}</span>` : `<span>${label}</span><small>MVP-4</small>`;
       actions.appendChild(b);
     }
     const menu = btn('Главное меню', () => this.leave(() => (this.game.screen = 'title')));
@@ -217,6 +221,25 @@ export class DockScreen {
         if (!r.hidden) this.fit();
       }, 150);
     });
+  }
+
+  private modules: ModulesScreen | null = null;
+
+  /** Hooks up the module menu this dock opens from its «Модули» button. */
+  setModules(m: ModulesScreen): void {
+    this.modules = m;
+  }
+
+  private openModules(): void {
+    if (this.phase !== 'docked' || !this.modules) return;
+    this.modules.open(this.shipId || this.game.shipId);
+  }
+
+  /** The module menu closed: the ship at the berth is built again from the layout, and painted fresh. */
+  refreshShip(shipId: string): void {
+    sprites.delete(shipId);
+    this.game.openDock(shipId);
+    this.load();
   }
 
   /** Called every frame by the game loop: shows the dock whenever the game is at it. */

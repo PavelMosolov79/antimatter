@@ -2,6 +2,7 @@ import type { GridBody } from './body';
 import { type Room, type RoomEdge, type RoomGraph, ensureRooms } from './compartments';
 import { moduleEfficiency, type ShipGrid } from './grid';
 import { Mat } from './materials';
+import { refineRoute } from './walk';
 import type { World } from './world';
 
 export type CrewRole = 'pilot' | 'gunner' | 'shieldop' | 'engineer';
@@ -128,6 +129,27 @@ function roomCentroid(grid: ShipGrid, room: Room): { x: number; y: number } {
   return { x: sx / room.cells.length + 0.5, y: sy / room.cells.length + 0.5 };
 }
 
+/**
+ * A spot to walk to in a room: the room's own cell nearest its centroid. A room that is not
+ * a rectangle (the open field round the modules of a deck) can have a centroid that is
+ * inside a module or a wall.
+ */
+function roomPoint(grid: ShipGrid, room: Room): { x: number; y: number } {
+  const c = roomCentroid(grid, room);
+  let best = c;
+  let bestD = Infinity;
+  for (const i of room.cells) {
+    const x = grid.xOf(i) + 0.5;
+    const y = grid.yOf(i) + 0.5;
+    const d = (x - c.x) * (x - c.x) + (y - c.y) * (y - c.y);
+    if (d < bestD) {
+      bestD = d;
+      best = { x, y };
+    }
+  }
+  return best;
+}
+
 /** Breadth-first search over the room graph. Returns the edge sequence from `from` to `to`, or null if unreachable. */
 function bfsPathTo(graph: RoomGraph, from: number, to: number): RoomEdge[] | null {
   if (from === to) return [];
@@ -179,28 +201,28 @@ function bfsNearest(graph: RoomGraph, from: number, pred: (r: Room) => boolean):
   return null;
 }
 
-function buildRoute(grid: ShipGrid, graph: RoomGraph, fromRoomId: number, toRoomId: number): Waypoint[] {
+function buildRoute(grid: ShipGrid, graph: RoomGraph, fromRoomId: number, toRoomId: number, crew: Crew): Waypoint[] {
   const edges = bfsPathTo(graph, fromRoomId, toRoomId);
   if (!edges) return [];
   const waypoints: Waypoint[] = [];
+  let cur = fromRoomId;
   for (const edge of edges) {
+    const next = edge.a === cur ? edge.b : edge.a;
     if (edge.kind === 'door') {
       const door = grid.doors[edge.doorId!];
       waypoints.push({ x: grid.xOf(door.cell) + 0.5, y: grid.yOf(door.cell) + 0.5, z: grid.zOf(door.cell) });
     } else {
-      // Ladder: find the shared (x,y) column between the two z-layers it connects.
-      const a = graph.rooms[edge.a];
-      const b = graph.rooms[edge.b];
-      const lowZ = Math.min(a.z, b.z);
-      const highZ = Math.max(a.z, b.z);
+      // Ladder: the shaft cell that stands in the room we leave and has a shaft cell of the next room right above or below it.
+      const zFrom = graph.rooms[cur].z;
+      const zTo = graph.rooms[next].z;
       let lx = -1;
       let ly = -1;
       outer: for (let y = 0; y < grid.height; y++) {
         for (let x = 0; x < grid.width; x++) {
-          const i = grid.idx(x, y, lowZ);
-          if (graph.cellRoom[i] !== -1 && grid.mat[i] === Mat.LADDER) {
-            const above = grid.idx(x, y, highZ);
-            if (grid.mat[above] === Mat.LADDER) {
+          const i = grid.idx(x, y, zFrom);
+          if (graph.cellRoom[i] === cur && grid.mat[i] === Mat.LADDER) {
+            const other = grid.idx(x, y, zTo);
+            if (grid.mat[other] === Mat.LADDER && graph.cellRoom[other] === next) {
               lx = x;
               ly = y;
               break outer;
@@ -209,17 +231,18 @@ function buildRoute(grid: ShipGrid, graph: RoomGraph, fromRoomId: number, toRoom
         }
       }
       if (lx >= 0) {
-        waypoints.push({ x: lx + 0.5, y: ly + 0.5, z: lowZ });
-        waypoints.push({ x: lx + 0.5, y: ly + 0.5, z: highZ });
+        waypoints.push({ x: lx + 0.5, y: ly + 0.5, z: zFrom });
+        waypoints.push({ x: lx + 0.5, y: ly + 0.5, z: zTo });
       }
     }
+    cur = next;
   }
   const dest = graph.rooms[toRoomId];
   if (dest) {
-    const c = roomCentroid(grid, dest);
+    const c = roomPoint(grid, dest);
     waypoints.push({ x: c.x, y: c.y, z: dest.z });
   }
-  return waypoints;
+  return refineRoute(grid, { x: crew.x, y: crew.y, z: crew.z }, waypoints);
 }
 
 /** Nearest cell in `room` that's currently exposed to space (same test compartments.ts
@@ -388,7 +411,7 @@ function wanderBehavior(crew: Crew, grid: ShipGrid, graph: RoomGraph, curId: num
     const target = bfsNearest(graph, curId, (r) => hasLiveModule(grid, r) && !isDangerous(r));
     if (target !== null && target !== curId) {
       if (crew.destRoom !== target) {
-        crew.waypoints = buildRoute(grid, graph, curId, target);
+        crew.waypoints = buildRoute(grid, graph, curId, target, crew);
         crew.destRoom = target;
       }
       return; // still on the way there
@@ -403,7 +426,7 @@ function wanderBehavior(crew: Crew, grid: ShipGrid, graph: RoomGraph, curId: num
   }
   if (!room || room.cells.length === 0) return;
   const cell = room.cells[Math.floor(Math.random() * room.cells.length)];
-  crew.waypoints = [{ x: grid.xOf(cell) + 0.5, y: grid.yOf(cell) + 0.5, z: room.z }];
+  crew.waypoints = refineRoute(grid, { x: crew.x, y: crew.y, z: crew.z }, [{ x: grid.xOf(cell) + 0.5, y: grid.yOf(cell) + 0.5, z: room.z }]);
   crew.wanderCooldown = 1.5 + Math.random() * 2.5;
 }
 
@@ -415,7 +438,7 @@ function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: 
   if (isDangerous(room) && crew.task !== 'flee') {
     const safe = bfsNearest(graph, curId, (r) => !isDangerous(r));
     if (safe !== null && safe !== curId) {
-      crew.waypoints = buildRoute(grid, graph, curId, safe);
+      crew.waypoints = buildRoute(grid, graph, curId, safe, crew);
       crew.destRoom = safe;
     }
     crew.task = 'flee';
@@ -450,7 +473,7 @@ function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: 
   }
   if (room && isDangerous(room)) return; // still fleeing until it's actually safe to head back
   if (crew.destRoom !== targetRoom) {
-    crew.waypoints = buildRoute(grid, graph, curId, targetRoom);
+    crew.waypoints = buildRoute(grid, graph, curId, targetRoom, crew);
     crew.destRoom = targetRoom;
   }
   crew.task = 'toPost';
@@ -464,7 +487,7 @@ function decideEngineer(crew: Crew, grid: ShipGrid, graph: RoomGraph, dt: number
     return;
   }
   if (target !== curId && crew.destRoom !== target) {
-    crew.waypoints = buildRoute(grid, graph, curId, target);
+    crew.waypoints = buildRoute(grid, graph, curId, target, crew);
     crew.destRoom = target;
   }
   if (target === curId && crew.waypoints.length === 0) {

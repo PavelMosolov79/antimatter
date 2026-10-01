@@ -2,6 +2,8 @@ import { ShipGrid, type Module, type WeaponState, type WeaponType } from './grid
 import { buildBattleshipArt } from './battleshipArt';
 import { Mat } from './materials';
 import { DRIVES } from './propulsion';
+import { buildPlayerShip, deckGeo } from './interior';
+import type { DeckGeo } from './layout';
 
 function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number): void {
   for (let z = z0; z <= z1; z++) {
@@ -607,10 +609,27 @@ export function buildFreighter(): ShipGrid {
   return g;
 }
 
+/** The ships the player can fly: the hull from the yard, its interior laid out by the player (see interior.ts). */
+const PLAYER_HULLS: Record<string, () => ShipGrid> = {
+  fighter: () => buildFighter('strike'),
+  cruiser: buildCruiser,
+  battleship: buildBattleship,
+};
+
+/** Where the decks of a player ship are (for the module menu). */
+export function shipDeckGeo(id: string): DeckGeo {
+  if (!PLAYER_HULLS[id]) id = 'fighter';
+  return deckGeo(id, PLAYER_HULLS[id]);
+}
+
+export function playerShip(id: string): ShipGrid {
+  return buildPlayerShip(id, PLAYER_HULLS[id]);
+}
+
 export const SHIPS: ShipSpec[] = [
-  { id: 'fighter', label: 'Истребитель', build: () => buildFighter('strike') },
-  { id: 'cruiser', label: 'Крейсер', build: buildCruiser },
-  { id: 'battleship', label: 'Линкор', build: buildBattleship },
+  { id: 'fighter', label: 'Истребитель', build: () => playerShip('fighter') },
+  { id: 'cruiser', label: 'Крейсер', build: () => playerShip('cruiser') },
+  { id: 'battleship', label: 'Линкор', build: () => playerShip('battleship') },
 ];
 
 export interface EnemySpec {
