@@ -8,6 +8,10 @@ export interface Celestial {
   mu: number;
   soft: number;
   seed: number;
+  /** A planet's type (see sim/space.ts); planets without one keep the old plain look. */
+  variant?: string;
+  /** A planet with rings. */
+  ring?: boolean;
 }
 
 export function isSolid(c: Celestial): boolean {

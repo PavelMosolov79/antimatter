@@ -5,6 +5,7 @@ import type { Celestial } from './gravity';
 import type { ShipGrid } from './grid';
 import { MATERIALS, Mat } from './materials';
 import { mulberry32, type Rng } from './rng';
+import { buildArena, type SectorId } from './space';
 
 /**
  * One run: a seeded map of nodes from a start column to a single boss at the end. The
@@ -100,6 +101,9 @@ export function generateMap(seed: number, cols = RUN.cols): RunMap {
 
 export interface Encounter {
   enemies: string[];
+  /** The sky behind the arena and the seed that arranges its clouds. */
+  sector: SectorId;
+  skySeed: number;
   celestials: Celestial[];
 }
 
@@ -116,32 +120,18 @@ export function encounterFor(map: RunMap, node: MapNode): Encounter {
   if (node.kind === 'boss') enemies = ['boss'];
   else if (node.kind === 'elite') enemies = pick(rng, ELITE);
   else if (node.kind === 'combat') enemies = pick(rng, depth < 0.34 ? COMBAT_EARLY : depth < 0.67 ? COMBAT_MID : COMBAT_LATE);
-  return { enemies, celestials: arenaFor(rng, node) };
+  const sector = sectorFor(rng, node, depth);
+  // The boss waits at the edge of a huge black hole; elites by a small one (the crimson sector's own).
+  const hole = node.kind === 'boss' ? 'large' : undefined;
+  return { enemies, sector, skySeed: Math.floor(rng() * 100000), celestials: buildArena(rng, sector, { hole, gentle: node.kind === 'combat' && node.col === 1 }) };
 }
 
-/** A planet (sometimes with a moon), a distant star, and deeper in the run the odd black hole. */
-function arenaFor(rng: Rng, node: MapNode): Celestial[] {
-  const out: Celestial[] = [];
-  // The player spawns at the origin facing up and the enemies come from above, so the
-  // planet goes somewhere in the lower half and its moon on the planet's far side.
-  const pa = Math.PI / 2 + (rng() - 0.5) * Math.PI * 1.2;
-  const pd = 620 + rng() * 380;
-  const pr = 70 + rng() * 60;
-  const px = Math.cos(pa) * pd;
-  const py = Math.sin(pa) * pd;
-  out.push({ kind: 'planet', x: px, y: py, radius: pr, mu: pr * pr * 9, soft: 2, seed: Math.floor(rng() * 1000) });
-  if (rng() < 0.6) {
-    const ma = pa + (rng() - 0.5) * Math.PI;
-    const md = pr + 90 + rng() * 80;
-    out.push({ kind: 'moon', x: px + Math.cos(ma) * md, y: py + Math.sin(ma) * md, radius: 22 + rng() * 10, mu: 6000, soft: 1, seed: Math.floor(rng() * 1000) });
-  }
-  const sa = rng() * Math.PI * 2;
-  out.push({ kind: 'star', x: Math.cos(sa) * 2800, y: Math.sin(sa) * 2800, radius: 220, mu: 677000, soft: 5, seed: Math.floor(rng() * 1000) });
-  if (node.col >= 4 && rng() < 0.35) {
-    const ba = sa + Math.PI * (0.6 + rng() * 0.8);
-    out.push({ kind: 'blackhole', x: Math.cos(ba) * 2300, y: Math.sin(ba) * 2300, radius: 22, mu: 160000, soft: 8, seed: Math.floor(rng() * 1000) });
-  }
-  return out;
+/** Which sector's sky a node has: the first fight a quiet clear one, elites and the boss the dangerous crimson one, the rest by depth. */
+export function sectorFor(rng: Rng, node: MapNode, depth: number): SectorId {
+  if (node.kind === 'boss' || node.kind === 'elite') return 'crimson';
+  if (node.kind === 'combat' && node.col === 1) return 'clear';
+  const early = depth < 0.5 ? ['violet', 'green'] : ['ice', 'violet'];
+  return early[Math.floor(rng() * early.length)] as SectorId;
 }
 
 /**

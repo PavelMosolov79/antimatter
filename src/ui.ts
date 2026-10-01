@@ -2,6 +2,7 @@ import { Game, SCENARIOS, type Tool } from './game';
 import { OUTER_VIEW } from './render/shipView';
 import { RunScreen } from './runScreen';
 import { SHIPS } from './sim/ships';
+import { SECTOR_IDS, SECTORS } from './sim/space';
 import { moduleEfficiency } from './sim/grid';
 import { WEAPONS } from './sim/weapons';
 
@@ -218,6 +219,7 @@ export class Hud {
   private layerBtns: HTMLButtonElement[] = [];
   private shipBtns = new Map<string, HTMLButtonElement>();
   private scenarioBtns = new Map<string, HTMLButtonElement>();
+  private sectorBtns = new Map<string, HTMLButtonElement>();
   private priorityBtns = new Map<string, HTMLButtonElement>();
   private toggles: Array<{ el: HTMLButtonElement; get: () => boolean }> = [];
   private hull = makeBar('hull');
@@ -372,6 +374,9 @@ export class Hud {
     button(scen, 'Забег (док)', () => this.game.openDock());
     for (const sc of SCENARIOS) this.scenarioBtns.set(sc.id, button(scen, sc.label, () => this.game.reset(undefined, sc.id)));
 
+    const sectors = subsection(controls, 'Сектор');
+    for (const id of SECTOR_IDS) this.sectorBtns.set(id, button(sectors, SECTORS[id].name, () => this.game.setSector(id)));
+
     const ships = subsection(controls, 'Корабль игрока');
     for (const s of SHIPS) this.shipBtns.set(s.id, button(ships, s.label, () => this.game.reset(s.id)));
     button(ships, 'Заново', () => this.game.reset());
@@ -525,6 +530,8 @@ export class Hud {
     button(scen, 'Меню', () => (g.screen = 'title'));
     button(scen, 'Заново', () => g.reset());
     button(scen, 'Док', () => g.openDock());
+    const sectors = row(env, 'mrow scroll', 'Сектор');
+    for (const id of SECTOR_IDS) on(button(sectors, SECTORS[id].name.split(' ')[0], () => g.setSector(id)), () => g.mode === 'sandbox' && g.sandboxSector === id);
     const ships = row(env, 'mrow scroll', 'Корабль');
     for (const sp of SHIPS) on(button(ships, sp.label, () => g.reset(sp.id)), () => g.mode === 'sandbox' && g.shipId === sp.id);
 
@@ -603,6 +610,7 @@ export class Hud {
     item('+', 'Добавить', 'разведчик, налётчик, охотник за реактором, линкор-босс — враги; союзник — истребитель на вашей стороне; мишень — неподвижная цель для стрельбы.');
     item('✕', 'Убрать всех', 'оставляет на сцене только ваш корабль.');
     item('▶', 'Сцена и корабль', '«Меню» — главное меню; готовые сценарии боя, «Заново», выход в док, смена своего корабля.');
+    item('◌', 'Сектор', 'небо и планета арены: туманность, пыль, огромная планета у края поля (отдалите камеру — её видно), в багровом секторе ещё и чёрная дыра.');
     heading('Разрушение');
     item('✺', 'Удар: кратер', 'тап взрывает точку с заданным радиусом, уроном и пробитием (насколько глубоко уходит в палубы). «Полёт / цель» возвращает обычное управление.');
     item('⚙', 'Сломать двигатель', 'выбивает случайный двигатель корабля — посмотреть, как он летит без него.');
@@ -710,6 +718,7 @@ export class Hud {
     for (const [t, b] of this.toolBtns) b.classList.toggle('on', g.tool === t);
     for (const [id, b] of this.shipBtns) b.classList.toggle('on', g.mode === 'sandbox' && g.shipId === id);
     for (const [id, b] of this.scenarioBtns) b.classList.toggle('on', g.mode === 'sandbox' && g.scenarioId === id);
+    for (const [id, b] of this.sectorBtns) b.classList.toggle('on', g.mode === 'sandbox' && g.sandboxSector === id);
     const pri = g.world.player?.sys?.priority;
     for (const [id, b] of this.priorityBtns) b.classList.toggle('on', pri === id);
     const depth = g.world.player?.grid.depth ?? 0;

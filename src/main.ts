@@ -120,7 +120,7 @@ async function main(): Promise<void> {
         pinch.my = now.my;
         // ...and zooms around it, keeping the world point under it in place.
         const before = scene.screenToWorld(now.mx, now.my);
-        scene.zoom = Math.max(0.15, Math.min(4, (pinch.zoom * now.dist) / pinch.dist));
+        scene.zoom = Math.max(0.08, Math.min(4, (pinch.zoom * now.dist) / pinch.dist));
         const after = scene.screenToWorld(now.mx, now.my);
         scene.camX += before.x - after.x;
         scene.camY += before.y - after.y;
@@ -159,7 +159,7 @@ async function main(): Promise<void> {
     (e) => {
       e.preventDefault();
       const f = Math.exp(-e.deltaY * 0.0012);
-      scene.zoom = Math.max(0.15, Math.min(4, scene.zoom * f));
+      scene.zoom = Math.max(0.08, Math.min(4, scene.zoom * f));
     },
     { passive: false },
   );

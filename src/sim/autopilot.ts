@@ -36,7 +36,9 @@ export type NavMode = 'stop' | 'pass';
 
 export const AUTOPILOT = {
   /** Cruise speed: this many seconds of full main-drive thrust. */
-  speedTime: 2.2,
+  speedTime: 5,
+  /** Autopilot off: along the line the acceleration asked for is this many times the drives' best — they run flat out, with no speed cap. */
+  unlimitedPush: 2,
   /** Share of the braking capacity a stop is planned with (the rest is margin). */
   brakeShare: 0.7,
   /** Planned deceleration with the nose brakes gone (turn round and burn). */
@@ -197,7 +199,9 @@ export function computeControl(
       let vDes: number;
       let ff = 0;
       if (mode === 'pass') {
-        vDes = Math.max(cruise, vToward);
+        // Autopilot off: no speed cap — burn flat out towards the point, the speed just keeps growing.
+        // The sideways drift is still corrected, as before.
+        vDes = Math.max(cruise, vToward + P.unlimitedPush * P.velTau * Math.max(caps.fwd, caps.back, caps.side));
       } else {
         // Plan the stop on what can actually push back along the line: the nose brakes
         // while the nose is on the point, whatever faces that way once it's held still

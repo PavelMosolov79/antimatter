@@ -1,11 +1,12 @@
 import type { GridBody } from './sim/body';
 import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
 import { crewOnDeck, type Crew } from './sim/crew';
-import type { Celestial } from './sim/gravity';
 import type { EnergyPriority } from './sim/systems';
 import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
 import { encounterFor, generateMap, repairShip, restAfterBattle, type MapNode, type RunMap } from './sim/run';
+import { mulberry32 } from './sim/rng';
+import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
 import type { Module, TargetRef, WeaponState } from './sim/grid';
 import { World } from './sim/world';
@@ -49,15 +50,6 @@ export const SCENARIOS: Scenario[] = [
 
 export const STEP = 1 / 60;
 
-function arena(): Celestial[] {
-  return [
-    { kind: 'planet', x: 650, y: 220, radius: 100, mu: 90000, soft: 2, seed: 4 },
-    { kind: 'moon', x: 260, y: -330, radius: 28, mu: 6000, soft: 1, seed: 9 },
-    { kind: 'star', x: -2200, y: -1700, radius: 220, mu: 677000, soft: 5, seed: 2 },
-    { kind: 'blackhole', x: 2100, y: -1300, radius: 22, mu: 160000, soft: 8, seed: 6 },
-  ];
-}
-
 export interface WeaponRow {
   weapon: WeaponState;
   module: Module;
@@ -79,6 +71,8 @@ export class Game {
   screen: 'title' | 'game' = 'title';
   /** The player has been into the game since loading — the menu can offer "Continue". */
   hasSession = false;
+  /** The sector the sandbox arena is in. */
+  sandboxSector: SectorId = 'violet';
   run: RunSession | null = null;
   selectedWeapon: number | null = null;
   stepMs = 0;
@@ -95,6 +89,12 @@ export class Game {
     return SCENARIOS.find((s) => s.id === this.scenarioId) ?? SCENARIOS[0];
   }
 
+  /** Sandbox: moves to another sector's arena (its sky, its planet), keeping the ship and the scenario. */
+  setSector(id: SectorId): void {
+    this.sandboxSector = id;
+    if (this.mode === 'sandbox') this.reset();
+  }
+
   reset(shipId = this.shipId, scenarioId = this.scenarioId): void {
     this.mode = 'sandbox';
     this.run = null;
@@ -106,7 +106,11 @@ export class Game {
     this.world = new World(this.seed++);
     this.world.lockFace = lock;
     this.world.autopilot = autopilot;
-    this.world.celestials = arena();
+    // The sandbox arena is one sector's own: its planet, moon, star and (in the crimson one) black hole.
+    const sectorSeed = this.seed * 977 + SECTOR_IDS.indexOf(this.sandboxSector);
+    this.world.celestials = buildArena(mulberry32(sectorSeed), this.sandboxSector);
+    this.world.sector = this.sandboxSector;
+    this.world.skySeed = sectorSeed;
     this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
     const enemies = this.scenario.enemies;
     if (enemies.length === 0) {
@@ -197,6 +201,8 @@ export class Game {
     this.world.lockFace = lock;
     this.world.autopilot = autopilot;
     this.world.celestials = enc.celestials;
+    this.world.sector = enc.sector;
+    this.world.skySeed = enc.skySeed;
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
     else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
     enc.enemies.forEach((id, i) => {

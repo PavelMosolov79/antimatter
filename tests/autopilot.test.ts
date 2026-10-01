@@ -305,4 +305,14 @@ describe('flight control works the drives in tandem', () => {
     expect(Math.abs(p.angle - heading)).toBeLessThan(0.02);
     expect(r.world.playerControl.main).toBe(0);
   });
+
+  it('with the autopilot off, has no speed cap: a far point keeps it accelerating past cruise speed', () => {
+    const cruise = AUTOPILOT.speedTime * 30;
+    const off = trace({ autopilot: false, clicks: [{ t: 0, x: 0, y: -60000 }], seconds: 20 });
+    const vOff = Math.hypot(off.world.player!.vx, off.world.player!.vy);
+    expect(vOff).toBeGreaterThan(cruise * 2);
+    // Autopilot on keeps to the cruise speed.
+    const on = trace({ autopilot: true, clicks: [{ t: 0, x: 0, y: -60000 }], seconds: 20 });
+    expect(Math.hypot(on.world.player!.vx, on.world.player!.vy)).toBeLessThan(cruise * 1.2);
+  });
 });

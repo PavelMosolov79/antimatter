@@ -1,6 +1,9 @@
 import { Container, Sprite, Texture } from 'pixi.js';
 import type { Celestial } from '../sim/gravity';
 import { hash2 } from '../sim/rng';
+import { genHole, genPlanet, type PlanetSpec, type PlanetTypeId } from '../sim/space';
+import { renderHole } from './space/holeGen';
+import { ATMOSPHERE, PlanetPainter, type Picture } from './space/planetGen';
 
 function smooth(t: number): number {
   return t * t * (3 - 2 * t);
@@ -124,39 +127,124 @@ function starTexture(c: Celestial): Texture {
   });
 }
 
-function blackHoleTexture(c: Celestial): Texture {
-  const R = c.radius;
-  const size = Math.ceil(R * 7);
-  return canvasTexture(size, (img) => {
-    const mid = size / 2;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const dx = x + 0.5 - mid;
-        const dy = y + 0.5 - mid;
-        const r = Math.hypot(dx, dy) / R;
-        if (r < 1) {
-          put(img, x, y, 0x000000, 255);
-          continue;
-        }
-        if (r < 1.12) {
-          put(img, x, y, 0xffd9a0, 255);
-          continue;
-        }
-        if (r > 3.4) continue;
-        const ang = Math.atan2(dy, dx) + r * 1.5;
-        const swirl = fbm(Math.cos(ang) * r * 1.6 + 20 + c.seed, Math.sin(ang) * r * 1.6 + 20, c.seed, 3);
-        let k = 1 - (r - 1.12) / 2.28;
-        k = Math.pow(Math.max(0, k), 1.6) * (0.5 + 0.9 * swirl);
-        k = Math.min(1, k);
-        if (k < 0.04) continue;
-        const col = mix(0x8a1a05, 0xfff0d0, Math.pow(k, 0.8));
-        put(img, x, y, col, Math.round(Math.min(1, k * 1.4) * 255));
-      }
+/** A picture on a canvas texture, nearest-neighbour; `upload` sends the picture's pixels to the screen again after they changed. */
+function pictureTexture(p: Picture): { tex: Texture; upload: () => void } {
+  const canvas = document.createElement('canvas');
+  canvas.width = p.w;
+  canvas.height = p.h;
+  const ctx = canvas.getContext('2d')!;
+  const img = new ImageData(p.data as Uint8ClampedArray<ArrayBuffer>, p.w, p.h);
+  ctx.putImageData(img, 0, 0);
+  const tex = Texture.from(canvas);
+  tex.source.scaleMode = 'nearest';
+  return {
+    tex,
+    upload: () => {
+      ctx.putImageData(img, 0, 0);
+      tex.source.update();
+    },
+  };
+}
+
+/** Something on the screen that moves: given the clock and the part of the world in view, it redraws itself if it is in view. */
+export interface CelestialView {
+  root: Container;
+  update(now: number, left: number, top: number, right: number, bottom: number): void;
+}
+
+interface Animated {
+  tex: Texture;
+  texel: number;
+  /** Called every frame; repaints the picture when it is time. */
+  tick(now: number, visible: boolean): void;
+  spec?: PlanetSpec;
+}
+
+// Planets and holes are expensive to paint and the same ones come back (the dock, the next
+// fight on the same arena), so the last few are kept.
+const pictures = new Map<string, Animated>();
+function cached(key: string, make: () => Animated): Animated {
+  let v = pictures.get(key);
+  if (!v) {
+    v = make();
+    pictures.set(key, v);
+    if (pictures.size > 8) {
+      const oldest = pictures.keys().next().value as string;
+      pictures.get(oldest)!.tex.destroy(true);
+      pictures.delete(oldest);
     }
+  }
+  return v;
+}
+
+/** The planet turns and its clouds drift: every PLANET_PERIOD seconds a new picture is painted, a few rows per frame, and swapped in when whole. */
+const PLANET_PERIOD = 5;
+const PLANET_ROWS_PER_FRAME = 16;
+
+/** The generated look of a planet: its spec comes from the seed and type, its size from the body itself. */
+function planetPicture(c: Celestial): Animated {
+  return cached(`p:${c.seed}:${c.variant}:${c.ring ? 1 : 0}:${Math.round(c.radius)}`, () => {
+    const spec = genPlanet(c.seed, { type: c.variant as PlanetTypeId, ring: c.ring });
+    spec.R = c.radius;
+    const painter = new PlanetPainter(spec);
+    const pic = painter.picture;
+    painter.paintRows(performance.now() / 1000, 0, pic.h);
+    const { tex, upload } = pictureTexture(pic);
+    const rows = pic.h > 400 ? 24 : PLANET_ROWS_PER_FRAME;
+    let row = pic.h;
+    let t = 0;
+    let nextAt = 0;
+    return {
+      tex,
+      texel: pic.texel,
+      spec,
+      tick(now, visible) {
+        if (!visible) return;
+        if (row >= pic.h) {
+          if (now < nextAt) return;
+          row = 0;
+          t = now;
+          nextAt = now + PLANET_PERIOD;
+        }
+        const end = Math.min(pic.h, row + rows);
+        painter.paintRows(t, row, end);
+        row = end;
+        if (row >= pic.h) {
+          upload();
+        }
+      },
+    };
   });
 }
 
-export function createCelestialView(c: Celestial): Container {
+/**
+ * The hole: its accretion disk turns, redrawn once a second. A frame a second is a step,
+ * not a flow, so the disk's phase runs slower than in the design (HOLE_SPEED) to keep the
+ * step small.
+ */
+const HOLE_FRAME = 1;
+const HOLE_SPEED = 0.3;
+
+function holePicture(c: Celestial): Animated {
+  return cached(`h:${c.seed}:${Math.round(c.radius)}`, () => {
+    const hole = genHole(c.seed, { M: c.radius / 12 });
+    const pic = renderHole(hole, (performance.now() / 1000) * HOLE_SPEED);
+    const { tex, upload } = pictureTexture(pic);
+    let last = 0;
+    return {
+      tex,
+      texel: pic.texel,
+      tick(now, visible) {
+        if (!visible || now - last < HOLE_FRAME) return;
+        last = now;
+        renderHole(hole, now * HOLE_SPEED, pic);
+        upload();
+      },
+    };
+  });
+}
+
+export function createCelestialView(c: Celestial): CelestialView {
   const root = new Container();
   root.position.set(c.x, c.y);
   const add = (tex: Texture, scale = 1, blend: 'normal' | 'add' = 'normal', alpha = 1) => {
@@ -168,10 +256,19 @@ export function createCelestialView(c: Celestial): Container {
     root.addChild(s);
     return s;
   };
+  let anim: Animated | null = null;
   switch (c.kind) {
     case 'planet':
-      add(glowTexture(0x5a8cff, 0x3a6cff), (c.radius * 2.6) / 256, 'add', 0.55);
-      add(sphereTexture(c, { deep: 0x1c3f7a, shallow: 0x2f78b8, land: 0x4d8a3c, peak: 0xc9b98a, rim: 0x7fb8ff }, 0.5));
+      if (c.variant) {
+        const p = planetPicture(c);
+        anim = p;
+        const atmo = ATMOSPHERE[p.spec!.type];
+        if (atmo) add(glowTexture((atmo[0] << 16) | (atmo[1] << 8) | atmo[2], (atmo[0] << 16) | (atmo[1] << 8) | atmo[2]), (c.radius * (2 + 3 * p.spec!.atmoK)) / 256, 'add', 0.3);
+        add(p.tex, p.texel);
+      } else {
+        add(glowTexture(0x5a8cff, 0x3a6cff), (c.radius * 2.6) / 256, 'add', 0.55);
+        add(sphereTexture(c, { deep: 0x1c3f7a, shallow: 0x2f78b8, land: 0x4d8a3c, peak: 0xc9b98a, rim: 0x7fb8ff }, 0.5));
+      }
       break;
     case 'moon':
       add(sphereTexture(c, { deep: 0x55575e, shallow: 0x7b7d85, land: 0x9b9da6, peak: 0xd0d2d8, rim: 0xb0b2ba }, 0.35));
@@ -180,10 +277,21 @@ export function createCelestialView(c: Celestial): Container {
       add(glowTexture(0xffc060, 0xff6a10), (c.radius * 4.5) / 256, 'add', 0.5);
       add(starTexture(c));
       break;
-    case 'blackhole':
-      add(glowTexture(0x9a4a1a, 0x5a2a80), (c.radius * 9) / 256, 'add', 0.6);
-      add(blackHoleTexture(c));
+    case 'blackhole': {
+      const h = holePicture(c);
+      anim = h;
+      add(glowTexture(0x9a4a1a, 0x5a2a80), (c.radius * 14) / 256, 'add', 0.5);
+      add(h.tex, h.texel);
       break;
+    }
   }
-  return root;
+  // Anything of it in view? A planet's rings and atmosphere reach a little past its radius; a hole's glow far past.
+  const reach = c.kind === 'blackhole' ? c.radius * 7 : c.radius * 2.4;
+  return {
+    root,
+    update(now, left, top, right, bottom) {
+      if (!anim) return;
+      anim.tick(now, c.x + reach > left && c.x - reach < right && c.y + reach > top && c.y - reach < bottom);
+    },
+  };
 }

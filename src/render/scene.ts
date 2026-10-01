@@ -5,7 +5,7 @@ import { DRIVES, driveOf, isNozzle, liveCentroid } from '../sim/propulsion';
 import type { World } from '../sim/world';
 import { CombatFx } from './combatFx';
 import { CrewView } from './crewView';
-import { createCelestialView } from './celestials';
+import { createCelestialView, type CelestialView } from './celestials';
 import { Particles } from './particles';
 import { BodyView, OUTER_VIEW } from './shipView';
 import { Starfield } from './starfield';
@@ -17,6 +17,7 @@ export class Scene {
   readonly starfield = new Starfield();
   readonly worldLayer = new Container();
   readonly celestialLayer = new Container();
+  private celestialViews: CelestialView[] = [];
   readonly bodyLayer = new Container();
   readonly particles = new Particles();
   readonly combat = new CombatFx();
@@ -58,7 +59,9 @@ export class Scene {
     this.combat.reset();
     this.crewView.reset();
     for (const c of [...this.celestialLayer.children]) c.destroy({ children: true });
-    for (const c of world.celestials) this.celestialLayer.addChild(createCelestialView(c));
+    this.celestialViews = world.celestials.map(createCelestialView);
+    for (const v of this.celestialViews) this.celestialLayer.addChild(v.root);
+    this.starfield.setSector(world.sector, world.skySeed);
     if (world.player) {
       this.camX = world.player.x;
       this.camY = world.player.y;
@@ -78,6 +81,8 @@ export class Scene {
     this.worldLayer.scale.set(s);
     this.worldLayer.position.set(sw / 2 - this.camX * s, sh / 2 - this.camY * s);
     this.starfield.update(this.camX, this.camY, s, sw, sh);
+    const now = performance.now() / 1000;
+    for (const v of this.celestialViews) v.update(now, this.camX - sw / 2 / s, this.camY - sh / 2 / s, this.camX + sw / 2 / s, this.camY + sh / 2 / s);
 
     const alive = new Set<number>();
     for (const b of world.bodies) alive.add(b.id);

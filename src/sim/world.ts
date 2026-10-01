@@ -10,6 +10,7 @@ import type { ShipGrid } from './grid';
 import { MATERIALS } from './materials';
 import { applyPropulsion } from './propulsion';
 import { mulberry32, type Rng } from './rng';
+import type { SectorId } from './space';
 import { SYSTEMS, createSys, updateSystems, type EnergyPriority, type Nav } from './systems';
 import { stepProjectiles, updateWeapons, type Beam, type Projectile } from './weapons';
 
@@ -39,7 +40,8 @@ interface Blast {
   dmg: number;
 }
 
-const MAX_SPEED = 500;
+/** Not a game limit — ships have none — just a ceiling that keeps the numbers (and the collisions) sane. */
+const MAX_SPEED = 6000;
 const MAX_SPIN = 12;
 const MAX_EVENTS = 2500;
 const FAR_LIMIT = 40000;
@@ -50,6 +52,9 @@ const tmpPt = { x: 0, y: 0 };
 export class World implements DamageSink {
   bodies: GridBody[] = [];
   celestials: Celestial[] = [];
+  /** Which sector's sky hangs behind this arena, and the seed that arranges its clouds (render only). */
+  sector: SectorId = 'violet';
+  skySeed = 0;
   player: GridBody | null = null;
   time = 0;
   target: Target | null = null;
