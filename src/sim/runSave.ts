@@ -1,7 +1,9 @@
 import type { GridBody } from './body';
 import type { Cargo } from './cargo';
+import type { RepairJob } from './garage';
 import type { ShipGrid } from './grid';
 import { MATERIALS } from './materials';
+import { QUANTA_START } from './repairConfig';
 import { restAfterBattle } from './run';
 import { SHIPS } from './ships';
 import { World } from './world';
@@ -21,6 +23,8 @@ export interface SavedShip {
   hp: Array<[number, number]>;
   /** The crew who are dead, each by role and the key of the module they were posted to (-1 for roaming ones). */
   dead: Array<[string, number]>;
+  /** The whole crew is dead (a wreck). */
+  allDead?: boolean;
 }
 
 export interface SavedRun {
@@ -35,15 +39,17 @@ export interface SavedRun {
   phase: 'map' | 'roaddock';
   note: string;
   ship: SavedShip | null;
+  /** A repair under way at the dock the run stopped at. */
+  job?: RepairJob | null;
 }
 
-function toBase64(bytes: Uint8Array): string {
+export function toBase64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
 
-function fromBase64(text: string): Uint8Array {
+export function fromBase64(text: string): Uint8Array {
   const s = atob(text);
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
@@ -87,6 +93,7 @@ export function restoreShip(shipId: string, saved: SavedShip): GridBody {
   g.version++;
   // Crew ids are handed out afresh with every ship, so the dead are found again by role and post.
   const crew = body.sys?.crew ?? [];
+  if (saved.allDead) for (const c of crew) c.dead = true;
   for (const [role, key] of saved.dead) {
     const c = crew.find((x) => !x.dead && x.role === role && (x.homeModule >= 0 ? (g.modules[x.homeModule]?.key ?? -2) : -1) === key);
     if (c) c.dead = true;
@@ -129,17 +136,26 @@ export function storeRun(run: SavedRun | null): void {
   }
 }
 
-/** What the player owns outside any run: it survives deaths and new runs. */
-export function loadWallet(): Cargo {
+/** What the player owns outside any run: it survives deaths and new runs. Quanta are the premium stand-in currency. */
+export interface Wallet extends Cargo {
+  quanta: number;
+}
+
+export function loadWallet(): Wallet {
   try {
-    const d = JSON.parse(storage()?.getItem(PROFILE_KEY) ?? 'null') as Partial<Cargo> | null;
-    return { credits: Math.max(0, Number(d?.credits) || 0), metal: Math.max(0, Number(d?.metal) || 0) };
+    const d = JSON.parse(storage()?.getItem(PROFILE_KEY) ?? 'null') as Partial<Wallet> | null;
+    return {
+      credits: Math.max(0, Number(d?.credits) || 0),
+      metal: Math.max(0, Number(d?.metal) || 0),
+      // a profile from before quanta existed starts with the starting amount
+      quanta: d && d.quanta !== undefined ? Math.max(0, Number(d.quanta) || 0) : QUANTA_START,
+    };
   } catch {
-    return { credits: 0, metal: 0 };
+    return { credits: 0, metal: 0, quanta: QUANTA_START };
   }
 }
 
-export function storeWallet(w: Cargo): void {
+export function storeWallet(w: Wallet): void {
   try {
     storage()?.setItem(PROFILE_KEY, JSON.stringify(w));
   } catch {

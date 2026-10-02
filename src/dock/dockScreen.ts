@@ -5,6 +5,7 @@ import { SHIPS, shipHoldCap } from '../sim/ships';
 import type { ModulesScreen } from './modulesScreen';
 import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockLayout, type DockSprite } from './dockArt';
 import { makeLife, stepLife, type DockLife } from './dockLife';
+import { SPARE_SHIP } from '../sim/repairConfig';
 
 /**
  * The dock, as designed in «Док Antimatter»: the ship held at a berth in a space station's
@@ -30,13 +31,12 @@ const STATUS: Record<Phase, string> = {
 type Room = 'hangar' | 'repair' | 'mods' | 'crew' | 'shop';
 const ROOMS: Array<{ id: Room; label: string; icon: string; soon: boolean }> = [
   { id: 'hangar', label: 'Ангар', icon: '<path d="M3 20V9l9-5 9 5v11M7 20v-6h10v6"/>', soon: false },
-  { id: 'repair', label: 'Ремонт', icon: '<rect x="3.5" y="3.5" width="17" height="17"/><path d="M12 7.5v9M7.5 12h9"/>', soon: true },
+  { id: 'repair', label: 'Ремонт', icon: '<rect x="3.5" y="3.5" width="17" height="17"/><path d="M12 7.5v9M7.5 12h9"/>', soon: false },
   { id: 'mods', label: 'Модули', icon: '<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>', soon: false },
   { id: 'crew', label: 'Экипаж', icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 3-6 6-6s6 2 6 6"/><circle cx="17" cy="9" r="2"/><path d="M16 14c3 0 5 2 5 5"/>', soon: true },
   { id: 'shop', label: 'Магазин', icon: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8a3 3 0 0 1 6 0"/>', soon: true },
 ];
 const SOON: Record<string, { title: string; text: string }> = {
-  repair: { title: 'Ремонт', text: 'Здесь будет ремонт корабля: список повреждений, цена в металле и таймер. Запасной истребитель чинится бесплатно и быстро.' },
   crew: { title: 'Экипаж', text: 'Здесь будут космонавты корабля: найм, уровни и переназначение между кораблями.' },
   shop: { title: 'Магазин', text: 'Здесь будут новые модули и корабли за кредиты и металл.' },
 };
@@ -163,6 +163,43 @@ const CSS = U(`
 #dock .cargo .bar i { position: absolute; inset: 0 auto 0 0; background: #e8c450; }
 #dock .cargo .note { font-size: U(.95); line-height: 1.4; color: #8a93b8; text-shadow: none; }
 #dock .cargo .note b { color: #fff3c8; font-weight: 500; }
+#dock .cargo .sum { display: none; color: #e9eeff; letter-spacing: .02em; text-transform: none; }
+#dock .cargo.mini .sum { display: inline; }
+#dock .cargo.mini .grid, #dock .cargo.mini .note { display: none; }
+#dock:not(.portrait) .rep.rm .cls { display: none; }
+#dock:not(.portrait) .rep.rm .big { font-size: U(2.4); }
+
+/* the repair room */
+#dock .rep { gap: U(.8); }
+#dock .rep .hullbar { height: U(1); background: #10162a; border: 1px solid #1b2440; position: relative; }
+#dock .rep .hullbar i { position: absolute; left: 0; top: 0; bottom: 0; background: #63e07a; transition: width .4s; }
+#dock .rep .hullbar i.w { background: #e8c450; }
+#dock .rep .hullbar i.b { background: #ff6a5a; }
+#dock .rep .hullbar i.f { background: #59e6ff; }
+#dock .rep .row { display: flex; justify-content: space-between; align-items: baseline; gap: U(1); font-size: U(1.15); }
+#dock .rep .row small { font-size: U(.85); letter-spacing: .14em; text-transform: uppercase; color: #6c77a0; }
+#dock .rep .row b { font-weight: 700; color: #e9eeff; font-variant-numeric: tabular-nums; }
+#dock .rep .row b.free { color: #63e07a; }
+#dock .rep .big { font-family: ${SANS}; font-weight: 700; font-size: U(3); letter-spacing: .08em; color: #fff3c8; font-variant-numeric: tabular-nums; }
+#dock .rep .btn { text-align: left; }
+#dock .rep .btn.pri { border-color: #59e6ff; color: #59e6ff; background: rgba(14,40,64,.9); }
+#dock .rep .btn.prem { border-color: rgba(255,79,216,.6); color: #ffd0f4; background: rgba(58,10,70,.7); }
+#dock .rep .btn small { font-size: U(1); color: #9aa4cc; }
+#dock .rep .btn:disabled small { color: #ff6a5a; }
+#dock .rep .btn:disabled { opacity: .85; }
+#dock .rep .tag2 { font-size: U(.95); letter-spacing: .12em; text-transform: uppercase; padding: U(.3) U(.7); border: 1px solid; }
+#dock .rep .tag2.bd { color: #ff6a5a; border-color: rgba(255,106,90,.55); }
+#dock .rep .tag2.in { color: #59e6ff; border-color: rgba(89,230,255,.45); }
+#dock .rep .note { font-size: U(1.05); line-height: 1.5; color: #9aa4cc; text-shadow: none; }
+#dock .rep .note b { color: #e4e8fb; font-weight: 500; }
+#dock .chip-res i.prem { transform: rotate(45deg); }
+#dock .bay em.rp { color: #e8c450; }
+#dock .bay em.bd { color: #ff6a5a; }
+#dock .go:disabled { border-color: rgba(93,102,136,.5); color: #7a84a8; background: rgba(10,13,24,.85); box-shadow: none; }
+#dock .go:disabled small { color: #e8c450; }
+#dock .room .badge { position: absolute; right: U(.5); top: U(.5); min-width: U(1.7); height: U(1.7); padding: 0 U(.45); font-size: U(.95); font-weight: 700; background: #ff4fd8; color: #1a0618; border-radius: U(.9); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0; }
+#dock .toast { position: absolute; left: 50%; top: calc(U(9) + env(safe-area-inset-top, 0px)); transform: translateX(-50%); padding: U(1) U(2); font-size: U(1.2); background: rgba(10,14,30,.96); border: 1px solid #59e6ff; color: #e4e8fb; pointer-events: none; opacity: 0; transition: opacity .25s; z-index: 6; text-align: center; max-width: 80%; text-shadow: none; }
+#dock .toast.on { opacity: 1; }
 
 /* the row of rooms below the berth, and the way out */
 #dock .bottom { display: contents; }
@@ -230,6 +267,16 @@ const CSS = U(`
 #dock.portrait .cargo .grid strong { font-size: U(3.4); }
 #dock.portrait .cargo .bar { height: U(1.1); }
 #dock.portrait .cargo .note { display: none; }
+#dock.portrait .toast { top: calc(U(18) + env(safe-area-inset-top, 0px)); font-size: U(2.4); padding: U(1.4) U(2.2); }
+#dock.portrait .rep .row { font-size: U(2.4); }
+#dock.portrait .rep .row small { font-size: U(1.9); }
+#dock.portrait .rep .big { font-size: U(5); }
+#dock.portrait .rep .btn { font-size: U(2.3); padding: U(1.8) U(2); }
+#dock.portrait .rep .btn small { font-size: U(1.9); }
+#dock.portrait .rep .tag2 { font-size: U(1.9); }
+#dock.portrait .rep .note { font-size: U(2.1); }
+#dock.portrait .rep .hullbar { height: U(1.4); }
+#dock.portrait .card.rep .cls { display: block; }
 #dock.portrait .ticker { position: static; width: auto; font-size: U(2.7); line-height: 1.4; padding: U(1.2) U(1.8); border-left-width: U(.6); }
 #dock.portrait .ticker b { display: inline; font-size: U(2.1); margin: 0 U(1.2) 0 0; }
 #dock.portrait .ticker span { display: inline; }
@@ -260,6 +307,14 @@ export class DockScreen {
   private resMetal = document.createElement('span');
   private resCreditsPlus = document.createElement('span');
   private resMetalPlus = document.createElement('span');
+  private resQuanta = document.createElement('span');
+  private toastEl = document.createElement('div');
+  private toastTimer = 0;
+  private roomBadge: HTMLElement | null = null;
+  private repairSig = '';
+  private uiAt = 0;
+  private bayEm = new Map<string, HTMLElement>();
+  private bayCv = new Map<string, HTMLCanvasElement>();
   private titleSub = document.createElement('span');
   private statusEl = document.createElement('span');
   private goBtn!: HTMLButtonElement;
@@ -316,7 +371,7 @@ export class DockScreen {
     sub.append(this.titleSub, this.statusEl);
     brand.append(tb, sub);
     const res = div('res');
-    res.append(this.chip('#e8c450', 'Кредиты', this.resCredits, this.resCreditsPlus), this.chip('#59e6ff', 'Металл', this.resMetal, this.resMetalPlus));
+    res.append(this.chip('#e8c450', 'Кредиты', this.resCredits, this.resCreditsPlus), this.chip('#59e6ff', 'Металл', this.resMetal, this.resMetalPlus), this.chip('#ff4fd8', 'Кванты', this.resQuanta, document.createElement('span'), true));
     const menu = btn('☰', () => this.toggleMenu());
     menu.className = 'menu-btn glass';
     menu.setAttribute('aria-label', 'Меню');
@@ -351,6 +406,13 @@ export class DockScreen {
       b.className = 'room glass';
       b.innerHTML = `<svg viewBox="0 0 24 24">${rm.icon}</svg><span>${rm.label}</span>${rm.soon ? '<small>скоро</small>' : ''}`;
       this.roomBtns.set(rm.id, b);
+      if (rm.id === 'repair') {
+        this.roomBadge = document.createElement('span');
+        this.roomBadge.className = 'badge';
+        this.roomBadge.textContent = '!';
+        this.roomBadge.hidden = true;
+        b.appendChild(this.roomBadge);
+      }
       this.deckEl.appendChild(b);
     }
     const go = btn('', () => this.depart());
@@ -360,7 +422,8 @@ export class DockScreen {
     this.ticker.className = 'ticker';
     const bottom = div('bottom');
     bottom.append(this.ticker, this.side, go, this.deckEl);
-    hud.append(top, this.menuPop, this.fleet, this.layerbar, bottom);
+    this.toastEl.className = 'toast';
+    hud.append(top, this.menuPop, this.fleet, this.layerbar, bottom, this.toastEl);
     r.append(this.cv, this.gv, hud);
     parent.appendChild(r);
     this.setStatus('docked');
@@ -384,9 +447,10 @@ export class DockScreen {
     });
   }
 
-  private chip(color: string, label: string, val: HTMLElement, plus: HTMLElement): HTMLElement {
+  private chip(color: string, label: string, val: HTMLElement, plus: HTMLElement, diamond = false): HTMLElement {
     const c = div('chip-res glass');
     const i = document.createElement('i');
+    if (diamond) i.className = 'prem';
     i.style.background = color;
     const sm = document.createElement('small');
     sm.textContent = label;
@@ -437,10 +501,15 @@ export class DockScreen {
       this.startPhase(this.reduce ? 'docked' : 'arrive');
       this.shipY = this.reduce ? this.L.sy : -this.sprite.h - 6;
       this.e = this.reduce ? 1 : 0;
+      this.flushNotes();
       this.start();
     } else if (this.phase === 'docked' && grid !== this.grid) {
-      this.setRoad(g.runPhase === 'roaddock');
-      this.load();
+      // the ship was mended a little (the repair repaints it): same ship, same berth, only the picture changes
+      if (grid && g.shipId === this.shipId && this.grid && grid.width === this.grid.width && grid.height === this.grid.height && this.road === (g.runPhase === 'roaddock')) this.reloadShip(grid);
+      else {
+        this.setRoad(g.runPhase === 'roaddock');
+        this.load();
+      }
     }
   }
 
@@ -469,10 +538,27 @@ export class DockScreen {
     this.showRoom();
   }
 
+  /** The way out's button: what the ship's state lets it say, and whether it can be pressed. */
   private updateGoNote(): void {
     const small = this.goBtn.querySelector('small');
     if (!small) return;
-    small.textContent = this.road ? `Корпус ${Math.round(this.game.runHull() * 100)}%` : 'Корабль готов';
+    const st = this.game.repairState();
+    const hull = Math.round(st.damage.hull * 100);
+    let text: string;
+    let off = false;
+    if (st.job) {
+      if (this.road) text = `Ремонт не закончен: корпус ${hull}%`;
+      else {
+        off = true;
+        text = `Идёт ремонт, ещё ${mmss(st.job.left)}` + (st.shipId === SPARE_SHIP ? '' : '. Запасной истребитель свободен');
+      }
+    } else if (st.damage.wreck && !this.road) {
+      off = true;
+      text = 'Корабль разрушен: нужен ремонт' + (st.shipId === SPARE_SHIP ? '' : '. Запасной истребитель свободен');
+    } else if (st.damage.any) text = `Корпус ${hull}%. Лучше починить`;
+    else text = this.road ? 'Корпус 100%' : 'Корабль готов';
+    if (small.textContent !== text) small.textContent = text;
+    if (this.goBtn.disabled !== off) this.goBtn.disabled = off;
   }
 
   /** The resources at the top, and (on the road) the hold with the hold's emptying into them. */
@@ -486,6 +572,7 @@ export class DockScreen {
     const inflow = this.road && f ? 1 - e : 0;
     this.resCredits.textContent = n(w.credits - (f ? f.credits * inflow : 0));
     this.resMetal.textContent = n(w.metal - (f ? f.metal * inflow : 0));
+    this.resQuanta.textContent = n(w.quanta);
     this.resCreditsPlus.textContent = f && f.credits * inflow >= 1 ? `+${n(f.credits * inflow)}` : '';
     this.resMetalPlus.textContent = f && f.metal * inflow >= 1 ? `+${n(f.metal * inflow)}` : '';
     if (!this.road || !run) return;
@@ -497,7 +584,7 @@ export class DockScreen {
     const c = this.cargo;
     c.replaceChildren();
     const head = div('ch');
-    head.append(Object.assign(document.createElement('b'), { textContent: 'Трюм' }), Object.assign(document.createElement('span'), { className: !flowing && empty ? 'safe' : '', textContent: flowing ? 'груз сдаётся…' : empty ? 'груз сдан' : 'груз не сдан' }));
+    head.append(Object.assign(document.createElement('b'), { textContent: 'Трюм' }), Object.assign(document.createElement('span'), { className: 'sum', textContent: `${n(hc)} кр. · ${n(hm)}/${cap} мет.` }), Object.assign(document.createElement('span'), { className: !flowing && empty ? 'safe' : '', textContent: flowing ? 'груз сдаётся…' : empty ? 'груз сдан' : 'груз не сдан' }));
     const grid = div('grid');
     const row = (label: string, value: string, vcls: string) => {
       const sm = document.createElement('small');
@@ -593,7 +680,14 @@ export class DockScreen {
     for (const [id, b] of this.roomBtns) b.setAttribute('aria-pressed', id === this.room ? 'true' : 'false');
     const c = this.card;
     c.replaceChildren();
+    c.classList.remove('rep', 'rm');
+    this.cargo.classList.toggle('mini', this.room !== 'hangar');
     const soon = SOON[this.room];
+    if (this.room === 'repair') {
+      this.repairSig = '';
+      this.updateRepair();
+      return;
+    }
     if (!soon) {
       const h = this.hangar;
       if (!h) return;
@@ -650,29 +744,185 @@ export class DockScreen {
     this.fleet.classList.remove('open');
   }
 
+  // ---------------------------------------------------------------- repair
+
+  /** A short message over the berth. */
+  private toast(text: string): void {
+    this.toastEl.textContent = text;
+    this.toastEl.classList.add('on');
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('on'), 3400);
+  }
+
+  /** What the dock has to say about the repairs finished while the player was away. */
+  private flushNotes(): void {
+    const notes = this.game.dockNotes.splice(0);
+    if (notes.length) this.toast(notes.join(' '));
+  }
+
+  /** The ship at the berth was repainted (a repair mended some of it): the picture and the card change, the berth does not. */
+  private reloadShip(grid: ShipGrid): void {
+    this.grid = grid;
+    this.sprite = spriteFor(this.shipId, grid);
+    this.fillCard(grid);
+    this.paintThumb(this.shipId);
+  }
+
+  /** Four times a second: timers, the fleet's states, the way out's note, the repair card, the wallet. */
+  private uiTick(): void {
+    this.updateFleetStatus();
+    this.updateGoNote();
+    this.flushNotes();
+    const st = this.game.repairState();
+    if (this.roomBadge) this.roomBadge.hidden = !(st.damage.any && !st.job);
+    if (this.room === 'repair') this.updateRepair();
+  }
+
+  /** The repair room's card: rebuilt when its shape changes (a repair starts, metal runs short), otherwise only its numbers move. */
+  private updateRepair(): void {
+    const g = this.game;
+    const st = g.repairState();
+    const w = g.wallet;
+    const half = g.speedUpPrice('half');
+    const full = g.speedUpPrice('full');
+    const sig = [st.shipId, st.where, st.job ? 'j' : '', st.damage.any ? 'd' : '', st.damage.wreck ? 'w' : '', w.metal >= st.quote.metal ? 'm' : '', half !== null && w.quanta >= half ? 'h' : '', full !== null && w.quanta >= full ? 'f' : '', this.portrait ? 'p' : ''].join('|');
+    if (sig !== this.repairSig) {
+      this.repairSig = sig;
+      this.buildRepairCard(st, half, full);
+      return;
+    }
+    const q = (sel: string) => this.card.querySelector(sel) as HTMLElement | null;
+    if (st.job) {
+      const t = q('[data-timer]');
+      if (t) t.textContent = mmss(st.job.left);
+      const pr = q('[data-prog]');
+      if (pr) pr.style.width = `${Math.round(st.job.p * 100)}%`;
+      const c = q('[data-cells]');
+      if (c && st.base) c.textContent = `${num(Math.max(0, st.base.cells - st.damage.cells))} / ${num(st.base.cells)}`;
+      const h = q('[data-hull]');
+      if (h) h.textContent = `${Math.round(st.damage.hull * 100)}%`;
+      const b1 = q('[data-price="half"]');
+      if (b1 && half !== null) b1.textContent = w.quanta >= half ? `−${half} кв.` : `нужно ${half} кв.`;
+      const b2 = q('[data-price="full"]');
+      if (b2 && full !== null) b2.textContent = w.quanta >= full ? `−${full} кв.` : `нужно ${full} кв.`;
+    }
+  }
+
+  private buildRepairCard(st: ReturnType<Game['repairState']>, half: number | null, full: number | null): void {
+    const c = this.card;
+    c.replaceChildren();
+    c.classList.add('rep', 'rm');
+    const spec = SHIPS.find((x) => x.id === st.shipId);
+    const name = spec?.label ?? '';
+    const hull = Math.round(st.damage.hull * 100);
+    const cls = hull > 85 ? '' : hull > 40 ? 'w' : 'b';
+    const w = this.game.wallet;
+    let h = '<div class="name">Ремонт</div>';
+    if (st.job) {
+      h += `<div class="cls">${name} · идёт работа${this.road ? ' · док на пути' : ''}</div>`;
+      h += `<div class="big" data-timer>${mmss(st.job.left)}</div>`;
+      h += `<div class="hullbar"><i class="f" data-prog style="width:${Math.round(st.job.p * 100)}%"></i></div>`;
+      const base = st.base?.cells ?? 0;
+      h += `<div class="row"><small>Починено клеток</small><b data-cells>${num(Math.max(0, base - st.damage.cells))} / ${num(base)}</b></div>`;
+      h += `<div class="row"><small>Корпус</small><b data-hull>${hull}%</b></div>`;
+      if (st.shipId !== SPARE_SHIP && half !== null && full !== null) {
+        h += `<button type="button" class="btn prem" data-act="half"${w.quanta < half ? ' disabled' : ''}>Ускорить вдвое<small data-price="half">${w.quanta >= half ? `−${half} кв.` : `нужно ${half} кв.`}</small></button>`;
+        h += `<button type="button" class="btn prem" data-act="full"${w.quanta < full ? ' disabled' : ''}>Завершить сразу<small data-price="full">${w.quanta >= full ? `−${full} кв.` : `нужно ${full} кв.`}</small></button>`;
+      }
+      h += this.road ? '<div class="note"><b>Можно лететь не дожидаясь.</b> Починится столько, сколько успели.</div>' : '<div class="note">Таймер идёт и пока игра закрыта.</div>';
+    } else if (!st.damage.any) {
+      h += `<div class="cls">${name}</div><div class="row"><small>Корпус</small><b class="free">100%</b></div><div class="hullbar"><i style="width:100%"></i></div>`;
+      h += '<div class="note"><b>Чинить нечего.</b> После вылета здесь появится список повреждений, цена и время.</div>';
+    } else {
+      h += `<div class="cls">${name} · корпус ${hull}%${this.road ? ' · док на пути' : ''}</div>`;
+      h += `<div class="hullbar"><i class="${cls}" style="width:${hull}%"></i></div>`;
+      if (st.damage.wreck) h += '<div class="state"><span class="tag2 bd">Разрушен</span></div>';
+      h += `<div class="row"><small>Разбито клеток</small><b>${num(st.damage.cells)}</b></div>`;
+      h += `<div class="row"><small>Модулей вышло из строя</small><b>${st.damage.modules} из ${st.damage.modulesTotal}</b></div>`;
+      h += `<div class="row"><small>Время</small><b>${mmss(st.quote.secs)}</b></div>`;
+      h += `<div class="row"><small>Цена</small><b class="${st.quote.metal ? '' : 'free'}">${st.quote.metal ? num(st.quote.metal) + ' металла' : 'бесплатно'}</b></div>`;
+      if (this.road) h += '<div class="state"><span class="tag2 in">на пути: быстрее и дешевле</span></div>';
+      const short = st.quote.metal - w.metal;
+      h += `<button type="button" class="btn pri" data-act="start"${short > 0 ? ' disabled' : ''}>Начать ремонт<small>${short > 0 ? `не хватает ${num(short)} мет.` : st.quote.metal ? `−${num(st.quote.metal)} мет.` : 'без оплаты'}</small></button>`;
+      if (st.shipId === SPARE_SHIP) h += '<div class="note"><b>Запасной корабль:</b> ремонт бесплатный и быстрый, вылет никогда не блокируется.</div>';
+      else if (!this.road) h += '<div class="note">Пока корабль в ремонте, лететь на нём нельзя. Выберите другой в парке слева.</div>';
+      if (st.damage.wreck && !this.road && st.shipId !== SPARE_SHIP) h += '<button type="button" class="btn" data-act="spare">Лететь на запасном<small>истребитель</small></button>';
+    }
+    c.innerHTML = h;
+    c.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', () => this.repairAct((el as HTMLElement).dataset.act!)));
+  }
+
+  private repairAct(act: string): void {
+    const g = this.game;
+    if (act === 'start') {
+      const r = g.startRepair();
+      if (r === 'metal') this.toast('Не хватает металла.');
+      else if (r === 'ok') this.toast('Ремонт начат.');
+    } else if (act === 'half' || act === 'full') {
+      if (g.speedUpRepair(act)) this.toast(act === 'half' ? 'Ремонт ускорен вдвое.' : 'Ремонт закончен за кванты.');
+    } else if (act === 'spare') this.pickShip(SPARE_SHIP);
+    this.repairSig = '';
+    this.renderResources();
+    this.uiTick();
+  }
+
   // ---------------------------------------------------------------- the fleet
 
   private buildFleet(): void {
     this.bays.replaceChildren();
+    this.bayEm.clear();
+    this.bayCv.clear();
     for (const s of SHIPS) {
       const b = btn('', () => this.pickShip(s.id));
       b.className = 'bay glass' + (s.id === this.shipId ? ' on' : '');
       b.disabled = this.road && s.id !== this.shipId;
       const th = div('th');
-      const sp = s.id === this.shipId ? this.sprite : stockSprite(s.id);
       const cv = document.createElement('canvas');
-      cv.width = sp.w;
-      cv.height = sp.h;
-      cv.getContext('2d')!.putImageData(new ImageData(Uint8ClampedArray.from(sp.views[0]), sp.w, sp.h), 0, 0);
+      this.bayCv.set(s.id, cv);
       th.appendChild(cv);
+      this.paintThumb(s.id);
       const tx = div('tx');
       const name = document.createElement('b');
       name.textContent = s.label;
       const st = document.createElement('em');
-      st.textContent = s.id === this.shipId ? 'в захватах' : 'готов';
+      this.bayEm.set(s.id, st);
       tx.append(name, st);
       b.append(th, tx);
       this.bays.appendChild(b);
+    }
+    this.updateFleetStatus();
+  }
+
+  /** The small picture of a ship in the fleet list: the one at the berth as it is now, the others as built. */
+  private paintThumb(id: string): void {
+    const cv = this.bayCv.get(id);
+    if (!cv) return;
+    const sp = id === this.shipId ? this.sprite : stockSprite(id);
+    cv.width = sp.w;
+    cv.height = sp.h;
+    cv.getContext('2d')!.putImageData(new ImageData(Uint8ClampedArray.from(sp.views[0]), sp.w, sp.h), 0, 0);
+  }
+
+  private updateFleetStatus(): void {
+    const now = Date.now();
+    for (const s of SHIPS) {
+      const em = this.bayEm.get(s.id);
+      if (!em) continue;
+      const st = this.game.shipStatus(s.id, now);
+      let text: string;
+      let cls = '';
+      if (st.kind === 'repair') {
+        text = `ремонт ${mmss(st.left)}`;
+        cls = 'rp';
+      } else if (st.kind === 'wreck') {
+        text = 'разрушен';
+        cls = 'bd';
+      } else if (st.kind === 'damaged') {
+        text = `корпус ${Math.round(st.hull * 100)}%`;
+        cls = 'bd';
+      } else text = s.id === this.shipId ? 'в захватах' : 'готов';
+      if (em.textContent !== text) em.textContent = text;
+      if (em.className !== cls) em.className = cls;
     }
   }
 
@@ -705,6 +955,7 @@ export class DockScreen {
 
   private depart(): void {
     if (this.phase !== 'docked') return;
+    if (!this.road && ['repair', 'wreck'].includes(this.game.shipStatus(this.shipId).kind)) return;
     this.menuPop.hidden = true;
     this.after = this.road ? { kind: 'continue' } : { kind: 'run' };
     if (this.reduce) this.finishLeaving();
@@ -728,7 +979,12 @@ export class DockScreen {
       return;
     }
     if (a?.kind === 'run') {
-      this.game.startRun();
+      if (!this.game.startRun()) {
+        this.shipY = -this.sprite.h - 6;
+        this.e = 0;
+        this.startPhase('arrive');
+        return;
+      }
       this.startPhase('docked');
       this.e = 1;
       return;
@@ -786,6 +1042,11 @@ export class DockScreen {
     this.advance(dt);
     if (!this.reduce && this.life) stepLife(this.life, dt);
     this.tickLines(now);
+    this.game.tickRepairs(Date.now());
+    if (now - this.uiAt > 250) {
+      this.uiAt = now;
+      this.uiTick();
+    }
     if (this.flow && this.phase === 'docked') {
       this.flow.k = Math.min(1, this.flow.k + dt / 1.4);
       this.renderCargo();
@@ -810,6 +1071,8 @@ export class DockScreen {
     const m = Math.round(w.metal).toLocaleString('ru-RU');
     if (this.resCredits.textContent !== c) this.resCredits.textContent = c;
     if (this.resMetal.textContent !== m) this.resMetal.textContent = m;
+    const q = Math.round(w.quanta).toLocaleString('ru-RU');
+    if (this.resQuanta.textContent !== q) this.resQuanta.textContent = q;
   }
 
   /** The dispatcher's line changes every few seconds. */
@@ -820,6 +1083,12 @@ export class DockScreen {
     this.ticker.innerHTML = `<b>${l[0]}</b><span>${l[1]}</span>`;
   }
 }
+
+const mmss = (secs: number): string => {
+  const s = Math.max(0, Math.round(secs));
+  return `${Math.floor(s / 60)}:${('0' + (s % 60)).slice(-2)}`;
+};
+const num = (v: number): string => Math.round(v).toLocaleString('ru-RU');
 
 function div(cls: string, text?: string): HTMLDivElement {
   const d = document.createElement('div');

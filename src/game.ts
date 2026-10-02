@@ -4,10 +4,13 @@ import { crewOnDeck, type Crew } from './sim/crew';
 import type { EnergyPriority } from './sim/systems';
 import { ENEMIES, SHIPS, buildFreighter, shipHoldCap } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
-import { repairShip, restAfterBattle } from './sim/run';
+import { restAfterBattle } from './sim/run';
+import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './sim/repair';
+import { QUANTA_PER_BOSS, QUANTA_PER_RUN, SPARE_SHIP } from './sim/repairConfig';
+import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
-import { captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun } from './sim/runSave';
+import { captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun, type SavedShip, type Wallet } from './sim/runSave';
 import { mulberry32 } from './sim/rng';
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
@@ -43,6 +46,28 @@ export interface RunSession {
   lost: Cargo | null;
   /** The dock the player fell back to after losing the ship, for the result screen. */
   fellBackTo: number | null;
+  /** The repair under way at the dock on the road, and the damage the ship came to it with. */
+  job: RepairJob | null;
+  diff: SavedShip | null;
+}
+
+/** What the dock shows of one ship's repair. */
+export interface RepairState {
+  shipId: string;
+  where: 'home' | 'road';
+  /** The damage right now, what a repair of it would cost, and the repair under way if there is one. */
+  damage: Damage;
+  quote: Quote;
+  job: { p: number; left: number } | null;
+  /** The damage the repair under way started with. */
+  base: Damage | null;
+}
+
+export interface ShipStatus {
+  kind: 'ready' | 'damaged' | 'repair' | 'wreck';
+  /** Hull left (0..1) and, when a repair runs, the real seconds left. */
+  hull: number;
+  left: number;
 }
 
 export interface Scenario {
@@ -86,7 +111,14 @@ export class Game {
   sandboxSector: SectorId = 'violet';
   run: RunSession | null = null;
   /** What the player owns outside any run (Кредиты, Металл): survives deaths and new runs. */
-  wallet: Cargo = loadWallet();
+  wallet: Wallet = loadWallet();
+  /** What the dock remembers of each ship: its damage and the repair under way. */
+  garage: Garage = loadGarage();
+  /** Things the dock should say when it opens (a repair finished while the game was closed). */
+  dockNotes: string[] = [];
+  private visualAt = 0;
+  private baseDamage = new WeakMap<RepairJob, Damage>();
+  private bpCache = new Map<string, ShipGrid>();
   selectedWeapon: number | null = null;
   stepMs = 0;
   private acc = 0;
@@ -152,6 +184,7 @@ export class Game {
    * from a run gives the run up, hold and all: only a dock on the road banks what the hold carries.
    */
   openDock(shipId = this.shipId): void {
+    this.bankRunDamage();
     if (this.run) {
       this.run = null;
       storeRun(null);
@@ -159,11 +192,181 @@ export class Game {
     this.mode = 'run';
     this.runPhase = 'dock';
     this.shipId = shipId;
+    this.bpCache.clear();
+    this.tickRepairs(Date.now());
+    this.buildDockWorld();
+  }
+
+  /** The ship at the home berth: whole, or as damaged (or as far repaired) as the garage remembers it. */
+  private buildDockWorld(): void {
+    const shipId = this.shipId;
     const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
-    this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    const st = standing(entryOf(this.garage, shipId), this.blueprint(shipId), Date.now());
+    if (st.diff) this.world.adoptPlayer(restoreShip(shipId, st.diff), 0, 0, 0);
+    else this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
     this.state = 'playing';
     this.selectedWeapon = null;
+    this.scene.reset(this.world);
+    this.acc = 0;
+  }
+
+  /** The ship as built (with the player's layout), kept while the dock is open. */
+  blueprint(shipId: string): ShipGrid {
+    let g = this.bpCache.get(shipId);
+    if (!g) {
+      g = (SHIPS.find((s) => s.id === shipId) ?? SHIPS[0]).build();
+      this.bpCache.set(shipId, g);
+    }
+    return g;
+  }
+
+  // ---------------------------------------------------------------- repair
+
+  /** Where the repair of a ship stands now: the damage, what a repair costs, the one under way. */
+  repairState(shipId = this.shipId, now = Date.now()): RepairState {
+    const bp = this.blueprint(shipId);
+    const run = this.run;
+    const road = this.runPhase === 'roaddock' && !!run && run.shipId === shipId;
+    let diff: SavedShip | null;
+    let job: RepairJob | null = null;
+    let p = 0;
+    let left = 0;
+    if (road && run) {
+      if (run.job) {
+        const st = standing({ damage: null, job: run.job }, bp, now);
+        diff = st.diff;
+        job = run.job;
+        p = st.p;
+        left = st.left;
+      } else diff = run.diff;
+    } else {
+      const e = entryOf(this.garage, shipId);
+      const st = standing(e, bp, now);
+      diff = st.diff;
+      if (e.job) {
+        job = e.job;
+        p = st.p;
+        left = st.left;
+      }
+    }
+    const damage = damageOf(diff, bp);
+    const where = road ? 'road' : 'home';
+    let base: Damage | null = null;
+    if (job) {
+      base = this.baseDamage.get(job) ?? null;
+      if (!base) {
+        base = damageOf(job.from, bp);
+        this.baseDamage.set(job, base);
+      }
+    }
+    return { shipId, where, damage, quote: quote(damage, shipId, where), job: job ? { p, left } : null, base };
+  }
+
+  /** The state of a ship for the fleet list. */
+  shipStatus(shipId: string, now = Date.now()): ShipStatus {
+    const st = this.repairState(shipId, now);
+    if (st.job) return { kind: 'repair', hull: st.damage.hull, left: st.job.left };
+    if (st.damage.wreck) return { kind: 'wreck', hull: st.damage.hull, left: 0 };
+    return { kind: st.damage.any ? 'damaged' : 'ready', hull: st.damage.hull, left: 0 };
+  }
+
+  /** Starts the repair of the ship at the dock: pays the metal, begins the one timer. */
+  startRepair(): 'ok' | 'metal' | 'none' {
+    const st = this.repairState();
+    if (st.job || !st.damage.any) return 'none';
+    if (!this.spendWallet({ credits: 0, metal: st.quote.metal })) return 'metal';
+    const bp = this.blueprint(st.shipId);
+    const run = this.run;
+    const from = st.where === 'road' && run ? run.diff : standing(entryOf(this.garage, st.shipId), bp, Date.now()).diff;
+    const job: RepairJob = { start: Date.now(), total: st.quote.secs, from, where: st.where };
+    if (st.where === 'road' && run) {
+      run.job = job;
+      this.saveRun();
+    } else {
+      const e = entryOf(this.garage, st.shipId);
+      e.damage = from;
+      e.job = job;
+      storeGarage(this.garage);
+    }
+    this.visualAt = 0;
+    return 'ok';
+  }
+
+  /** The premium price of speeding the repair up (half the time left, or all of it); null with no repair running. */
+  speedUpPrice(mode: 'half' | 'full'): number | null {
+    const st = this.repairState();
+    if (!st.job) return null;
+    return quantaFor(mode === 'half' ? st.job.left / 2 : st.job.left);
+  }
+
+  speedUpRepair(mode: 'half' | 'full'): boolean {
+    const price = this.speedUpPrice(mode);
+    const st = this.repairState();
+    if (price === null || !st.job || this.wallet.quanta < price) return false;
+    this.wallet.quanta -= price;
+    storeWallet(this.wallet);
+    const job = st.where === 'road' && this.run ? this.run.job : entryOf(this.garage, st.shipId).job;
+    if (!job) return false;
+    speedUp(job, Date.now(), mode);
+    if (st.where === 'road') this.saveRun();
+    else storeGarage(this.garage);
+    this.visualAt = 0;
+    this.tickRepairs(Date.now());
+    return true;
+  }
+
+  /**
+   * Called every frame at the dock: finishes the repairs whose time is up (a ship repaired while
+   * the game was closed too) and, while one runs, repaints the ship at the berth now and then.
+   * Returns true when something finished.
+   */
+  tickRepairs(now: number): boolean {
+    let finished = false;
+    for (const [id, e] of Object.entries(this.garage)) {
+      if (settle(e, now)) {
+        const spec = SHIPS.find((s) => s.id === id);
+        this.dockNotes.push(`Ремонт закончен: ${spec?.label ?? id}.`);
+        finished = true;
+      }
+    }
+    const run = this.run;
+    if (run?.job && now - run.job.start >= run.job.total * 1000) {
+      run.ship = null;
+      run.diff = null;
+      run.job = null;
+      this.dockNotes.push('Ремонт закончен: корабль как новый.');
+      this.saveRun();
+      finished = true;
+    }
+    if (finished) storeGarage(this.garage);
+    const running = (this.runPhase === 'roaddock' && !!run?.job) || (this.runPhase === 'dock' && !!this.garage[this.shipId]?.job);
+    if (finished || (running && now - this.visualAt > 2500)) {
+      this.visualAt = now;
+      if (this.runPhase === 'dock' || this.runPhase === 'roaddock') this.refreshDockShip();
+    }
+    return finished;
+  }
+
+  /** Builds the ship at the berth again from the repair's progress, so the dock shows it mended. */
+  refreshDockShip(): void {
+    if (this.mode !== 'run') return;
+    if (this.runPhase === 'dock') {
+      this.buildDockWorld();
+      return;
+    }
+    const run = this.run;
+    if (this.runPhase !== 'roaddock' || !run) return;
+    const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
+    let body: GridBody | null = run.ship;
+    if (run.job) {
+      const st = standing({ damage: null, job: run.job }, this.blueprint(run.shipId), Date.now());
+      body = st.diff ? restoreShip(run.shipId, st.diff) : null;
+    }
+    this.world = new World(this.seed++);
+    if (body) this.world.adoptPlayer(body, 0, 0, 0);
+    else this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    this.state = 'playing';
     this.scene.reset(this.world);
     this.acc = 0;
   }
@@ -179,8 +382,26 @@ export class Game {
 
   /** Throws away the run in progress, in memory or saved in the browser: the hold goes with it. */
   abandonRun(): void {
+    this.bankRunDamage();
     this.run = null;
     storeRun(null);
+  }
+
+  /** A run given up leaves its ship in the garage as damaged as it was (a repair on the road counts as far as it got). */
+  private bankRunDamage(): void {
+    const run = this.run;
+    if (!run) return;
+    const bp = this.blueprint(run.shipId);
+    const ship = this.runShip();
+    let diff: SavedShip | null;
+    if (run.job) diff = standing({ damage: null, job: run.job }, bp, Date.now()).diff;
+    else if (this.runPhase === 'roaddock') diff = run.diff ?? (run.ship ? captureShip(run.ship, run.blueprint) : null);
+    else if (ship) diff = captureShip(ship, run.blueprint);
+    else return;
+    const e = entryOf(this.garage, run.shipId);
+    e.damage = diff;
+    e.job = null;
+    storeGarage(this.garage);
   }
 
   /** Is there a run to continue, here or in the browser's save? */
@@ -188,25 +409,42 @@ export class Game {
     return !!this.run || !!loadRun();
   }
 
-  startRun(): void {
+  /** Leaves for a run on the ship at the berth, as damaged as it is; false while a repair on it runs. */
+  startRun(): boolean {
     const spec = SHIPS.find((s) => s.id === this.shipId) ?? SHIPS[0];
+    const entry = entryOf(this.garage, spec.id);
+    // no flight while a repair runs, and a wreck is not a ship that can fly
+    if (entry.job || entry.damage?.allDead) return false;
+    const diff = entry.damage;
+    this.bpCache.clear();
     this.run = {
       shipId: spec.id,
       road: new Road((Math.random() * 2 ** 31) >>> 0),
       cleared: 0,
       outcome: null,
-      ship: null,
+      ship: diff ? restoreShip(spec.id, diff) : null,
       blueprint: spec.build(),
       battlesWon: 0,
       fighting: null,
-      note: 'Вылет из дока. Впереди первая миссия.',
+      note: diff ? 'Вылет на недочинённом корабле. Впереди первая миссия.' : 'Вылет из дока. Впереди первая миссия.',
       cargo: emptyCargo(),
       deposited: null,
       lost: null,
       fellBackTo: null,
+      job: null,
+      diff: null,
     };
+    // the ship is out on the run now; if the run is given up its damage is put back in the garage
+    entry.damage = null;
+    storeGarage(this.garage);
+    // until a tutorial hands them out, every new run starts with the premium stand-in topped up
+    if (this.wallet.quanta < QUANTA_PER_RUN) {
+      this.wallet.quanta = QUANTA_PER_RUN;
+      storeWallet(this.wallet);
+    }
     this.runPhase = 'map';
     this.saveRun();
+    return true;
   }
 
   // ---------------------------------------------------------------- saving
@@ -228,6 +466,7 @@ export class Game {
       phase: this.runPhase === 'roaddock' || this.runPhase === 'over' ? 'roaddock' : 'map',
       note: run.note,
       ship: run.ship ? captureShip(run.ship, run.blueprint) : null,
+      job: run.job,
     };
     storeRun(saved);
   }
@@ -259,6 +498,8 @@ export class Game {
       deposited: null,
       lost: null,
       fellBackTo: null,
+      job: d.job ?? null,
+      diff: d.ship ?? null,
     };
     road.ensure(d.cleared);
     if (d.phase === 'roaddock') this.enterRoadDock(false);
@@ -306,16 +547,21 @@ export class Game {
       run.deposited = deposit(run.cargo, this.wallet);
       storeWallet(this.wallet);
       if (run.ship) {
-        const rep = repairShip(run.ship, run.blueprint);
         restAfterBattle(run.ship);
-        run.note = `${point.kind === 'gate' ? 'Врата и док' : 'Док'}: залатано ${rep.rebuilt.length} клеток, укреплено ${rep.healed}.` + (rep.lostForGood > 0 ? ` Не восстановить в пути: ${rep.lostForGood} (оторвано или модуль уничтожен).` : '');
-      } else run.note = 'Док: корабль цел, чинить нечего.';
+        run.diff = captureShip(run.ship, run.blueprint);
+        run.note = `${point.kind === 'gate' ? 'Врата и док' : 'Док'}: корабль в доке. Починить можно в комнате «Ремонт».`;
+      } else {
+        run.diff = null;
+        run.note = 'Док: корабль цел, чинить нечего.';
+      }
+      run.job = null;
       run.road.ensure(run.cleared);
     } else run.deposited = null;
     const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
     else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    if (run.job) this.visualAt = 0;
     this.runPhase = 'roaddock';
     this.state = 'playing';
     this.selectedWeapon = null;
@@ -327,6 +573,15 @@ export class Game {
   /** Leaves the dock on the road: back to the map, on to the next point. */
   leaveRoadDock(): void {
     if (this.runPhase !== 'roaddock' || !this.run) return;
+    const run = this.run;
+    // a repair not finished leaves with the ship as far as it got
+    if (run.job) {
+      const bp = this.blueprint(run.shipId);
+      const st = standing({ damage: null, job: run.job }, bp, Date.now());
+      run.ship = st.diff ? restoreShip(run.shipId, st.diff) : null;
+      run.diff = st.diff;
+      run.job = null;
+    }
     this.run.deposited = null;
     this.runPhase = 'map';
     this.saveRun();
@@ -389,6 +644,11 @@ export class Game {
     run.road.ensure(run.cleared);
     const name = point.kind === 'boss' ? 'Рубеж взят' : point.kind === 'elite' ? 'Элитный бой выигран' : 'Бой выигран';
     run.note = `${name}: в трюм +${got.gained.credits} кр. и +${got.gained.metal} мет.` + (got.lostMetal > 0 ? ` (трюм полон, ${got.lostMetal} мет. не влезло)` : '');
+    if (point.kind === 'boss') {
+      this.wallet.quanta += QUANTA_PER_BOSS;
+      storeWallet(this.wallet);
+      run.note += ` +${QUANTA_PER_BOSS} квант за рубеж.`;
+    }
     this.runPhase = 'map';
     this.saveRun();
   }
@@ -405,6 +665,18 @@ export class Game {
     run.road.ensure(run.cleared);
     run.ship = null;
     run.fighting = null;
+    run.job = null;
+    run.diff = null;
+    // a ship lost stays in the garage as a wreck (the spare is always there, so it is never out of action); the run goes on at the dock on the spare
+    if (run.shipId !== SPARE_SHIP) {
+      const e = entryOf(this.garage, run.shipId);
+      e.damage = wreckOf(this.blueprint(run.shipId));
+      e.job = null;
+      storeGarage(this.garage);
+      run.shipId = SPARE_SHIP;
+      run.blueprint = this.blueprint(SPARE_SHIP);
+      this.shipId = SPARE_SHIP;
+    }
     run.outcome = 'defeat';
     this.runPhase = 'over';
     this.saveRun();
@@ -416,7 +688,7 @@ export class Game {
     if (!run || this.runPhase !== 'over') return;
     run.outcome = null;
     run.lost = null;
-    run.note = 'Вы получили такой же целый корабль у последнего дока. Участок дороги собран заново.';
+    run.note = run.shipId === SPARE_SHIP ? 'Вы получили запасной истребитель у последнего дока. Участок дороги собран заново.' : 'Вы получили такой же целый корабль у последнего дока. Участок дороги собран заново.';
     this.enterRoadDock(true);
   }
 

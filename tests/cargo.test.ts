@@ -167,7 +167,7 @@ describe('a run through the game', () => {
     expect(g.runPhase).toBe('map');
     expect(g.run!.cleared).toBe(1);
     expect(g.run!.cargo).toEqual(reward);
-    expect(g.wallet).toEqual(emptyCargo());
+    expect(g.wallet).toMatchObject(emptyCargo());
     g.run!.cargo.metal = 39;
     const lost = g.run!.road.points[2];
     g.travel(2);
@@ -185,8 +185,8 @@ describe('a run through the game', () => {
     expect(g.runPhase).toBe('roaddock');
     expect(g.run!.cargo).toEqual(emptyCargo());
     expect(g.run!.deposited).toEqual({ credits: 70, metal: 18 });
-    expect(g.wallet).toEqual({ credits: 70, metal: 18 });
-    expect(loadWallet()).toEqual({ credits: 70, metal: 18 });
+    expect(g.wallet).toMatchObject({ credits: 70, metal: 18 });
+    expect(loadWallet()).toMatchObject({ credits: 70, metal: 18 });
     expect(loadRun()!.phase).toBe('roaddock');
     g.leaveRoadDock();
     expect(g.runPhase).toBe('map');
@@ -208,7 +208,7 @@ describe('a run through the game', () => {
     expect(g.runPhase).toBe('over');
     expect(g.run!.lost).toEqual(carried);
     expect(g.run!.cargo).toEqual(emptyCargo());
-    expect(g.wallet).toEqual(emptyCargo());
+    expect(g.wallet).toMatchObject(emptyCargo());
     expect(g.run!.cleared).toBe(ROAD.dockSlot);
     expect(g.run!.ship).toBeNull();
     expect(g.run!.road.regens).toEqual([ROAD.dockSlot]);
@@ -232,7 +232,7 @@ describe('a run through the game', () => {
     g.retreat();
     expect(g.runPhase).toBe('roaddock');
     expect(g.run!.cleared).toBe(ROAD.dockSlot);
-    expect(g.wallet).toEqual(hold);
+    expect(g.wallet).toMatchObject(hold);
     expect(g.run!.cargo).toEqual(emptyCargo());
     // Nothing to fall back to when already at the dock.
     g.leaveRoadDock();
