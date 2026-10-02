@@ -8,7 +8,8 @@ const CSS = `
 #runscreen.dim .rs-box { top: 50%; transform: translate(-50%, -50%); }
 #runscreen h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: .14em; }
 #runscreen h2.defeat { color: #ff5a4a; }
-#runscreen h2.retreat { color: #ffb347; }
+#runscreen .rs-lost { color: #ff6a5a; margin: 6px 0 2px; font-weight: 600; }
+#runscreen .rs-kept { color: #63e07a; margin-bottom: 8px; }
 #runscreen .rs-sub { color: #8fa4cc; margin-bottom: 12px; }
 #runscreen .rs-note { color: #ffe9a8; min-height: 18px; margin: 6px 0 8px; }
 #runscreen .rs-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -49,7 +50,7 @@ export class RunScreen {
       return;
     }
     const run = g.run;
-    const key = [phase, g.shipId, run?.cleared, run?.outcome, window.innerWidth > window.innerHeight].join('|');
+    const key = [phase, g.shipId, run?.cleared, run?.outcome, run?.lost?.credits, g.wallet.credits, window.innerWidth > window.innerHeight].join('|');
     if (key === this.key) return;
     this.key = key;
     this.root.className = 'dim';
@@ -60,18 +61,21 @@ export class RunScreen {
   }
 
   private renderOver(box: HTMLElement): void {
-    const run = this.game.run!;
-    const outcome = run.outcome ?? 'defeat';
-    const heading = outcome === 'retreat' ? 'ОТСТУПЛЕНИЕ' : 'КОРАБЛЬ ПОТЕРЯН';
-    const sub =
-      outcome === 'retreat'
-        ? 'Корабль вернулся в док раньше времени — с тем, что осталось.'
-        : 'Корабль уничтожен. В MVP-4 он вернётся в док с максимальным ремонтом.';
-    const h = title(heading);
-    h.className = outcome;
-    box.append(h, text('rs-sub', sub), this.statsRow());
+    const g = this.game;
+    const run = g.run!;
+    const h = title('КОРАБЛЬ ПОТЕРЯН');
+    h.className = 'defeat';
+    const lost = run.lost;
+    const had = !!lost && lost.credits + lost.metal > 0;
+    const dock = run.fellBackTo !== null ? run.road.points[run.fellBackTo] : null;
+    const where = !dock ? 'у последнего дока' : dock.kind === 'gate' ? (dock.link === 0 ? 'у старта похода' : `у врат звена ${dock.link + 1}`) : `у дока миссии ${dock.mission}`;
+    box.append(h);
+    box.appendChild(text('rs-lost', had ? `Груз пропал: ${lost!.credits} кр. · ${lost!.metal} мет.` : 'В трюме ничего не было, терять нечего.'));
+    box.appendChild(text('rs-kept', `Ресурсы целы: Кредиты ${g.wallet.credits} · Металл ${g.wallet.metal}`));
+    box.appendChild(text('rs-sub', `Вы получили такой же целый корабль ${where}. Участок дороги от дока соберётся заново. Разбитый корабль и ремонт по таймеру появятся позже.`));
+    box.appendChild(this.statsRow());
     const row = el('div', 'rs-row');
-    row.appendChild(btn('В док', () => this.game.openDock(), true));
+    row.appendChild(btn('В док ▸', () => g.resumeAfterLoss(), true));
     box.appendChild(row);
   }
 
@@ -87,8 +91,6 @@ export class RunScreen {
       row.appendChild(s);
     };
     stat('Корабль', SHIPS.find((s) => s.id === run.shipId)?.label ?? run.shipId);
-    stat('Корпус', run.outcome === 'defeat' ? '0%' : `${Math.round(g.runHull() * 100)}%`);
-    stat('Экипаж', run.ship ? String(g.runCrewAlive()) : run.outcome === 'defeat' ? '0' : '—');
     stat('Пройдено миссий', String(run.road.missionsDone(run.cleared)));
     stat('Боёв выиграно', String(run.battlesWon));
     return row;

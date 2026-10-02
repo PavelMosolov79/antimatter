@@ -164,8 +164,20 @@ export function genLink(seed: number, link: number, salt = 0): RoadPoint[] {
 /** The road of one run, grown a link at a time as the player gets near its end. */
 export class Road {
   readonly points: RoadPoint[] = [];
-  constructor(readonly seed: number) {
-    this.addLink();
+  /**
+   * Every time the player fell back to a dock, the stretch after it was written anew:
+   * each entry is the index of that dock, and its position in the list (plus one) is the
+   * salt of the new stretch. Replaying the list rebuilds the same road from the seed alone.
+   */
+  readonly regens: number[] = [];
+
+  constructor(
+    readonly seed: number,
+    links = 1,
+    regens: readonly number[] = [],
+  ) {
+    for (let b = 0; b < links; b++) this.points.push(...genLink(seed, b));
+    for (const from of regens) this.regenAfter(from);
   }
 
   get links(): number {
@@ -173,7 +185,7 @@ export class Road {
   }
 
   private addLink(): void {
-    this.points.push(...genLink(this.seed, this.links));
+    this.points.push(...genLink(this.seed, this.links, this.regens.length));
   }
 
   /** Writes the next link when the player is deep enough into the current one; true if the road grew. */
@@ -186,6 +198,24 @@ export class Road {
       grew = true;
     }
     return grew;
+  }
+
+  /** Falling back to the dock at `from`: everything after it is written again, so the same fights can't be farmed. */
+  regenAfter(from: number): void {
+    this.regens.push(from);
+    const salt = this.regens.length;
+    for (let b = 0; b < this.links; b++) {
+      for (const p of genLink(this.seed, b, salt)) if (p.index > from) this.points[p.index] = p;
+    }
+  }
+
+  /** The last dock or gate at or before `index`: where the player falls back to. */
+  lastDock(index: number): number {
+    for (let i = Math.min(index, this.points.length - 1); i >= 0; i--) {
+      const k = this.points[i].kind;
+      if (k === 'dock' || k === 'gate') return i;
+    }
+    return 0;
   }
 
   /** How many missions (not gates) lie behind the player. */

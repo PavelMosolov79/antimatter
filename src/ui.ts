@@ -1,6 +1,7 @@
 import { Game, SCENARIOS, type Tool } from './game';
 import { OUTER_VIEW } from './render/shipView';
 import { RunScreen } from './runScreen';
+import { holdCap } from './sim/cargo';
 import { SHIPS } from './sim/ships';
 import { SECTOR_IDS, SECTORS } from './sim/space';
 import { moduleEfficiency } from './sim/grid';
@@ -63,6 +64,10 @@ const CSS = `
 #overlay h2 { margin: 0 0 12px; font-size: 26px; letter-spacing: .12em; }
 #overlay h2.won { color: #63e07a; }
 #overlay h2.lost { color: #ff5a4a; }
+#overlay .reward { margin: 0 0 12px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: #cfe0ff; }
+#overlay .reward b { color: #ffd24a; font-weight: 600; }
+#overlay .reward small { color: #8fa4cc; font-size: 11px; }
+#overlay .reward .lost { color: #ff6a5a; }
 #overlay button { margin: 0 4px; padding: 6px 14px; font-size: 13px; }
 #hint { left: 8px; bottom: 8px; color: #7f95bf; font-size: 9.5px; max-width: 340px; pointer-events: none; }
 #panelToggle { position: fixed; right: 8px; bottom: 8px; pointer-events: auto; background: rgba(10,14,24,.85); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 10px; cursor: pointer; z-index: 5; }
@@ -231,6 +236,7 @@ export class Hud {
   private weaponKey = '';
   private overlay = document.createElement('div');
   private overlayTitle = document.createElement('h2');
+  private overlayReward = document.createElement('div');
   private sandboxButtons = document.createElement('div');
   private runButton = document.createElement('button');
   private runScreen: RunScreen;
@@ -413,7 +419,8 @@ export class Hud {
     sandboxBtn.addEventListener('click', () => this.game.reset(undefined, 'sandbox'));
     this.sandboxButtons.append(again, sandboxBtn);
     this.runButton.addEventListener('click', () => this.game.continueRun());
-    box.append(this.overlayTitle, this.sandboxButtons, this.runButton);
+    this.overlayReward.className = 'reward';
+    box.append(this.overlayTitle, this.overlayReward, this.sandboxButtons, this.runButton);
     this.overlay.appendChild(box);
     root.appendChild(this.overlay);
     this.runScreen = new RunScreen(game, root);
@@ -741,6 +748,21 @@ export class Hud {
       this.sandboxButtons.style.display = inRun ? 'none' : '';
       this.runButton.style.display = inRun ? '' : 'none';
       this.runButton.textContent = g.state === 'won' ? 'На карту ▸' : 'Итоги забега';
+      this.overlayReward.replaceChildren();
+      const reward = inRun && g.state === 'won' ? g.pendingReward() : null;
+      if (reward && g.run) {
+        const hold = g.run.cargo;
+        const cap = holdCap(g.run.shipId);
+        const add = (html: string) => {
+          const d = document.createElement('div');
+          d.innerHTML = html;
+          this.overlayReward.appendChild(d);
+        };
+        add(`В трюм: <b>+${reward.gained.credits} кр. · +${reward.gained.metal} мет.</b>`);
+        add(`<small>Трюм: металл ${hold.metal} → ${hold.metal + reward.gained.metal} / ${cap}</small>`);
+        if (reward.lostMetal > 0) add(`<span class="lost">Не влезло: ${reward.lostMetal} мет. остались в космосе</span>`);
+        add(`<small>Груз станет вашим, когда вы сдадите его в доке.</small>`);
+      }
     }
     this.runScreen.update();
     // The dock and the sector map are full screens of their own: no battle bar under them.

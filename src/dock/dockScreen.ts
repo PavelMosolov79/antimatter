@@ -1,4 +1,5 @@
 import type { Game } from '../game';
+import { holdCap } from '../sim/cargo';
 import type { ShipGrid } from '../sim/grid';
 import { SHIPS } from '../sim/ships';
 import type { ModulesScreen } from './modulesScreen';
@@ -50,7 +51,7 @@ const U = (css: string) => css.replace(/U\(([-\d.]+)\)/g, 'calc(var(--u) * $1)')
 const CSS = U(`
 #dock { position: fixed; inset: 0; z-index: 40; overflow: hidden; background: #05060c; color: #c9d2ef;
   font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; -webkit-user-select: none; user-select: none; }
-#dock[hidden] { display: none; }
+#dock[hidden], #dock [hidden] { display: none !important; }
 #dock canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
 #dock canvas.glow { filter: blur(U(0.9)) saturate(1.2); mix-blend-mode: screen; opacity: .75; }
 #dock .hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 0 U(.5) #000, 0 0 U(.25) #000; }
@@ -93,6 +94,37 @@ const CSS = U(`
 #dock .decks button[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(20,48,74,.8); }
 #dock .decks .lbl { font-size: U(.95); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; align-self: center; margin-right: U(.3); }
 #dock .actions { position: absolute; right: U(3.2); bottom: calc(U(3) + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: U(.9); width: U(19); }
+
+/* the dock on the road: the resources and the hold, top right */
+#dock .cargo { position: absolute; right: U(3.2); top: calc(U(3) + env(safe-area-inset-top, 0px)); width: U(25); display: flex; flex-direction: column; gap: U(.7); padding: U(1.3) U(1.5); pointer-events: auto;
+  background: rgba(6,9,18,.78); border: 1px solid rgba(255,210,74,.28); border-left: U(.35) solid #e8c450; }
+#dock .cargo[hidden] { display: none; }
+#dock .cargo .ch { display: flex; justify-content: space-between; align-items: baseline; gap: U(1); }
+#dock .cargo .ch b { font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 700; font-size: U(1.25); letter-spacing: .16em; text-transform: uppercase; color: #fff3c8; }
+#dock .cargo .ch span { font-size: U(1); letter-spacing: .14em; text-transform: uppercase; color: #e8c450; }
+#dock .cargo .ch span.safe { color: #63e07a; }
+#dock .cargo .grid { display: grid; grid-template-columns: auto 1fr 1fr; gap: U(.5) U(1.2); align-items: baseline; }
+#dock .cargo .grid small { font-size: U(.9); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; }
+#dock .cargo .grid strong { font-size: U(1.55); font-weight: 700; color: #e9eeff; font-variant-numeric: tabular-nums; text-align: right; }
+#dock .cargo .grid strong.in { color: #e8c450; }
+#dock .cargo .grid strong.vault { color: #63e07a; }
+#dock .cargo .grid strong.dim { color: #4c5470; }
+#dock .cargo .bar { height: U(.8); background: #10162a; border: 1px solid #1b2134; position: relative; }
+#dock .cargo .bar i { position: absolute; inset: 0 auto 0 0; background: #e8c450; }
+#dock .cargo .note { font-size: U(.95); line-height: 1.4; color: #8a93b8; }
+#dock .cargo .note b { color: #fff3c8; font-weight: 500; }
+#dock.road .title span { color: #e8c450; }
+#dock.portrait .cargo { position: static; width: auto; padding: U(2.6) U(3); gap: U(1.4); border-left-width: U(.8); }
+#dock.portrait .cargo .ch b { font-size: U(3); }
+#dock.portrait .cargo .ch span { font-size: U(2.2); }
+#dock.portrait .cargo .grid { gap: U(1) U(2.4); }
+#dock.portrait .cargo .grid small { font-size: U(2); }
+#dock.portrait .cargo .grid strong { font-size: U(3.6); }
+#dock.portrait .cargo .bar { height: U(1.6); }
+#dock.portrait .cargo .note { font-size: U(2.2); }
+#dock.portrait.road .card .stats, #dock.portrait.road .card .decks, #dock.portrait.road .card .state { display: none; }
+#dock.portrait.road .card { padding: U(2.2) U(3); gap: U(.6); }
+#dock.portrait.road .card .name { font-size: U(4.4); }
 
 /* portrait: the card and the buttons stack from the bottom edge up, so they can't overlap */
 #dock.portrait .title { left: 0; right: 0; top: calc(U(4.5) + env(safe-area-inset-top, 0px)); align-items: center; }
@@ -138,6 +170,17 @@ export class DockScreen {
   private card = document.createElement('div');
   private dots = document.createElement('div');
   private status = document.createElement('div');
+  private cargo = document.createElement('div');
+  private titleSub = document.createElement('span');
+  private goBtn!: HTMLButtonElement;
+  private sandBtn!: HTMLButtonElement;
+  private shopBtn!: HTMLButtonElement;
+  private modsBtn!: HTMLButtonElement;
+  private switchBtns: HTMLButtonElement[] = [];
+  /** The dock is open on the road (mid-run) rather than between runs. */
+  private road = false;
+  /** The hold emptying into the player's resources, for the little animation on arrival. */
+  private flow: { k: number; credits: number; metal: number } | null = null;
   private L!: DockLayout;
   private B!: DockBase;
   private sprite!: DockSprite;
@@ -151,7 +194,7 @@ export class DockScreen {
   private t = 0;
   private layer = 0;
   /** What happens once the ship has left: switch to another ship, or go on a run. */
-  private after: { kind: 'switch'; id: string } | { kind: 'run' } | null = null;
+  private after: { kind: 'switch'; id: string } | { kind: 'run' } | { kind: 'continue' } | null = null;
   private running = false;
   private last = 0;
   private readonly reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -171,7 +214,7 @@ export class DockScreen {
     const title = div('title');
     const tb = document.createElement('b');
     tb.textContent = 'ДОК';
-    const ts = document.createElement('span');
+    const ts = this.titleSub;
     ts.textContent = 'Причал 1';
     title.append(tb, ts);
     this.dots.className = 'dots';
@@ -182,6 +225,7 @@ export class DockScreen {
     const next = btn('›', () => this.cycle(1));
     next.className = 'switch next';
     next.setAttribute('aria-label', 'Следующий корабль');
+    this.switchBtns = [prev, next];
     this.card.className = 'card';
     const actions = div('actions');
     const go = btn('', () => this.depart());
@@ -189,8 +233,10 @@ export class DockScreen {
     go.innerHTML = '<span>В поход</span><span>▸</span>';
     const sand = btn('Песочница', () => this.leave(() => this.game.reset(this.game.shipId, 'sandbox')));
     sand.className = 'sand';
+    this.goBtn = go;
+    this.sandBtn = sand;
     actions.append(go, sand);
-    for (const label of ['Ремонт', 'Модули', 'Экипаж']) {
+    for (const label of ['Ремонт', 'Модули', 'Экипаж', 'Магазин']) {
       const mods = label === 'Модули';
       const b = btn('', () => {
         if (mods) this.openModules();
@@ -198,13 +244,17 @@ export class DockScreen {
       b.className = 'later';
       b.disabled = !mods;
       b.innerHTML = mods ? `<span>${label}</span>` : `<span>${label}</span><small>MVP-4</small>`;
+      if (mods) this.modsBtn = b;
+      if (label === 'Магазин') this.shopBtn = b;
       actions.appendChild(b);
     }
     const menu = btn('Главное меню', () => this.leave(() => (this.game.screen = 'title')));
     menu.className = 'menu';
     actions.appendChild(menu);
     const bottom = div('bottom');
-    bottom.append(this.card, actions);
+    this.cargo.className = 'cargo';
+    this.cargo.hidden = true;
+    bottom.append(this.cargo, this.card, actions);
     hud.append(title, this.dots, this.status, prev, next, bottom);
     r.append(this.cv, this.gv, hud);
     parent.appendChild(r);
@@ -245,7 +295,7 @@ export class DockScreen {
   /** Called every frame by the game loop: shows the dock whenever the game is at it. */
   update(): void {
     const g = this.game;
-    const atDock = g.screen === 'game' && g.mode === 'run' && g.runPhase === 'dock';
+    const atDock = g.screen === 'game' && g.mode === 'run' && (g.runPhase === 'dock' || g.runPhase === 'roaddock');
     if (!atDock) {
       if (!this.root.hidden) {
         this.root.hidden = true;
@@ -256,6 +306,7 @@ export class DockScreen {
     const grid = g.world.player?.grid ?? null;
     if (this.root.hidden) {
       this.root.hidden = false;
+      this.setRoad(g.runPhase === 'roaddock');
       this.load();
       // Coming in from the menu or a finished run: the ship pulls into the berth.
       this.startPhase(this.reduce ? 'docked' : 'arrive');
@@ -263,8 +314,79 @@ export class DockScreen {
       this.e = this.reduce ? 1 : 0;
       this.start();
     } else if (this.phase === 'docked' && grid !== this.grid) {
+      this.setRoad(g.runPhase === 'roaddock');
       this.load();
     }
+  }
+
+  // ---------------------------------------------------------------- the dock on the road
+
+  private setRoad(road: boolean): void {
+    this.road = road;
+    const g = this.game;
+    this.root.classList.toggle('road', road);
+    this.cargo.hidden = !road;
+    this.sandBtn.hidden = road;
+    this.shopBtn.hidden = !road;
+    this.dots.hidden = road;
+    for (const b of this.switchBtns) b.hidden = road;
+    this.modsBtn.disabled = road;
+    this.modsBtn.innerHTML = road ? '<span>Модули</span><small>MVP-4</small>' : '<span>Модули</span>';
+    this.goBtn.innerHTML = road ? '<span>Продолжить поход</span><span>▸</span>' : '<span>В поход</span><span>▸</span>';
+    const run = g.run;
+    if (road && run) {
+      const p = run.road.points[run.cleared];
+      this.titleSub.textContent = p.kind === 'gate' ? (p.link === 0 ? 'Старт похода' : `Врата · звено ${p.link + 1}`) : `Док на пути · звено ${p.link + 1} · миссия ${p.mission}`;
+      const d = run.deposited;
+      this.flow = d && d.credits + d.metal > 0 ? { k: this.reduce ? 1 : 0, credits: d.credits, metal: d.metal } : null;
+      this.renderCargo();
+    } else {
+      this.titleSub.textContent = 'Причал 1';
+      this.flow = null;
+    }
+  }
+
+  /** Resources and hold: what the player has, what the hold still carries, and the hold's emptying into the resources. */
+  private renderCargo(): void {
+    const run = this.game.run;
+    if (!this.road || !run) return;
+    const w = this.game.wallet;
+    const f = this.flow;
+    const e = f ? 1 - Math.pow(1 - Math.min(1, f.k), 3) : 1;
+    const hc = f ? f.credits * (1 - e) : run.cargo.credits;
+    const hm = f ? f.metal * (1 - e) : run.cargo.metal;
+    const vc = w.credits - (f ? f.credits * (1 - e) : 0);
+    const vm = w.metal - (f ? f.metal * (1 - e) : 0);
+    const cap = holdCap(run.shipId);
+    const n = (v: number) => Math.round(v).toLocaleString('ru-RU');
+    const flowing = !!f && f.k < 1;
+    const empty = hc < 1 && hm < 1;
+    const c = this.cargo;
+    c.replaceChildren();
+    const head = div('ch');
+    head.append(Object.assign(document.createElement('b'), { textContent: 'Ресурсы' }), Object.assign(document.createElement('span'), { className: !flowing && empty ? 'safe' : '', textContent: flowing ? 'груз сдаётся…' : empty ? 'груз сдан' : 'груз не сдан' }));
+    const grid = div('grid');
+    const row = (label: string, value: string, vcls: string, delta: string) => {
+      const sm = document.createElement('small');
+      sm.textContent = label;
+      const v = document.createElement('strong');
+      v.className = vcls;
+      v.textContent = value;
+      const d = document.createElement('strong');
+      d.className = 'in';
+      d.textContent = delta;
+      grid.append(sm, v, d);
+    };
+    row('Кредиты', n(vc), 'vault', hc >= 1 ? `+${n(hc)}` : '');
+    row('Металл', n(vm), 'vault', hm >= 1 ? `+${n(hm)}` : '');
+    row('Трюм', `${n(hm)} / ${cap}`, hm < 1 ? 'dim' : 'in', '');
+    const bar = div('bar');
+    const fill = document.createElement('i');
+    fill.style.width = `${Math.round((hm / cap) * 100)}%`;
+    bar.appendChild(fill);
+    const note = div('note');
+    note.innerHTML = empty && !flowing ? '<b>Трюм пуст.</b> Всё, что добудете дальше, снова под риском, пока не вернётесь в док.' : flowing ? 'Добыча из трюма добавляется к ресурсам.' : '<b>Груз ещё не сдан:</b> пропадёт, если корабль погибнет.';
+    c.append(head, grid, bar, note);
   }
 
   // ---------------------------------------------------------------- ship and layout
@@ -369,7 +491,7 @@ export class DockScreen {
   }
 
   private cycle(dir: number): void {
-    if (this.phase !== 'docked') return;
+    if (this.phase !== 'docked' || this.road) return;
     const i = SHIPS.findIndex((s) => s.id === this.shipId);
     const id = SHIPS[(i + dir + SHIPS.length) % SHIPS.length].id;
     this.after = { kind: 'switch', id };
@@ -379,7 +501,7 @@ export class DockScreen {
 
   private depart(): void {
     if (this.phase !== 'docked') return;
-    this.after = { kind: 'run' };
+    this.after = this.road ? { kind: 'continue' } : { kind: 'run' };
     if (this.reduce) this.finishLeaving();
     else this.startPhase('release');
   }
@@ -393,6 +515,12 @@ export class DockScreen {
   private finishLeaving(): void {
     const a = this.after;
     this.after = null;
+    if (a?.kind === 'continue') {
+      this.game.leaveRoadDock();
+      this.startPhase('docked');
+      this.e = 1;
+      return;
+    }
     if (a?.kind === 'run') {
       this.game.startRun();
       this.startPhase('docked');
@@ -450,6 +578,15 @@ export class DockScreen {
     this.last = now;
     this.t += this.reduce ? 0 : dt;
     this.advance(dt);
+    if (this.flow && this.phase === 'docked') {
+      this.flow.k = Math.min(1, this.flow.k + dt / 1.4);
+      this.renderCargo();
+      if (this.flow.k >= 1) {
+        this.status.textContent = 'Груз сдан';
+        this.flow = null;
+        this.renderCargo();
+      }
+    }
     if (!this.root.hidden) {
       renderDock(this.L, this.B, this.sprite, { t: this.t, shipY: this.shipY, e: this.e, docked: this.phase === 'docked', layer: this.layer }, this.img, this.glow);
       this.ctx.putImageData(this.img, 0, 0);

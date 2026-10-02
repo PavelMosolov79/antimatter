@@ -6,6 +6,8 @@ import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
 import { repairShip, restAfterBattle } from './sim/run';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
+import { addToHold, deposit, emptyCargo, holdCap, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
+import { captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun } from './sim/runSave';
 import { mulberry32 } from './sim/rng';
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
@@ -17,8 +19,8 @@ import { OUTER_VIEW } from './render/shipView';
 export type Tool = 'fly' | 'crater';
 export type BattleState = 'playing' | 'won' | 'lost';
 export type Mode = 'sandbox' | 'run';
-export type RunPhase = 'dock' | 'map' | 'battle' | 'over';
-export type RunOutcome = 'defeat' | 'retreat';
+export type RunPhase = 'dock' | 'roaddock' | 'map' | 'battle' | 'over';
+export type RunOutcome = 'defeat';
 
 /** A run in progress: the road, how far along it the player is, and the ship they carry between points. */
 export interface RunSession {
@@ -33,6 +35,14 @@ export interface RunSession {
   battlesWon: number;
   fighting: RoadPoint | null;
   note: string;
+  /** What the hold carries: lost if the ship is, added to the player's resources at a dock. */
+  cargo: Cargo;
+  /** What the last dock took out of the hold, for the dock's animation. */
+  deposited: Cargo | null;
+  /** What was in the hold when the ship was lost, for the result screen. */
+  lost: Cargo | null;
+  /** The dock the player fell back to after losing the ship, for the result screen. */
+  fellBackTo: number | null;
 }
 
 export interface Scenario {
@@ -75,6 +85,8 @@ export class Game {
   /** The sector the sandbox arena is in. */
   sandboxSector: SectorId = 'violet';
   run: RunSession | null = null;
+  /** What the player owns outside any run (Кредиты, Металл): survives deaths and new runs. */
+  wallet: Cargo = loadWallet();
   selectedWeapon: number | null = null;
   stepMs = 0;
   private acc = 0;
@@ -135,11 +147,17 @@ export class Game {
 
   // ---------------------------------------------------------------- run flow
 
-  /** The dock (stand-in until MVP-4): pick a ship, then launch. The chosen ship idles on screen. */
+  /**
+   * The dock between runs (stand-in until MVP-4): pick a ship, then launch. Going back to it
+   * from a run gives the run up, hold and all: only a dock on the road banks what the hold carries.
+   */
   openDock(shipId = this.shipId): void {
+    if (this.run) {
+      this.run = null;
+      storeRun(null);
+    }
     this.mode = 'run';
     this.runPhase = 'dock';
-    this.run = null;
     this.shipId = shipId;
     const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
@@ -148,6 +166,17 @@ export class Game {
     this.selectedWeapon = null;
     this.scene.reset(this.world);
     this.acc = 0;
+  }
+
+  /** Throws away the run in progress, in memory or saved in the browser: the hold goes with it. */
+  abandonRun(): void {
+    this.run = null;
+    storeRun(null);
+  }
+
+  /** Is there a run to continue, here or in the browser's save? */
+  hasRun(): boolean {
+    return !!this.run || !!loadRun();
   }
 
   startRun(): void {
@@ -162,9 +191,74 @@ export class Game {
       battlesWon: 0,
       fighting: null,
       note: 'Вылет из дока. Впереди первая миссия.',
+      cargo: emptyCargo(),
+      deposited: null,
+      lost: null,
+      fellBackTo: null,
     };
     this.runPhase = 'map';
+    this.saveRun();
   }
+
+  // ---------------------------------------------------------------- saving
+
+  /** The run as it stands, written to the browser after every point (never in the middle of a battle). */
+  saveRun(): void {
+    const run = this.run;
+    if (!run || this.runPhase === 'battle') return;
+    const saved: SavedRun = {
+      v: 1,
+      seed: run.road.seed,
+      links: run.road.links,
+      regens: [...run.road.regens],
+      shipId: run.shipId,
+      cleared: run.cleared,
+      cargo: { ...run.cargo },
+      battlesWon: run.battlesWon,
+      // After a lost ship the result screen is not saved: a reload goes to the dock the run fell back to.
+      phase: this.runPhase === 'roaddock' || this.runPhase === 'over' ? 'roaddock' : 'map',
+      note: run.note,
+      ship: run.ship ? captureShip(run.ship, run.blueprint) : null,
+    };
+    storeRun(saved);
+  }
+
+  /** A run saved in the browser, if any (for the main menu's "Continue"). */
+  savedRun(): SavedRun | null {
+    return loadRun();
+  }
+
+  /** Picks the saved run up where it was left: on the road, or at the dock it stopped at. */
+  continueSaved(): boolean {
+    const d = loadRun();
+    if (!d) return false;
+    const spec = SHIPS.find((s) => s.id === d.shipId) ?? SHIPS[0];
+    const road = new Road(d.seed, d.links, d.regens);
+    this.shipId = spec.id;
+    this.mode = 'run';
+    this.run = {
+      shipId: spec.id,
+      road,
+      cleared: d.cleared,
+      outcome: null,
+      ship: d.ship ? restoreShip(spec.id, d.ship) : null,
+      blueprint: spec.build(),
+      battlesWon: d.battlesWon,
+      fighting: null,
+      note: d.note,
+      cargo: { ...d.cargo },
+      deposited: null,
+      lost: null,
+      fellBackTo: null,
+    };
+    road.ensure(d.cleared);
+    if (d.phase === 'roaddock') this.enterRoadDock(false);
+    else this.runPhase = 'map';
+    this.hasSession = true;
+    return true;
+  }
+
+  // ---------------------------------------------------------------- the road
 
   /** The point the player flies to next: the road has no forks, so there is exactly one. */
   canTravel(index: number): boolean {
@@ -182,19 +276,58 @@ export class Game {
       return;
     }
     run.cleared = index;
-    if (point.kind === 'dock') {
-      // Until the dock proper arrives on the road (cargo, timed repairs), a dock patches the hull on the spot.
+    if (point.kind === 'dock' || point.kind === 'gate') {
+      this.enterRoadDock(true);
+      return;
+    }
+    run.note = ENABLED[point.kind] ? '' : 'Эта точка пока пуста.';
+    run.road.ensure(run.cleared);
+    this.saveRun();
+  }
+
+  /**
+   * The dock on the road: the hold is emptied into the player's resources, the hull is
+   * patched (until repairs run on timers at the dock) and the dock screen opens on the
+   * ship as it is.
+   */
+  private enterRoadDock(arriving: boolean): void {
+    const run = this.run!;
+    const point = run.road.points[run.cleared];
+    if (arriving) {
+      run.deposited = deposit(run.cargo, this.wallet);
+      storeWallet(this.wallet);
       if (run.ship) {
         const rep = repairShip(run.ship, run.blueprint);
         restAfterBattle(run.ship);
-        run.note = `Док: залатано ${rep.rebuilt.length} клеток, укреплено ${rep.healed}.` + (rep.lostForGood > 0 ? ` Не восстановить в пути: ${rep.lostForGood} (оторвано или модуль уничтожен).` : '');
+        run.note = `${point.kind === 'gate' ? 'Врата и док' : 'Док'}: залатано ${rep.rebuilt.length} клеток, укреплено ${rep.healed}.` + (rep.lostForGood > 0 ? ` Не восстановить в пути: ${rep.lostForGood} (оторвано или модуль уничтожен).` : '');
       } else run.note = 'Док: корабль цел, чинить нечего.';
-    } else if (point.kind === 'gate') {
-      run.note = 'Врата пройдены. Новый сектор.';
-    } else if (!ENABLED[point.kind]) {
-      run.note = 'Эта точка пока пуста.';
-    }
-    run.road.ensure(run.cleared);
+      run.road.ensure(run.cleared);
+    } else run.deposited = null;
+    const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
+    this.world = new World(this.seed++);
+    if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
+    else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    this.runPhase = 'roaddock';
+    this.state = 'playing';
+    this.selectedWeapon = null;
+    this.scene.reset(this.world);
+    this.acc = 0;
+    this.saveRun();
+  }
+
+  /** Leaves the dock on the road: back to the map, on to the next point. */
+  leaveRoadDock(): void {
+    if (this.runPhase !== 'roaddock' || !this.run) return;
+    this.run.deposited = null;
+    this.runPhase = 'map';
+    this.saveRun();
+  }
+
+  /** What winning the fight in progress would put in the hold, and what wouldn't fit. */
+  pendingReward(): HoldResult | null {
+    const run = this.run;
+    if (!run || !run.fighting) return null;
+    return previewAdd(run.cargo, holdCap(run.shipId), rewardFor(run.fighting));
   }
 
   private startBattle(point: RoadPoint): void {
@@ -228,33 +361,71 @@ export class Game {
     this.acc = 0;
   }
 
-  /** After the battle's end screen: back to the road, or on to the run's result. */
+  /** After the battle's end screen: the winnings go into the hold and the player is back on the road; a lost ship ends in the result screen. */
   continueRun(): void {
     const run = this.run;
     if (!run || this.runPhase !== 'battle') return;
     const point = run.fighting!;
     const ship = this.world.player;
     if (this.state === 'lost' || !ship) {
-      run.outcome = 'defeat';
-      run.ship = null;
-      this.runPhase = 'over';
+      this.loseShip();
       return;
     }
     run.ship = ship;
     restAfterBattle(ship);
     run.battlesWon++;
+    const got = addToHold(run.cargo, holdCap(run.shipId), rewardFor(point));
     run.cleared = point.index;
     run.fighting = null;
     run.road.ensure(run.cleared);
-    run.note = point.kind === 'boss' ? 'Рубеж взят. Впереди врата.' : point.kind === 'elite' ? 'Элитный бой выигран.' : 'Бой выигран.';
+    const name = point.kind === 'boss' ? 'Рубеж взят' : point.kind === 'elite' ? 'Элитный бой выигран' : 'Бой выигран';
+    run.note = `${name}: в трюм +${got.gained.credits} кр. и +${got.gained.metal} мет.` + (got.lostMetal > 0 ? ` (трюм полон, ${got.lostMetal} мет. не влезло)` : '');
     this.runPhase = 'map';
+    this.saveRun();
   }
 
+  /** The ship is gone: what it carried goes with it, and the run falls back to the last dock on a whole ship of the same class. */
+  private loseShip(): void {
+    const run = this.run!;
+    const dock = run.road.lastDock(run.cleared);
+    run.lost = { ...run.cargo };
+    run.cargo = emptyCargo();
+    run.fellBackTo = dock;
+    run.cleared = dock;
+    run.road.regenAfter(dock);
+    run.road.ensure(run.cleared);
+    run.ship = null;
+    run.fighting = null;
+    run.outcome = 'defeat';
+    this.runPhase = 'over';
+    this.saveRun();
+  }
+
+  /** From the result screen after a lost ship back to the road, at the dock. */
+  resumeAfterLoss(): void {
+    const run = this.run;
+    if (!run || this.runPhase !== 'over') return;
+    run.outcome = null;
+    run.lost = null;
+    run.note = 'Вы получили такой же целый корабль у последнего дока. Участок дороги собран заново.';
+    this.enterRoadDock(true);
+  }
+
+  /** Falls back to the last dock on purpose: the hold is deposited there, the points past it don't count and the stretch is written anew. */
   retreat(): void {
     const run = this.run;
     if (!run || this.runPhase !== 'map') return;
-    run.outcome = 'retreat';
-    this.runPhase = 'over';
+    const dock = run.road.lastDock(run.cleared);
+    if (dock === run.cleared) return;
+    run.cleared = dock;
+    run.road.regenAfter(dock);
+    this.enterRoadDock(true);
+  }
+
+  /** How many points back the last dock is, for the warning on a dangerous point. */
+  pointsToDock(): number {
+    const run = this.run;
+    return run ? run.cleared - run.road.lastDock(run.cleared) : 0;
   }
 
   /** The run's ship as it is right now — mid-battle a hull split may have replaced the body. */

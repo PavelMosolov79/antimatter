@@ -1,5 +1,6 @@
 import type { Game } from './game';
 import { KIND_LOOK, Px, SECTOR_LOOK, clamp, fbm, hashInt, makePointIcon, mulberry, playerMarker, rampPick } from './render/pointArt';
+import { holdCap } from './sim/cargo';
 import { ROAD, sectorOfLink, type RoadPoint } from './sim/road';
 import { SHIPS } from './sim/ships';
 
@@ -118,6 +119,21 @@ const CSS = `
 #road.phone .rd-pic { width: 52px; height: 52px; }
 #road.phone .rd-stats .rd-shipname { display: none; }
 #road.phone .rd-toast { bottom: 210px; }
+#road .rd-stats span.safe { border-color: rgba(99,224,122,.4); }
+#road .rd-stats span.safe b { color: #63e07a; }
+#road .rd-stats span.risk { color: #ffd24a; border-color: rgba(255,210,74,.6); }
+#road .rd-stats span.risk b { color: #ffd24a; }
+#road .rd-stats span.full { color: #ff6a5a; border-color: rgba(255,106,90,.7); }
+#road .rd-stats span.full b { color: #ff6a5a; }
+#road .rd-chip.risk { color: #ffd24a; border-color: rgba(255,210,74,.6); }
+#road .rd-modal { position: absolute; inset: 0; z-index: 12; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2,3,10,.78); }
+#road .rd-modal[hidden] { display: none; }
+#road .rd-dialog { width: min(420px, 100%); background: #090d1c; border: 1px solid #232a44; border-left: 3px solid #ffd24a; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+#road .rd-dialog h3 { margin: 0; font: 800 14px/1.2 'Unbounded', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #ffd24a; }
+#road .rd-dialog .ln { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: #cdd3ee; }
+#road .rd-dialog .ln b { font-variant-numeric: tabular-nums; }
+#road .rd-dialog .hint { font-size: 11.5px; color: #8c93b4; line-height: 1.5; }
+#road .rd-dialog .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) { #road .rd-ring, #road .rd-ret, #road .p-leg, #road .rd-ship.idle canvas { animation: none; } }
 `;
 
@@ -184,6 +200,7 @@ export class RoadScreen {
   private readonly stats = document.createElement('div');
   private readonly card = document.createElement('div');
   private readonly toastEl = document.createElement('div');
+  private readonly modal = document.createElement('div');
   private key = '';
   private noteShown = '';
   private sel: number | null = null;
@@ -218,7 +235,9 @@ export class RoadScreen {
     this.card.className = 'rd-card';
     sheet.appendChild(this.card);
     this.toastEl.className = 'rd-toast';
-    r.append(this.vp, this.hud, sheet, this.toastEl);
+    this.modal.className = 'rd-modal';
+    this.modal.hidden = true;
+    r.append(this.vp, this.hud, sheet, this.toastEl, this.modal);
     parent.appendChild(r);
 
     // Dragging with a mouse scrolls the road; touch and the wheel scroll it natively.
@@ -270,7 +289,7 @@ export class RoadScreen {
       return;
     }
     const run = g.run!;
-    const key = [run.cleared, run.road.links, g.shipId, window.innerWidth, window.innerHeight, run.note].join('|');
+    const key = [run.cleared, run.road.links, g.shipId, window.innerWidth, window.innerHeight, run.note, run.cargo.credits, run.cargo.metal, g.wallet.credits, g.wallet.metal, run.road.regens.length].join('|');
     if (!this.root.hidden && key === this.key) return;
     const wasHidden = this.root.hidden;
     const fresh = this.key.split('|')[0] !== String(run.cleared) || wasHidden;
@@ -528,9 +547,19 @@ export class RoadScreen {
     stat('Корабль', SHIPS.find((s) => s.id === run.shipId)?.label ?? run.shipId, 'rd-shipname');
     stat('Корпус', `${Math.round(g.runHull() * 100)}%`);
     stat('Экипаж', run.ship ? String(g.runCrewAlive()) : '—');
-    const menu = button('Меню', () => (g.screen = 'title'), 'small');
-    const out = button('Отступить в док', () => g.retreat(), 'small');
-    this.stats.append(menu, out);
+    stat('Кредиты', String(g.wallet.credits), 'safe');
+    stat('Металл', String(g.wallet.metal), 'safe');
+    const cap = holdCap(run.shipId);
+    const c = run.cargo;
+    const full = c.metal >= cap;
+    const holdChip = document.createElement('span');
+    holdChip.className = full ? 'full' : c.credits + c.metal > 0 ? 'risk' : '';
+    holdChip.title = 'Пропадёт, если корабль погибнет, пока не сдан в доке';
+    const hb = document.createElement('b');
+    hb.textContent = `${c.credits} кр. · ${c.metal}/${cap}${full ? ' · полон' : ''}`;
+    holdChip.append(document.createTextNode(c.credits + c.metal > 0 ? '⚠ Трюм' : 'Трюм'), hb);
+    this.stats.appendChild(holdChip);
+    this.stats.append(button('Меню', () => (g.screen = 'title'), 'small'));
   }
 
   private renderCard(): void {
@@ -555,12 +584,21 @@ export class RoadScreen {
     const stLabel = { done: 'пройдена', current: 'текущая миссия', next: 'следующая', far: 'впереди' }[st];
     chips.append(div('rd-chip k', look.name), div('rd-chip' + (st === 'current' ? ' cur' : ''), stLabel));
     if (p.tier) chips.append(div('rd-chip', `угроза ${p.tier}`));
+    const risky = p.kind === 'combat' || p.kind === 'elite' || p.kind === 'boss';
+    const cg = run.cargo;
+    if (risky && st === 'current' && cg.credits + cg.metal > 0) {
+      chips.append(div('rd-chip risk', `⚠ Под угрозой ${cg.credits} кр. · ${cg.metal} мет.`));
+      const back = g.pointsToDock();
+      if (back > 0) chips.append(div('rd-chip', `последний док ${back} ${back === 1 ? 'точка' : back < 5 ? 'точки' : 'точек'} назад`));
+    }
     info.append(meta, div('rd-ttl', text.title), div('rd-desc', text.sub), chips);
     const acts = div('rd-acts', '');
     const go = button(st === 'current' ? (p.kind === 'dock' ? 'Зайти в док ▸' : p.kind === 'gate' ? 'Через врата ▸' : 'Начать миссию ▸') : st === 'done' ? 'Пройдена' : 'Откроется позже', () => this.fly(), 'go');
     go.disabled = st !== 'current' || this.busy;
     const loc = button('⌖ К текущей', () => this.select(run.cleared + 1, true));
-    acts.append(go, loc);
+    const back = button('↩ В последний док', () => this.askRetreat());
+    back.disabled = this.busy || g.pointsToDock() === 0;
+    acts.append(go, loc, back);
     card.append(pic, info, acts);
   }
 
@@ -600,12 +638,53 @@ export class RoadScreen {
     requestAnimationFrame(step);
   }
 
+  private askRetreat(): void {
+    const g = this.game;
+    const run = g.run!;
+    if (this.busy || g.pointsToDock() === 0) return;
+    const dock = run.road.points[run.road.lastDock(run.cleared)];
+    const lost: number[] = [];
+    for (let i = dock.index + 1; i <= run.cleared; i++) if (run.road.points[i].mission) lost.push(run.road.points[i].mission);
+    const c = run.cargo;
+    const where = dock.kind === 'gate' ? (dock.link === 0 ? 'старт похода' : `врата звена ${dock.link + 1}`) : `миссия ${dock.mission}, звено ${dock.link + 1}`;
+    const m = this.modal;
+    m.replaceChildren();
+    const box = div('rd-dialog', '');
+    box.append(h3('Вернуться в док?'), div('hint', `Последний док: ${where}. Груз добавится к вашим ресурсам.`));
+    const ln = (a: string, b: string) => {
+      const d = div('ln', '');
+      const x = document.createElement('span');
+      x.textContent = a;
+      const y = document.createElement('b');
+      y.textContent = b;
+      d.append(x, y);
+      return d;
+    };
+    box.append(ln('Сдать', c.credits + c.metal > 0 ? `+${c.credits} кр. · +${c.metal} мет.` : 'трюм пуст'));
+    if (lost.length) box.append(ln('Не засчитаются', lost.length > 3 ? `миссии ${lost[0]}–${lost[lost.length - 1]}` : `миссии ${lost.join(', ')}`));
+    box.append(div('hint', 'Участок дороги после дока соберётся заново.'));
+    const btns = div('btns', '');
+    btns.append(button('Вернуться', () => {
+      m.hidden = true;
+      g.retreat();
+    }, 'go'), button('Остаться', () => (m.hidden = true)));
+    box.append(btns);
+    m.appendChild(box);
+    m.hidden = false;
+  }
+
   private toast(msg: string): void {
     this.toastEl.textContent = msg;
     this.toastEl.classList.add('on');
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('on'), 3400);
   }
+}
+
+function h3(text: string): HTMLElement {
+  const h = document.createElement('h3');
+  h.textContent = text;
+  return h;
 }
 
 function div(cls: string, text: string): HTMLDivElement {

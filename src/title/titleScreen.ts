@@ -1,4 +1,6 @@
 import type { Game } from '../game';
+import { holdCap } from '../sim/cargo';
+import { Road } from '../sim/road';
 import { SHIPS } from '../sim/ships';
 import { CoreScene, makeSky, type Sky, type SkyLayout } from './coreArt';
 
@@ -180,6 +182,7 @@ export class TitleScreen {
   private label = document.createElement('span');
   private pct = document.createElement('span');
   private items: Item[] = [];
+  private confirmItem = -1;
   private layout!: TitleLayout;
   private sky!: Sky;
   private scene!: CoreScene;
@@ -226,7 +229,7 @@ export class TitleScreen {
 
     this.item(nav, 'Продолжить', () => this.resume());
     this.item(nav, 'Новый забег', () => this.newRun());
-    this.item(nav, 'Док', () => this.go(() => this.game!.openDock()));
+    this.item(nav, 'Док', () => this.leaveRun(2, () => this.game!.openDock()));
     this.item(nav, 'Песочница', () => this.go(() => this.game!.reset(this.game!.shipId, 'sandbox')));
     this.item(nav, 'Настройки', () => {});
     this.items[4].el.disabled = true;
@@ -347,7 +350,7 @@ export class TitleScreen {
   private select(n: number): void {
     this.active = n;
     this.items.forEach((it, i) => it.el.classList.toggle('on', i === n));
-    if (n !== 1 && this.confirmNew) this.resetNewRunPrompt();
+    if (n !== this.confirmItem && this.confirmNew) this.resetNewRunPrompt();
   }
 
   /** The tap: the core glides to its menu spot while the logo and the list move in. */
@@ -373,19 +376,25 @@ export class TitleScreen {
     this.start();
   }
 
-  /** "Continue" appears when there's something to go back to. */
+  /** "Continue" appears when there's something to go back to — in this session, or a run saved in the browser. */
   private refreshItems(): void {
     const g = this.game;
     const cont = this.items[0];
     let sub = '';
     if (g && g.hasSession) {
       if (g.mode === 'run' && g.run && g.runPhase !== 'over' && g.runPhase !== 'dock') {
-        const ship = SHIPS.find((s) => s.id === g.run!.shipId)?.label ?? '';
-        sub = `Забег · миссия ${g.run.road.missionsDone(g.run.cleared) + 1} · ${ship} · корпус ${Math.round(g.runHull() * 100)} %`;
+        sub = this.runLine(g.run.shipId, g.run.road.missionsDone(g.run.cleared) + 1, g.run.cargo.metal, Math.round(g.runHull() * 100));
       } else if (g.mode === 'sandbox') {
         sub = `Песочница · ${SHIPS.find((s) => s.id === g.shipId)?.label ?? ''}`;
       } else if (g.mode === 'run' && g.runPhase === 'dock') {
         sub = 'Док';
+      }
+    }
+    if (!sub && g && !g.hasSession) {
+      const d = g.savedRun();
+      if (d) {
+        const road = new Road(d.seed, d.links, d.regens);
+        sub = this.runLine(d.shipId, road.missionsDone(d.cleared) + 1, d.cargo.metal, null);
       }
     }
     cont.el.hidden = sub === '';
@@ -393,27 +402,49 @@ export class TitleScreen {
     this.resetNewRunPrompt();
   }
 
+  private runLine(shipId: string, mission: number, metal: number, hull: number | null): string {
+    const ship = SHIPS.find((s) => s.id === shipId)?.label ?? '';
+    return `Забег · миссия ${mission} · ${ship}${hull !== null ? ` · корпус ${hull} %` : ''} · трюм ${metal}/${holdCap(shipId)}`;
+  }
+
   private resetNewRunPrompt(): void {
     this.confirmNew = false;
-    this.items[1].sub.textContent = '';
-    this.items[1].el.classList.remove('warn');
+    this.confirmItem = -1;
+    for (const i of [1, 2]) {
+      this.items[i].sub.textContent = '';
+      this.items[i].el.classList.remove('warn');
+    }
   }
 
   private resume(): void {
-    this.go(() => {});
+    this.go(() => {
+      const g = this.game!;
+      if (!g.hasSession && g.savedRun()) g.continueSaved();
+    });
   }
 
-  /** A run in progress isn't thrown away on one tap: the first one asks. */
+  /** A run in progress isn't thrown away on one tap: the first one asks, and says what the hold would lose. */
   private newRun(): void {
+    this.leaveRun(1, () => this.game!.openDock());
+  }
+
+  private leaveRun(item: number, action: () => void): void {
     const g = this.game!;
-    const inRun = g.hasSession && g.mode === 'run' && g.run && g.runPhase !== 'over' && g.runPhase !== 'dock';
-    if (inRun && !this.confirmNew) {
+    const inRun = g.hasRun() && !(g.hasSession && g.mode === 'run' && g.runPhase === 'dock') && !(g.hasSession && g.mode === 'sandbox');
+    if (inRun && !(this.confirmNew && this.confirmItem === item)) {
+      this.resetNewRunPrompt();
       this.confirmNew = true;
-      this.items[1].sub.textContent = 'Нажмите ещё раз — текущий забег будет брошен';
-      this.items[1].el.classList.add('warn');
+      this.confirmItem = item;
+      const cargo = g.run ? g.run.cargo : g.savedRun()?.cargo;
+      const risk = cargo && cargo.credits + cargo.metal > 0 ? `, груз в трюме (${cargo.credits} кр. · ${cargo.metal} мет.) пропадёт` : '';
+      this.items[item].sub.textContent = `Нажмите ещё раз — текущий забег будет брошен${risk}`;
+      this.items[item].el.classList.add('warn');
       return;
     }
-    this.go(() => g.openDock());
+    this.go(() => {
+      if (inRun) g.abandonRun();
+      action();
+    });
   }
 
   /** Leaves for the game: runs the action, fades the title out. */
