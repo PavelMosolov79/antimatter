@@ -4,11 +4,14 @@ import type { ShipGrid } from '../sim/grid';
 import { SHIPS, shipHoldCap } from '../sim/ships';
 import type { ModulesScreen } from './modulesScreen';
 import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockLayout, type DockSprite } from './dockArt';
+import { makeLife, stepLife, type DockLife } from './dockLife';
 
 /**
  * The dock, as designed in «Док Antimatter»: the ship held at a berth in a space station's
- * hangar, its card and the ways out (a run, the sandbox, the menu). Switching ships and
- * leaving for a run play out as the ship undocking through the hangar doors.
+ * hangar, with a walkway round it where the crew go about their work. Round the picture
+ * sits the interface: the resources, the fleet, the card of the room that's open, the row of
+ * rooms of the station and the way out on a run. Switching ships and leaving for a run play
+ * out as the ship undocking through the hangar doors.
  */
 
 const CLASS: Record<string, string> = { fighter: 'лёгкий', cruiser: 'средний', battleship: 'тяжёлый' };
@@ -23,6 +26,28 @@ const STATUS: Record<Phase, string> = {
   arrive: 'Заход на причал…',
   grab: 'Захваты закрываются…',
 };
+
+type Room = 'hangar' | 'repair' | 'mods' | 'crew' | 'shop';
+const ROOMS: Array<{ id: Room; label: string; icon: string; soon: boolean }> = [
+  { id: 'hangar', label: 'Ангар', icon: '<path d="M3 20V9l9-5 9 5v11M7 20v-6h10v6"/>', soon: false },
+  { id: 'repair', label: 'Ремонт', icon: '<rect x="3.5" y="3.5" width="17" height="17"/><path d="M12 7.5v9M7.5 12h9"/>', soon: true },
+  { id: 'mods', label: 'Модули', icon: '<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>', soon: false },
+  { id: 'crew', label: 'Экипаж', icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 3-6 6-6s6 2 6 6"/><circle cx="17" cy="9" r="2"/><path d="M16 14c3 0 5 2 5 5"/>', soon: true },
+  { id: 'shop', label: 'Магазин', icon: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8a3 3 0 0 1 6 0"/>', soon: true },
+];
+const SOON: Record<string, { title: string; text: string }> = {
+  repair: { title: 'Ремонт', text: 'Здесь будет ремонт корабля: список повреждений, цена в металле и таймер. Запасной истребитель чинится бесплатно и быстро.' },
+  crew: { title: 'Экипаж', text: 'Здесь будут космонавты корабля: найм, уровни и переназначение между кораблями.' },
+  shop: { title: 'Магазин', text: 'Здесь будут новые модули и корабли за кредиты и металл.' },
+};
+const LINES: Array<[string, string]> = [
+  ['Диспетчер', 'Причал 3: отбытие «Серафим» через 4 минуты.'],
+  ['Диспетчер', 'Грузовой лифт 2 свободен. Металл принят.'],
+  ['Станция', 'Ремонтные дроны: 6 из 6 на линии.'],
+  ['Диспетчер', 'Антиматерия в магистрали: давление в норме.'],
+  ['Станция', 'Ворота ангара закрыты, поле стабильно.'],
+  ['Диспетчер', 'Причал 2 занят, ждите своей очереди.'],
+];
 
 // ------------------------------------------------------------------ ship pictures
 
@@ -44,117 +69,167 @@ function spriteFor(shipId: string, grid: ShipGrid): DockSprite {
   if (cached && cached.cells === grid.cells) return cached.sprite;
   return makeDockSprite(grid);
 }
+/** The stock picture of a ship, for the fleet list. */
+function stockSprite(shipId: string): DockSprite {
+  let c = sprites.get(shipId);
+  if (!c) {
+    const grid = SHIPS.find((s) => s.id === shipId)!.build();
+    c = { cells: grid.cells, sprite: makeDockSprite(grid) };
+    sprites.set(shipId, c);
+  }
+  return c.sprite;
+}
 
 // ------------------------------------------------------------------ styles
 
 const U = (css: string) => css.replace(/U\(([-\d.]+)\)/g, 'calc(var(--u) * $1)');
+const SANS = "'Unbounded', 'Arial Black', system-ui, sans-serif";
 const CSS = U(`
 #dock { position: fixed; inset: 0; z-index: 40; overflow: hidden; background: #05060c; color: #c9d2ef;
   font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; -webkit-user-select: none; user-select: none; }
 #dock[hidden], #dock [hidden] { display: none !important; }
-#dock canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+#dock canvas.pic { position: absolute; left: 0; top: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
 #dock canvas.glow { filter: blur(U(0.9)) saturate(1.2); mix-blend-mode: screen; opacity: .75; }
 #dock .hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 0 U(.5) #000, 0 0 U(.25) #000; }
-#dock .title { position: absolute; left: U(3.2); top: calc(U(2.8) + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: U(.3); }
-#dock .title b { font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 900; font-size: U(3.4); letter-spacing: .3em; color: #f3e8ff;
-  text-shadow: 0 0 U(1.2) rgba(180,60,255,.6), 0 0 U(.4) #000; }
-#dock .title span { font-size: U(1.15); letter-spacing: .24em; text-transform: uppercase; color: #8a93b8; }
-#dock .dots { position: absolute; left: 0; right: 0; top: calc(U(3.4) + env(safe-area-inset-top, 0px)); display: flex; justify-content: center; gap: U(.8); }
-#dock .dots i { width: U(1); height: U(1); background: #2a3452; }
-#dock .dots i.on { background: #59e6ff; box-shadow: 0 0 U(.8) #59e6ff; }
-#dock .status { position: absolute; left: 0; right: 0; top: calc(U(6.2) + env(safe-area-inset-top, 0px)); text-align: center; font-size: U(1.1); letter-spacing: .24em; text-transform: uppercase; color: #63e07a; }
-#dock .status.moving { color: #e8c450; }
-#dock button { font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 500; font-size: U(1.35); letter-spacing: .18em; text-transform: uppercase; text-align: left; cursor: pointer;
-  color: #c9d2ef; background: rgba(6,9,18,.72); border: 1px solid rgba(89,230,255,.22); padding: U(1) U(1.3); display: flex; justify-content: space-between; align-items: center; gap: U(1);
+#dock .glass { background: rgba(7,10,20,.8); border: 1px solid rgba(89,230,255,.18); }
+#dock button { font-family: ${SANS}; font-weight: 500; font-size: U(1.2); letter-spacing: .16em; text-transform: uppercase; text-align: left; cursor: pointer;
+  color: #c9d2ef; background: rgba(7,10,20,.8); border: 1px solid rgba(89,230,255,.22); padding: U(1) U(1.3); display: flex; justify-content: space-between; align-items: center; gap: U(1);
   pointer-events: auto; touch-action: manipulation; }
 #dock button:hover { border-color: rgba(89,230,255,.6); color: #fff; }
 #dock button:focus-visible { outline: 2px solid #ff4fd8; outline-offset: 2px; }
-#dock button.go { color: #fbf2ff; border-color: #ff4fd8; background: rgba(58,10,70,.72); box-shadow: 0 0 U(1.4) rgba(255,79,216,.35); font-weight: 700; }
 #dock button:disabled { cursor: default; color: #5d6688; border-color: rgba(93,102,136,.3); }
-#dock button small { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(.9); letter-spacing: .12em; color: #5d6688; }
-/* landscape: the ship switcher sits at the top, "‹ • • • ›" round the dots, clear of the card and the buttons */
-#dock .switch { position: absolute; top: calc(U(1.9) + env(safe-area-inset-top, 0px)); width: U(4); height: U(4); font-size: U(2.2); padding: 0; justify-content: center; }
-#dock .switch.prev { left: calc(50% - U(8.5)); }
-#dock .switch.next { right: calc(50% - U(8.5)); }
-#dock .bottom { display: contents; }
-#dock .card { position: absolute; left: U(3.2); bottom: calc(U(3) + env(safe-area-inset-bottom, 0px)); width: U(30); display: flex; flex-direction: column; gap: U(.7); pointer-events: auto;
-  padding: U(1.4) U(1.6); background: rgba(6,9,18,.72); border: 1px solid rgba(89,230,255,.18); border-left: U(.35) solid #59e6ff; }
-#dock .card .name { font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 700; font-size: U(2.4); letter-spacing: .14em; text-transform: uppercase; color: #f3e8ff; }
-#dock .card .cls { font-size: U(1.1); letter-spacing: .16em; text-transform: uppercase; color: #8a93b8; }
-#dock .card .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: U(.6) U(1.2); margin-top: U(.4); }
-#dock .card .stats div { display: flex; flex-direction: column; }
-#dock .card .stats small { font-size: U(.95); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; }
-#dock .card .stats strong { font-size: U(1.7); font-weight: 700; color: #e9eeff; font-variant-numeric: tabular-nums; }
-#dock .card .state { display: flex; gap: U(.8); flex-wrap: wrap; margin-top: U(.3); }
-#dock .chip { font-size: U(1); letter-spacing: .14em; text-transform: uppercase; padding: U(.3) U(.7); border: 1px solid; }
+#dock button small { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-weight: 400; font-size: U(.95); letter-spacing: .06em; color: #8a93b8; text-transform: none; }
+
+/* the top: the name of the berth and the resources */
+#dock .top { position: absolute; left: U(2.4); right: U(2.4); top: calc(U(2) + env(safe-area-inset-top, 0px)); display: flex; justify-content: space-between; align-items: flex-start; gap: U(1.5); }
+#dock .brand { display: flex; flex-direction: column; gap: U(.3); min-width: 0; padding: U(.8) U(1.4) U(.9) U(1.2); background: rgba(5,6,12,.62); border-left: U(.3) solid #b43cff; }
+#dock .brand b { font-family: ${SANS}; font-weight: 900; font-size: U(2.8); line-height: 1; letter-spacing: .3em; color: #f3e8ff; text-shadow: 0 0 U(1.1) rgba(180,60,255,.6), 0 0 U(.4) #000; }
+#dock .brand .sub { font-size: U(1.05); letter-spacing: .2em; text-transform: uppercase; color: #aab3d6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dock .brand .st { color: #63e07a; }
+#dock .brand .st.moving { color: #e8c450; }
+#dock.road .brand .sub > span:first-child { color: #e8c450; }
+#dock .res { display: flex; gap: U(.8); align-items: stretch; pointer-events: none; }
+#dock .chip-res { display: flex; align-items: center; gap: U(.8); padding: U(.7) U(1.2); font-size: U(1.3); font-weight: 500; color: #e9eeff; font-variant-numeric: tabular-nums; pointer-events: auto; white-space: nowrap; }
+#dock .chip-res i { width: U(1.1); height: U(1.1); display: block; }
+#dock .chip-res small { font-size: U(.85); letter-spacing: .14em; text-transform: uppercase; color: #6c77a0; }
+#dock .chip-res .plus { color: #e8c450; font-size: U(1); }
+#dock .menu-btn { width: U(4.2); padding: 0; justify-content: center; font-size: U(1.8); letter-spacing: 0; }
+#dock .menu-pop { position: absolute; right: U(2.4); top: calc(U(6.4) + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: U(.6); width: U(20); pointer-events: auto; z-index: 3; }
+#dock .menu-pop button { font-size: U(1.15); padding: U(1.1) U(1.3); background: #0a0e1c; }
+
+/* the fleet: a column of berths (a list from a button on a phone) */
+#dock .fleet { position: absolute; left: U(2.4); top: calc(U(10) + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: U(.8); pointer-events: none; }
+#dock .fleet-btn { display: none; }
+#dock .bays { display: flex; flex-direction: column; gap: U(.8); }
+#dock .bay { position: relative; width: U(12.4); padding: U(.6); flex-direction: column; align-items: stretch; gap: U(.4); text-align: left; }
+#dock .bay.on { border-color: #59e6ff; box-shadow: 0 0 U(1.2) rgba(89,230,255,.25); }
+#dock .bay .th { height: U(5.4); background: #080b16; border: 1px solid #151b2e; display: flex; align-items: center; justify-content: center; }
+#dock .bay .th canvas { height: 100%; width: 100%; object-fit: contain; image-rendering: pixelated; }
+#dock .bay .tx { display: flex; flex-direction: column; gap: U(.2); min-width: 0; }
+#dock .bay b { font-size: U(.9); font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: #e9eeff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dock .bay em { font-style: normal; font-size: U(.85); letter-spacing: .06em; color: #63e07a; white-space: nowrap; }
+#dock .bay:disabled { opacity: .55; }
+
+/* the card of the open room, and the hold on the road */
+#dock .side { position: absolute; right: U(2.4); top: calc(U(8.6) + env(safe-area-inset-top, 0px)); bottom: U(12.2); width: U(30); display: flex; flex-direction: column; gap: U(1); overflow-y: auto; scrollbar-width: none; pointer-events: none; }
+#dock .side::-webkit-scrollbar { display: none; }
+#dock .card { display: flex; flex-direction: column; gap: U(.8); padding: U(1.3) U(1.7); pointer-events: auto; border-left: U(.35) solid #59e6ff; flex: none; }
+#dock .card .name { font-family: ${SANS}; font-weight: 700; font-size: U(2.1); letter-spacing: .14em; text-transform: uppercase; color: #f3e8ff; }
+#dock .card .cls { font-size: U(1); letter-spacing: .16em; text-transform: uppercase; color: #8a93b8; }
+#dock .card .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: U(.6) U(1.2); margin-top: U(.2); }
+#dock .card .stats div { display: flex; flex-direction: column; min-width: 0; }
+#dock .card .stats small { font-size: U(.85); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; }
+#dock .card .stats strong { font-size: U(1.6); font-weight: 700; color: #e9eeff; font-variant-numeric: tabular-nums; }
+#dock .card .state { display: flex; gap: U(.7); flex-wrap: wrap; }
+#dock .chip { font-size: U(.95); letter-spacing: .14em; text-transform: uppercase; padding: U(.3) U(.7); border: 1px solid; }
 #dock .chip.ok { color: #63e07a; border-color: rgba(99,224,122,.45); }
 #dock .chip.fuel { color: #ff4fd8; border-color: rgba(255,79,216,.45); }
-#dock .decks { display: flex; flex-wrap: wrap; gap: U(.5); margin-top: U(.4); }
-#dock .decks button { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(1.05); letter-spacing: .12em; padding: U(.45) U(.8); justify-content: center; }
-#dock .decks button[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(20,48,74,.8); }
-#dock .decks .lbl { font-size: U(.95); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; align-self: center; margin-right: U(.3); }
-#dock .actions { position: absolute; right: U(3.2); bottom: calc(U(3) + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: U(.9); width: U(19); }
-
-/* the dock on the road: the resources and the hold, top right */
-#dock .cargo { position: absolute; right: U(3.2); top: calc(U(3) + env(safe-area-inset-top, 0px)); width: U(25); display: flex; flex-direction: column; gap: U(.7); padding: U(1.3) U(1.5); pointer-events: auto;
-  background: rgba(6,9,18,.78); border: 1px solid rgba(255,210,74,.28); border-left: U(.35) solid #e8c450; }
-#dock .cargo[hidden] { display: none; }
+#dock .chip.soon { color: #e8c450; border-color: rgba(232,196,80,.5); }
+#dock .layers { display: flex; flex-wrap: wrap; gap: U(.5); }
+#dock .layers button { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(1); letter-spacing: .1em; padding: U(.5) U(.8); justify-content: center; }
+#dock .layers button[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(20,48,74,.85); }
+#dock .layerbar { display: none; }
+#dock .card .note { font-size: U(1.05); line-height: 1.5; color: #9aa4cc; text-shadow: none; }
+#dock .cargo { display: flex; flex-direction: column; gap: U(.6); padding: U(1.1) U(1.5); pointer-events: auto; border-left: U(.35) solid #e8c450; flex: none; }
 #dock .cargo .ch { display: flex; justify-content: space-between; align-items: baseline; gap: U(1); }
-#dock .cargo .ch b { font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 700; font-size: U(1.25); letter-spacing: .16em; text-transform: uppercase; color: #fff3c8; }
-#dock .cargo .ch span { font-size: U(1); letter-spacing: .14em; text-transform: uppercase; color: #e8c450; }
+#dock .cargo .ch b { font-family: ${SANS}; font-weight: 700; font-size: U(1.2); letter-spacing: .16em; text-transform: uppercase; color: #fff3c8; }
+#dock .cargo .ch span { font-size: U(.95); letter-spacing: .12em; text-transform: uppercase; color: #e8c450; }
 #dock .cargo .ch span.safe { color: #63e07a; }
-#dock .cargo .grid { display: grid; grid-template-columns: auto 1fr 1fr; gap: U(.5) U(1.2); align-items: baseline; }
-#dock .cargo .grid small { font-size: U(.9); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; }
-#dock .cargo .grid strong { font-size: U(1.55); font-weight: 700; color: #e9eeff; font-variant-numeric: tabular-nums; text-align: right; }
-#dock .cargo .grid strong.in { color: #e8c450; }
-#dock .cargo .grid strong.vault { color: #63e07a; }
+#dock .cargo .grid { display: grid; grid-template-columns: auto 1fr; gap: U(.4) U(1.2); align-items: baseline; }
+#dock .cargo .grid small { font-size: U(.85); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; }
+#dock .cargo .grid strong { font-size: U(1.4); font-weight: 700; color: #e8c450; font-variant-numeric: tabular-nums; text-align: right; }
 #dock .cargo .grid strong.dim { color: #4c5470; }
 #dock .cargo .bar { height: U(.8); background: #10162a; border: 1px solid #1b2134; position: relative; }
 #dock .cargo .bar i { position: absolute; inset: 0 auto 0 0; background: #e8c450; }
-#dock .cargo .note { font-size: U(.95); line-height: 1.4; color: #8a93b8; }
+#dock .cargo .note { font-size: U(.95); line-height: 1.4; color: #8a93b8; text-shadow: none; }
 #dock .cargo .note b { color: #fff3c8; font-weight: 500; }
-#dock.road .title span { color: #e8c450; }
-#dock.portrait .cargo { position: static; width: auto; padding: U(2.6) U(3); gap: U(1.4); border-left-width: U(.8); }
-#dock.portrait .cargo .ch b { font-size: U(3); }
-#dock.portrait .cargo .ch span { font-size: U(2.2); }
-#dock.portrait .cargo .grid { gap: U(1) U(2.4); }
-#dock.portrait .cargo .grid small { font-size: U(2); }
-#dock.portrait .cargo .grid strong { font-size: U(3.6); }
-#dock.portrait .cargo .bar { height: U(1.6); }
-#dock.portrait .cargo .note { font-size: U(2.2); }
-#dock.portrait.road .card .stats, #dock.portrait.road .card .decks, #dock.portrait.road .card .state { display: none; }
-#dock.portrait.road .card { padding: U(2.2) U(3); gap: U(.6); }
-#dock.portrait.road .card .name { font-size: U(4.4); }
 
-/* portrait: the card and the buttons stack from the bottom edge up, so they can't overlap */
-#dock.portrait .title { left: 0; right: 0; top: calc(U(4.5) + env(safe-area-inset-top, 0px)); align-items: center; }
-#dock.portrait .title b { font-size: U(7); }
-#dock.portrait .title span { font-size: U(2.4); }
-#dock.portrait .dots { top: calc(U(17.5) + env(safe-area-inset-top, 0px)); gap: U(1.8); }
-#dock.portrait .dots i { width: U(2); height: U(2); }
-#dock.portrait .status { top: calc(U(21.5) + env(safe-area-inset-top, 0px)); font-size: U(2.4); }
-#dock.portrait .switch { top: calc(var(--shipcy, .5) * 100%); transform: translateY(-50%); width: U(8); height: U(12); font-size: U(5); }
-#dock.portrait .switch.prev { left: U(3); right: auto; }
-#dock.portrait .switch.next { right: U(3); left: auto; }
-#dock.portrait .bottom { display: flex; flex-direction: column; gap: U(2); position: absolute; left: U(4); right: U(4); bottom: calc(U(4) + env(safe-area-inset-bottom, 0px)); }
-#dock.portrait .card, #dock.portrait .actions { position: static; width: auto; }
-#dock.portrait .card { padding: U(3) U(3.4); gap: U(1.2); border-left-width: U(.8); }
-#dock.portrait .card .name { font-size: U(5.4); }
-#dock.portrait .card .cls { font-size: U(2.4); }
-#dock.portrait .card .stats { gap: U(1.2) U(2.6); }
-#dock.portrait .card .stats small { font-size: U(2.1); }
-#dock.portrait .card .stats strong { font-size: U(3.8); }
-#dock.portrait .chip { font-size: U(2.2); padding: U(.7) U(1.5); }
-#dock.portrait .actions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: U(1.6); }
-#dock.portrait button { font-size: U(2.9); padding: U(2.3) U(2.6); }
-#dock.portrait .actions button { grid-column: span 3; }
-#dock.portrait .actions button.go { grid-column: 1 / -1; font-size: U(3.4); order: 0; }
-#dock.portrait .actions button.later { grid-column: span 2; order: 1; font-size: U(2.3); padding: U(1.8) U(1.6); flex-direction: column; align-items: flex-start; gap: U(.4); }
-#dock.portrait .actions button.sand, #dock.portrait .actions button.menu { order: 2; }
-#dock.portrait button small { font-size: U(1.8); }
-#dock.portrait .decks { gap: U(1.2); }
-#dock.portrait .decks button { font-size: U(2.4); padding: U(1.1) U(1.8); }
-#dock.portrait .decks .lbl { font-size: U(2.1); }
+/* the row of rooms below the berth, and the way out */
+#dock .bottom { display: contents; }
+#dock .deck { position: absolute; left: var(--deckx, 50%); transform: translateX(-50%); bottom: calc(U(2.2) + env(safe-area-inset-bottom, 0px)); display: flex; gap: U(.7); }
+#dock .room { position: relative; flex-direction: column; justify-content: center; gap: U(.5); min-width: U(8); padding: U(.9) U(.8); font-size: U(.9); letter-spacing: .14em; color: #aab3d6; text-align: center; }
+#dock .room svg { width: U(2.4); height: U(2.4); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: square; stroke-linejoin: miter; }
+#dock .room small { font-size: U(.8); letter-spacing: .06em; color: #e8c450; margin-top: U(-.2); }
+#dock .room[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(14,40,64,.88); box-shadow: inset 0 U(-.35) 0 #59e6ff; }
+#dock .room:disabled { opacity: .5; }
+#dock .go { position: absolute; right: U(2.4); bottom: calc(U(2.2) + env(safe-area-inset-bottom, 0px)); width: U(25); font-weight: 700; font-size: U(1.6); letter-spacing: .2em;
+  color: #fbf2ff; border-color: #ff4fd8; background: rgba(58,10,70,.82); box-shadow: 0 0 U(1.6) rgba(255,79,216,.4); padding: U(1.3) U(1.8); }
+#dock .go span.l { display: flex; flex-direction: column; }
+#dock .go small { color: #d9a8ec; margin-top: U(.3); font-size: U(.95); letter-spacing: .06em; }
+#dock .ticker { position: absolute; left: U(2.4); bottom: calc(U(2.2) + env(safe-area-inset-bottom, 0px)); width: U(14.6); padding: U(.8) U(1); font-size: U(.95); line-height: 1.45; color: #aab3d6; pointer-events: none;
+  background: rgba(7,10,20,.78); border: 1px solid rgba(89,230,255,.14); border-left: U(.3) solid #59e6ff; }
+#dock .ticker b { display: block; font-weight: 500; font-size: U(.8); letter-spacing: .14em; text-transform: uppercase; color: #59e6ff; margin-bottom: U(.2); }
+#dock .ticker span { display: block; animation: dock-fade 1.2s; }
+@keyframes dock-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* portrait: the picture on top, the card, the way out and the rooms stacked from the bottom edge up */
+#dock.portrait .top { left: U(2); right: U(2); top: calc(U(2) + env(safe-area-inset-top, 0px)); align-items: center; }
+#dock.portrait .brand { padding: U(.6) U(1.2) U(.7) U(1); }
+#dock.portrait .brand b { font-size: U(3.4); letter-spacing: .24em; }
+#dock.portrait .brand .sub { font-size: U(1.5); letter-spacing: .12em; }
+#dock.portrait .res { gap: U(.6); }
+#dock.portrait .chip-res { font-size: U(1.9); padding: U(.7) U(1.1); gap: U(.7); }
+#dock.portrait .chip-res small { display: none; }
+#dock.portrait .chip-res i { width: U(1.5); height: U(1.5); }
+#dock.portrait .menu-btn { width: U(5.2); font-size: U(2.6); }
+#dock.portrait .menu-pop { right: U(2); top: calc(U(10.6) + env(safe-area-inset-top, 0px)); width: U(38); }
+#dock.portrait .menu-pop button { font-size: U(2.1); padding: U(1.8) U(2); }
+#dock.portrait .fleet { left: U(2); top: calc(U(10.6) + env(safe-area-inset-top, 0px)); }
+#dock.portrait .fleet-btn { display: flex; font-size: U(1.8); padding: U(.9) U(1.4); gap: U(1.2); pointer-events: auto; }
+#dock.portrait .bays { display: none; position: absolute; left: 0; top: U(5.4); width: U(52); pointer-events: auto; z-index: 3; }
+#dock.portrait .fleet.open .bays { display: flex; }
+#dock.portrait .bay { width: auto; flex-direction: row; align-items: center; justify-content: flex-start; gap: U(1.6); padding: U(1); background: #0a0e1c; }
+#dock.portrait .bay .tx { flex: 1; }
+#dock.portrait .bay .th { width: U(11); height: U(8); flex: none; }
+#dock.portrait .bay b { font-size: U(2); }
+#dock.portrait .bay em { font-size: U(1.6); }
+#dock.portrait .bottom { display: flex; flex-direction: column; gap: U(1); position: absolute; left: U(2); right: U(2); bottom: calc(U(2) + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
+#dock.portrait .side { position: static; width: auto; max-height: U(34); }
+#dock.portrait .go { position: static; width: auto; font-size: U(2.2); padding: U(1.1) U(1.8); letter-spacing: .16em; }
+#dock.portrait .go small { display: none; }
+#dock.portrait .deck { position: static; transform: none; gap: U(.6); }
+#dock.portrait .room { flex: 1 1 0; min-width: 0; padding: U(.9) U(.3); font-size: U(1.3); letter-spacing: .06em; gap: U(.5); }
+#dock.portrait .room svg { width: U(3.2); height: U(3.2); }
+#dock.portrait .room small { display: none; }
+#dock.portrait .card { padding: U(1.3) U(1.8); gap: U(.8); border-left-width: U(.6); }
+#dock.portrait .card .name { font-size: U(3); }
+#dock.portrait .card .cls, #dock.portrait .card .state, #dock.portrait .card .layers { display: none; }
+#dock.portrait .card .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: U(.4) U(1.2); }
+#dock.portrait .card .stats small { font-size: U(1.35); }
+#dock.portrait .card .stats strong { font-size: U(2.4); }
+#dock.portrait .card .stats .more { display: none; }
+#dock.portrait .card .note { font-size: U(1.7); }
+#dock.portrait .layerbar { display: flex; flex-direction: column; gap: U(.6); position: absolute; right: U(2); top: calc(U(10.6) + env(safe-area-inset-top, 0px)); }
+#dock.portrait .layerbar button { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(1.5); letter-spacing: .06em; padding: U(.9) U(1.2); justify-content: center; min-width: U(10); }
+#dock.portrait .layerbar button[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(20,48,74,.85); }
+#dock.portrait .cargo { padding: U(1.1) U(1.6); gap: U(.6); border-left-width: U(.6); }
+#dock.portrait .cargo .ch b { font-size: U(2.1); }
+#dock.portrait .cargo .ch span { font-size: U(1.5); }
+#dock.portrait .cargo .grid small { font-size: U(1.35); }
+#dock.portrait .cargo .grid strong { font-size: U(2); }
+#dock.portrait .cargo .bar { height: U(1.1); }
+#dock.portrait .cargo .note { display: none; }
+#dock.portrait .ticker { display: none; }
 `);
 
 // ------------------------------------------------------------------ the screen
@@ -167,22 +242,33 @@ export class DockScreen {
   private gctx!: CanvasRenderingContext2D;
   private img!: ImageData;
   private glow!: ImageData;
+  private side = document.createElement('div');
   private card = document.createElement('div');
-  private dots = document.createElement('div');
-  private status = document.createElement('div');
+  private bays = document.createElement('div');
+  private fleet = document.createElement('div');
+  private fleetBtn!: HTMLButtonElement;
+  private menuPop = document.createElement('div');
+  private layerbar = document.createElement('div');
+  private deckEl = document.createElement('div');
+  private roomBtns = new Map<Room, HTMLButtonElement>();
+  private ticker = document.createElement('div');
   private cargo = document.createElement('div');
+  private resCredits = document.createElement('span');
+  private resMetal = document.createElement('span');
+  private resCreditsPlus = document.createElement('span');
+  private resMetalPlus = document.createElement('span');
   private titleSub = document.createElement('span');
+  private statusEl = document.createElement('span');
   private goBtn!: HTMLButtonElement;
   private sandBtn!: HTMLButtonElement;
-  private shopBtn!: HTMLButtonElement;
-  private modsBtn!: HTMLButtonElement;
-  private switchBtns: HTMLButtonElement[] = [];
+  private room: Room = 'hangar';
   /** The dock is open on the road (mid-run) rather than between runs. */
   private road = false;
   /** The hold emptying into the player's resources, for the little animation on arrival. */
   private flow: { k: number; credits: number; metal: number } | null = null;
   private L!: DockLayout;
   private B!: DockBase;
+  private life!: DockLife;
   private sprite!: DockSprite;
   private shipId = '';
   private grid: ShipGrid | null = null;
@@ -193,6 +279,9 @@ export class DockScreen {
   private shipY = 0;
   private t = 0;
   private layer = 0;
+  private lineAt = 0;
+  private lineIx = 0;
+  private hangar: { name: string; cls: string; stats: Array<[string, string, boolean]> } | null = null;
   /** What happens once the ship has left: switch to another ship, or go on a run. */
   private after: { kind: 'switch'; id: string } | { kind: 'run' } | { kind: 'continue' } | null = null;
   private running = false;
@@ -209,60 +298,79 @@ export class DockScreen {
     const r = this.root;
     r.id = 'dock';
     r.hidden = true;
-    this.gv.className = 'glow';
+    this.cv.className = 'pic';
+    this.gv.className = 'pic glow';
     const hud = div('hud');
-    const title = div('title');
+
+    // the top: the berth's name and status, the resources, the menu
+    const top = div('top');
+    const brand = div('brand');
     const tb = document.createElement('b');
     tb.textContent = 'ДОК';
-    const ts = this.titleSub;
-    ts.textContent = 'Причал 1';
-    title.append(tb, ts);
-    this.dots.className = 'dots';
-    this.status.className = 'status';
-    const prev = btn('‹', () => this.cycle(-1));
-    prev.className = 'switch prev';
-    prev.setAttribute('aria-label', 'Предыдущий корабль');
-    const next = btn('›', () => this.cycle(1));
-    next.className = 'switch next';
-    next.setAttribute('aria-label', 'Следующий корабль');
-    this.switchBtns = [prev, next];
-    this.card.className = 'card';
-    const actions = div('actions');
+    const sub = div('sub');
+    this.titleSub.textContent = 'Причал 1';
+    this.statusEl.className = 'st';
+    sub.append(this.titleSub, this.statusEl);
+    brand.append(tb, sub);
+    const res = div('res');
+    res.append(this.chip('#e8c450', 'Кредиты', this.resCredits, this.resCreditsPlus), this.chip('#59e6ff', 'Металл', this.resMetal, this.resMetalPlus));
+    const menu = btn('☰', () => this.toggleMenu());
+    menu.className = 'menu-btn glass';
+    menu.setAttribute('aria-label', 'Меню');
+    res.appendChild(menu);
+    top.append(brand, res);
+    this.menuPop.className = 'menu-pop';
+    this.menuPop.hidden = true;
+    const sand = btn('Песочница', () => this.leave(() => this.game.reset(this.game.shipId, 'sandbox')));
+    this.sandBtn = sand;
+    const main = btn('Главное меню', () => this.leave(() => (this.game.screen = 'title')));
+    this.menuPop.append(sand, main);
+
+    // the fleet
+    this.fleet.className = 'fleet';
+    this.fleetBtn = btn('', () => {
+      this.menuPop.hidden = true;
+      this.fleet.classList.toggle('open');
+    });
+    this.fleetBtn.className = 'fleet-btn glass';
+    this.bays.className = 'bays';
+    this.fleet.append(this.fleetBtn, this.bays);
+
+    // the card, the rooms, the way out
+    this.side.className = 'side';
+    this.card.className = 'card glass';
+    this.cargo.className = 'cargo glass';
+    this.cargo.hidden = true;
+    this.side.append(this.cargo, this.card);
+    this.deckEl.className = 'deck';
+    for (const rm of ROOMS) {
+      const b = btn('', () => this.pickRoom(rm.id));
+      b.className = 'room glass';
+      b.innerHTML = `<svg viewBox="0 0 24 24">${rm.icon}</svg><span>${rm.label}</span>${rm.soon ? '<small>скоро</small>' : ''}`;
+      this.roomBtns.set(rm.id, b);
+      this.deckEl.appendChild(b);
+    }
     const go = btn('', () => this.depart());
     go.className = 'go';
-    go.innerHTML = '<span>В поход</span><span>▸</span>';
-    const sand = btn('Песочница', () => this.leave(() => this.game.reset(this.game.shipId, 'sandbox')));
-    sand.className = 'sand';
     this.goBtn = go;
-    this.sandBtn = sand;
-    actions.append(go, sand);
-    for (const label of ['Ремонт', 'Модули', 'Экипаж', 'Магазин']) {
-      const mods = label === 'Модули';
-      const b = btn('', () => {
-        if (mods) this.openModules();
-      });
-      b.className = 'later';
-      b.disabled = !mods;
-      b.innerHTML = mods ? `<span>${label}</span>` : `<span>${label}</span><small>MVP-4</small>`;
-      if (mods) this.modsBtn = b;
-      if (label === 'Магазин') this.shopBtn = b;
-      actions.appendChild(b);
-    }
-    const menu = btn('Главное меню', () => this.leave(() => (this.game.screen = 'title')));
-    menu.className = 'menu';
-    actions.appendChild(menu);
+    this.layerbar.className = 'layerbar';
+    this.ticker.className = 'ticker';
     const bottom = div('bottom');
-    this.cargo.className = 'cargo';
-    this.cargo.hidden = true;
-    bottom.append(this.cargo, this.card, actions);
-    hud.append(title, this.dots, this.status, prev, next, bottom);
+    bottom.append(this.side, go, this.deckEl);
+    hud.append(top, this.menuPop, this.fleet, this.layerbar, this.ticker, bottom);
     r.append(this.cv, this.gv, hud);
     parent.appendChild(r);
+    this.setStatus('docked');
 
     window.addEventListener('keydown', (e) => {
       if (r.hidden) return;
       if (e.key === 'ArrowLeft') this.cycle(-1);
       else if (e.key === 'ArrowRight') this.cycle(1);
+    });
+    r.addEventListener('pointerdown', (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('.menu-pop, .menu-btn')) this.menuPop.hidden = true;
+      if (!t.closest('.fleet')) this.fleet.classList.remove('open');
     });
     let resizeTimer = 0;
     window.addEventListener('resize', () => {
@@ -273,15 +381,26 @@ export class DockScreen {
     });
   }
 
+  private chip(color: string, label: string, val: HTMLElement, plus: HTMLElement): HTMLElement {
+    const c = div('chip-res glass');
+    const i = document.createElement('i');
+    i.style.background = color;
+    const sm = document.createElement('small');
+    sm.textContent = label;
+    plus.className = 'plus';
+    c.append(i, sm, val, plus);
+    return c;
+  }
+
   private modules: ModulesScreen | null = null;
 
-  /** Hooks up the module menu this dock opens from its «Модули» button. */
+  /** Hooks up the module menu this dock opens from its «Модули» room. */
   setModules(m: ModulesScreen): void {
     this.modules = m;
   }
 
   private openModules(): void {
-    if (this.phase !== 'docked' || !this.modules) return;
+    if (this.phase !== 'docked' || !this.modules || this.road) return;
     this.modules.open(this.shipId || this.game.shipId);
   }
 
@@ -306,6 +425,9 @@ export class DockScreen {
     const grid = g.world.player?.grid ?? null;
     if (this.root.hidden) {
       this.root.hidden = false;
+      this.room = 'hangar';
+      this.menuPop.hidden = true;
+      this.fleet.classList.remove('open');
       this.setRoad(g.runPhase === 'roaddock');
       this.load();
       // Coming in from the menu or a finished run: the ship pulls into the berth.
@@ -327,65 +449,69 @@ export class DockScreen {
     this.root.classList.toggle('road', road);
     this.cargo.hidden = !road;
     this.sandBtn.hidden = road;
-    this.shopBtn.hidden = !road;
-    this.dots.hidden = road;
-    for (const b of this.switchBtns) b.hidden = road;
-    this.modsBtn.disabled = road;
-    this.modsBtn.innerHTML = road ? '<span>Модули</span><small>MVP-4</small>' : '<span>Модули</span>';
-    this.goBtn.innerHTML = road ? '<span>Продолжить поход</span><span>▸</span>' : '<span>В поход</span><span>▸</span>';
+    this.roomBtns.get('mods')!.disabled = road;
     const run = g.run;
+    this.goBtn.innerHTML = `<span class="l"><span>${road ? 'Продолжить поход' : 'В поход'}</span><small></small></span><span>▸</span>`;
     if (road && run) {
       const p = run.road.points[run.cleared];
       this.titleSub.textContent = p.kind === 'gate' ? (p.link === 0 ? 'Старт похода' : `Врата · звено ${p.link + 1}`) : `Док на пути · звено ${p.link + 1} · миссия ${p.mission}`;
       const d = run.deposited;
       this.flow = d && d.credits + d.metal > 0 ? { k: this.reduce ? 1 : 0, credits: d.credits, metal: d.metal } : null;
-      this.renderCargo();
     } else {
       this.titleSub.textContent = 'Причал 1';
       this.flow = null;
     }
+    this.updateGoNote();
+    this.renderCargo();
+    this.showRoom();
   }
 
-  /** Resources and hold: what the player has, what the hold still carries, and the hold's emptying into the resources. */
+  private updateGoNote(): void {
+    const small = this.goBtn.querySelector('small');
+    if (!small) return;
+    small.textContent = this.road ? `Корпус ${Math.round(this.game.runHull() * 100)}%` : 'Корабль готов';
+  }
+
+  /** The resources at the top, and (on the road) the hold with the hold's emptying into them. */
   private renderCargo(): void {
-    const run = this.game.run;
-    if (!this.road || !run) return;
-    const w = this.game.wallet;
+    const g = this.game;
+    const w = g.wallet;
     const f = this.flow;
     const e = f ? 1 - Math.pow(1 - Math.min(1, f.k), 3) : 1;
+    const n = (v: number) => Math.round(v).toLocaleString('ru-RU');
+    const run = g.run;
+    const inflow = this.road && f ? 1 - e : 0;
+    this.resCredits.textContent = n(w.credits - (f ? f.credits * inflow : 0));
+    this.resMetal.textContent = n(w.metal - (f ? f.metal * inflow : 0));
+    this.resCreditsPlus.textContent = f && f.credits * inflow >= 1 ? `+${n(f.credits * inflow)}` : '';
+    this.resMetalPlus.textContent = f && f.metal * inflow >= 1 ? `+${n(f.metal * inflow)}` : '';
+    if (!this.road || !run) return;
     const hc = f ? f.credits * (1 - e) : run.cargo.credits;
     const hm = f ? f.metal * (1 - e) : run.cargo.metal;
-    const vc = w.credits - (f ? f.credits * (1 - e) : 0);
-    const vm = w.metal - (f ? f.metal * (1 - e) : 0);
     const cap = shipHoldCap(run.shipId);
-    const n = (v: number) => Math.round(v).toLocaleString('ru-RU');
     const flowing = !!f && f.k < 1;
     const empty = hc < 1 && hm < 1;
     const c = this.cargo;
     c.replaceChildren();
     const head = div('ch');
-    head.append(Object.assign(document.createElement('b'), { textContent: 'Ресурсы' }), Object.assign(document.createElement('span'), { className: !flowing && empty ? 'safe' : '', textContent: flowing ? 'груз сдаётся…' : empty ? 'груз сдан' : 'груз не сдан' }));
+    head.append(Object.assign(document.createElement('b'), { textContent: 'Трюм' }), Object.assign(document.createElement('span'), { className: !flowing && empty ? 'safe' : '', textContent: flowing ? 'груз сдаётся…' : empty ? 'груз сдан' : 'груз не сдан' }));
     const grid = div('grid');
-    const row = (label: string, value: string, vcls: string, delta: string) => {
+    const row = (label: string, value: string, vcls: string) => {
       const sm = document.createElement('small');
       sm.textContent = label;
       const v = document.createElement('strong');
       v.className = vcls;
       v.textContent = value;
-      const d = document.createElement('strong');
-      d.className = 'in';
-      d.textContent = delta;
-      grid.append(sm, v, d);
+      grid.append(sm, v);
     };
-    row('Кредиты', n(vc), 'vault', hc >= 1 ? `+${n(hc)}` : '');
-    row('Металл', n(vm), 'vault', hm >= 1 ? `+${n(hm)}` : '');
-    row('Трюм', `${n(hm)} / ${cap}`, hm < 1 ? 'dim' : 'in', '');
+    row('Кредиты', n(hc), hc < 1 ? 'dim' : '');
+    row('Металл', `${n(hm)} / ${cap}`, hm < 1 ? 'dim' : '');
     const bar = div('bar');
     const fill = document.createElement('i');
     fill.style.width = `${Math.round((hm / cap) * 100)}%`;
     bar.appendChild(fill);
     const note = div('note');
-    note.innerHTML = empty && !flowing ? '<b>Трюм пуст.</b> Всё, что добудете дальше, снова под риском, пока не вернётесь в док.' : flowing ? 'Добыча из трюма добавляется к ресурсам.' : '<b>Груз ещё не сдан:</b> пропадёт, если корабль погибнет.';
+    note.innerHTML = empty && !flowing ? '<b>Трюм пуст.</b> Новая добыча под риском, пока не вернётесь в док.' : flowing ? 'Добыча из трюма добавляется к ресурсам.' : '<b>Не сдан:</b> пропадёт при гибели корабля.';
     c.append(head, grid, bar, note);
   }
 
@@ -400,6 +526,8 @@ export class DockScreen {
     this.layer = 0;
     this.fit();
     this.fillCard(grid);
+    this.buildFleet();
+    this.updateGoNote();
   }
 
   private fit(): void {
@@ -407,13 +535,17 @@ export class DockScreen {
     const vh = Math.max(1, window.innerHeight);
     this.portrait = vh / vw >= 1.4;
     this.root.classList.toggle('portrait', this.portrait);
-    const u = this.portrait ? Math.min(vw, (vh * 9) / 16) / 100 : Math.min(vw, (vh * 16) / 9) / 100;
-    this.root.style.setProperty('--u', `${u}px`);
+    const upx = (this.portrait ? Math.min(vw, (vh * 9) / 16) : Math.min(vw, (vh * 16) / 9)) / 100;
+    this.root.style.setProperty('--u', `${upx}px`);
     const s = this.sprite;
-    const L = dockLayout(s.w, s.h, vw / vh, this.portrait);
+    // landscape: the berth sits between the fleet on the left and the card on the right, with the row of rooms below it
+    const cx = 0.5 - (9.5 * upx) / vw;
+    const L = dockLayout(s.w, s.h, vw / vh, this.portrait, this.portrait ? {} : { cx, bottom: (11.5 * upx) / vh });
+    this.root.style.setProperty('--deckx', `${Math.round(cx * 1000) / 10}%`);
     const wasDocked = this.L && this.shipY === this.L.sy;
     this.L = L;
-    this.B = buildDockBase(L, s.w, s.h);
+    this.life = makeLife(L, s.w, s.h);
+    this.B = buildDockBase(L, s.w, s.h, this.life);
     this.cv.width = this.gv.width = L.W;
     this.cv.height = this.gv.height = L.H;
     this.ctx = this.cv.getContext('2d')!;
@@ -421,7 +553,6 @@ export class DockScreen {
     this.img = this.ctx.createImageData(L.W, L.H);
     this.glow = this.gctx.createImageData(L.W, L.H);
     if (wasDocked || this.phase === 'docked') this.shipY = L.sy;
-    this.root.style.setProperty('--shipcy', String((L.sy + s.h / 2) / L.H));
   }
 
   private fillCard(grid: ShipGrid): void {
@@ -435,72 +566,143 @@ export class DockScreen {
     }
     const spec = SHIPS.find((s) => s.id === this.shipId);
     const decks = grid.depth - 1;
+    const n = (v: number) => v.toLocaleString('ru-RU');
+    this.hangar = {
+      name: spec?.label ?? '',
+      cls: `${CLASS[this.shipId] ?? ''} · палуб ${decks} · ${grid.width}×${grid.height} клеток`,
+      stats: [
+        ['Корпус', n(grid.cells), false],
+        ['Орудий', n(guns), false],
+        ['Щит', n(shield), false],
+        ['Двигателей', n(engines), true],
+        ['Масса', n(Math.round(grid.mass)), true],
+        ['Палуб', n(decks), true],
+      ],
+    };
+    this.fleetBtn.innerHTML = `<span>${spec?.label ?? ''}</span><span>▾</span>`;
+    this.fillLayers(this.layerbar);
+    this.layerbar.querySelectorAll('button').forEach((b) => b.classList.add('glass'));
+    this.showRoom();
+  }
+
+  /** The card for whichever room is open. */
+  private showRoom(): void {
+    for (const [id, b] of this.roomBtns) b.setAttribute('aria-pressed', id === this.room ? 'true' : 'false');
     const c = this.card;
     c.replaceChildren();
-    const name = div('name', spec?.label ?? '');
-    const cls = div('cls', `${CLASS[this.shipId] ?? ''} · палуб ${decks} · ${grid.width}×${grid.height} клеток`);
-    const stats = div('stats');
-    const n = (v: number) => v.toLocaleString('ru-RU');
-    for (const [k, v] of [
-      ['Корпус', n(grid.cells)],
-      ['Орудий', n(guns)],
-      ['Щит', n(shield)],
-      ['Двигателей', n(engines)],
-      ['Масса', n(Math.round(grid.mass))],
-      ['Палуб', n(decks)],
-    ]) {
-      const d = document.createElement('div');
-      const sm = document.createElement('small');
-      sm.textContent = k;
-      const st = document.createElement('strong');
-      st.textContent = v;
-      d.append(sm, st);
-      stats.appendChild(d);
+    const soon = SOON[this.room];
+    if (!soon) {
+      const h = this.hangar;
+      if (!h) return;
+      c.append(div('name', h.name), div('cls', h.cls));
+      const stats = div('stats');
+      for (const [k, v, more] of h.stats) {
+        const d = document.createElement('div');
+        if (more) d.className = 'more';
+        const sm = document.createElement('small');
+        sm.textContent = k;
+        const st = document.createElement('strong');
+        st.textContent = v;
+        d.append(sm, st);
+        stats.appendChild(d);
+      }
+      const state = div('state');
+      state.innerHTML = '<span class="chip ok">в захватах</span><span class="chip fuel">заправка</span>';
+      const layers = div('layers');
+      this.fillLayers(layers);
+      c.append(stats, state, layers);
+    } else {
+      const state = div('state');
+      state.innerHTML = '<span class="chip soon">в разработке</span>';
+      c.append(div('name', soon.title), state, div('note', soon.text));
     }
-    const state = div('state');
-    state.innerHTML = '<span class="chip ok">в захватах</span><span class="chip fuel">заправка</span>';
-    const deckRow = div('decks');
-    deckRow.appendChild(Object.assign(document.createElement('span'), { className: 'lbl', textContent: 'Вид' }));
+  }
+
+  private fillLayers(into: HTMLElement): void {
+    into.replaceChildren();
     this.sprite.views.forEach((_, i) => {
       const b = btn(LAYER_NAMES[i], () => this.setLayer(i));
       b.setAttribute('aria-pressed', i === this.layer ? 'true' : 'false');
-      deckRow.appendChild(b);
+      into.appendChild(b);
     });
-    c.append(name, cls, stats, state, deckRow);
-    this.dots.replaceChildren(
-      ...SHIPS.map((s) => {
-        const i = document.createElement('i');
-        if (s.id === this.shipId) i.className = 'on';
-        return i;
-      }),
-    );
   }
 
   private setLayer(i: number): void {
     this.layer = i;
-    this.card.querySelectorAll('.decks button').forEach((b, j) => b.setAttribute('aria-pressed', j === i ? 'true' : 'false'));
+    this.root.querySelectorAll('.layers, .layerbar').forEach((g) => g.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-pressed', j === i ? 'true' : 'false')));
   }
 
-  // ---------------------------------------------------------------- choreography
-
-  private startPhase(p: Phase): void {
-    this.phase = p;
-    this.k = 0;
-    this.status.textContent = STATUS[p];
-    this.status.classList.toggle('moving', p !== 'docked');
+  private pickRoom(id: Room): void {
+    this.menuPop.hidden = true;
+    if (id === 'mods') {
+      this.openModules();
+      return;
+    }
+    this.room = id;
+    this.showRoom();
   }
 
-  private cycle(dir: number): void {
-    if (this.phase !== 'docked' || this.road) return;
-    const i = SHIPS.findIndex((s) => s.id === this.shipId);
-    const id = SHIPS[(i + dir + SHIPS.length) % SHIPS.length].id;
+  private toggleMenu(): void {
+    this.menuPop.hidden = !this.menuPop.hidden;
+    this.fleet.classList.remove('open');
+  }
+
+  // ---------------------------------------------------------------- the fleet
+
+  private buildFleet(): void {
+    this.bays.replaceChildren();
+    for (const s of SHIPS) {
+      const b = btn('', () => this.pickShip(s.id));
+      b.className = 'bay glass' + (s.id === this.shipId ? ' on' : '');
+      b.disabled = this.road && s.id !== this.shipId;
+      const th = div('th');
+      const sp = s.id === this.shipId ? this.sprite : stockSprite(s.id);
+      const cv = document.createElement('canvas');
+      cv.width = sp.w;
+      cv.height = sp.h;
+      cv.getContext('2d')!.putImageData(new ImageData(Uint8ClampedArray.from(sp.views[0]), sp.w, sp.h), 0, 0);
+      th.appendChild(cv);
+      const tx = div('tx');
+      const name = document.createElement('b');
+      name.textContent = s.label;
+      const st = document.createElement('em');
+      st.textContent = s.id === this.shipId ? 'в захватах' : 'готов';
+      tx.append(name, st);
+      b.append(th, tx);
+      this.bays.appendChild(b);
+    }
+  }
+
+  private pickShip(id: string): void {
+    this.fleet.classList.remove('open');
+    if (this.phase !== 'docked' || this.road || id === this.shipId) return;
     this.after = { kind: 'switch', id };
     if (this.reduce) this.finishLeaving();
     else this.startPhase('release');
   }
 
+  // ---------------------------------------------------------------- choreography
+
+  private setStatus(p: Phase): void {
+    this.statusEl.textContent = p === 'docked' ? '' : ` · ${STATUS[p].toLowerCase()}`;
+    this.statusEl.classList.toggle('moving', p !== 'docked');
+  }
+
+  private startPhase(p: Phase): void {
+    this.phase = p;
+    this.k = 0;
+    this.setStatus(p);
+  }
+
+  private cycle(dir: number): void {
+    if (this.phase !== 'docked' || this.road) return;
+    const i = SHIPS.findIndex((s) => s.id === this.shipId);
+    this.pickShip(SHIPS[(i + dir + SHIPS.length) % SHIPS.length].id);
+  }
+
   private depart(): void {
     if (this.phase !== 'docked') return;
+    this.menuPop.hidden = true;
     this.after = this.road ? { kind: 'continue' } : { kind: 'run' };
     if (this.reduce) this.finishLeaving();
     else this.startPhase('release');
@@ -509,6 +711,7 @@ export class DockScreen {
   /** Leaves the dock for somewhere that isn't a flight (sandbox, menu): straight away. */
   private leave(action: () => void): void {
     if (this.phase !== 'docked') return;
+    this.menuPop.hidden = true;
     action();
   }
 
@@ -578,21 +781,41 @@ export class DockScreen {
     this.last = now;
     this.t += this.reduce ? 0 : dt;
     this.advance(dt);
+    if (!this.reduce && this.life) stepLife(this.life, dt);
+    this.tickLines(now);
     if (this.flow && this.phase === 'docked') {
       this.flow.k = Math.min(1, this.flow.k + dt / 1.4);
       this.renderCargo();
       if (this.flow.k >= 1) {
-        this.status.textContent = 'Груз сдан';
+        this.statusEl.textContent = '';
         this.flow = null;
         this.renderCargo();
       }
-    }
+    } else if (this.phase === 'docked') this.renderResources();
     if (!this.root.hidden) {
-      renderDock(this.L, this.B, this.sprite, { t: this.t, shipY: this.shipY, e: this.e, docked: this.phase === 'docked', layer: this.layer }, this.img, this.glow);
+      renderDock(this.L, this.B, this.sprite, { t: this.t, shipY: this.shipY, e: this.e, docked: this.phase === 'docked', layer: this.layer, life: this.life }, this.img, this.glow);
       this.ctx.putImageData(this.img, 0, 0);
       this.gctx.putImageData(this.glow, 0, 0);
     }
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  /** The wallet in the chips, updated only when it changes. */
+  private renderResources(): void {
+    const w = this.game.wallet;
+    const c = Math.round(w.credits).toLocaleString('ru-RU');
+    const m = Math.round(w.metal).toLocaleString('ru-RU');
+    if (this.resCredits.textContent !== c) this.resCredits.textContent = c;
+    if (this.resMetal.textContent !== m) this.resMetal.textContent = m;
+  }
+
+  /** The dispatcher's line changes every few seconds. */
+  private tickLines(now: number): void {
+    if (this.portrait) return;
+    if (now - this.lineAt < 5500 && this.ticker.firstChild) return;
+    this.lineAt = now;
+    const l = LINES[this.reduce ? 0 : this.lineIx++ % LINES.length];
+    this.ticker.innerHTML = `<b>${l[0]}</b><span>${l[1]}</span>`;
   }
 }
 

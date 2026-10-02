@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildDockBase, dockLayout, makeDockSprite, renderDock } from '../src/dock/dockArt';
+import { makeLife } from '../src/dock/dockLife';
 import { SHIPS, buildBattleship, buildFighter } from '../src/sim/ships';
 
 function frame(W: number, H: number): ImageData {
@@ -58,7 +59,7 @@ describe('dock picture', () => {
     const g = buildFighter();
     const s = makeDockSprite(g);
     const L = dockLayout(s.w, s.h, 16 / 9, false);
-    const B = buildDockBase(L, s.w, s.h);
+    const B = buildDockBase(L, s.w, s.h, makeLife(L, s.w, s.h));
     const img = frame(L.W, L.H);
     renderDock(L, B, s, { t: 1, shipY: L.sy, e: 1, docked: true, layer: 0 }, img, frame(L.W, L.H));
     // A hull cell of the ship shows exactly the game's colour for it.
@@ -75,7 +76,7 @@ describe('dock picture', () => {
   it('shows a deck over a dimmed silhouette of the hull where the deck ends (the drawn battleship)', () => {
     const s = makeDockSprite(buildBattleship());
     const L = dockLayout(s.w, s.h, 16 / 9, false);
-    const B = buildDockBase(L, s.w, s.h);
+    const B = buildDockBase(L, s.w, s.h, makeLife(L, s.w, s.h));
     const deck = frame(L.W, L.H);
     renderDock(L, B, s, { t: 1, shipY: L.sy, e: 1, docked: true, layer: s.views.length - 1 }, deck, frame(L.W, L.H));
     const top = s.views[s.views.length - 1];
@@ -96,7 +97,7 @@ describe('dock picture', () => {
     const g = buildFighter();
     const s = makeDockSprite(g);
     const L = dockLayout(s.w, s.h, 16 / 9, false);
-    const B = buildDockBase(L, s.w, s.h);
+    const B = buildDockBase(L, s.w, s.h, makeLife(L, s.w, s.h));
     const img = frame(L.W, L.H);
     renderDock(L, B, s, { t: 1, shipY: -s.h - 6, e: 0, docked: false, layer: 0 }, img, frame(L.W, L.H));
     let green = 0;

@@ -1,6 +1,7 @@
 import { OUTER_VIEW, paintGrid } from '../render/shipView';
 import type { ShipGrid } from '../sim/grid';
 import { hash2 as hash } from '../sim/rng';
+import { RING, paintLife, paintProps, type DockLife } from './dockLife';
 
 /**
  * The dock's art, ported from the approved design («Док Antimatter»): the player's ship
@@ -25,6 +26,9 @@ const C = {
   wall: hex(0x3b4460),
   deck: hex(0x3e475e),
   floor: hex(0x0d1220),
+  walk: hex(0x4b556f),
+  far0: hex(0x141b32),
+  far1: hex(0x2b3758),
   field: hex(0x59e6ff),
   hazY: hex(0xe8c450),
   hazD: hex(0x141416),
@@ -94,29 +98,38 @@ export interface DockLayout {
   sx: number;
   sy: number;
   door: { x0: number; x1: number };
-  pipeTop: number;
-  pipeBot: number;
-  pipeL: number;
-  pipeR: number;
+}
+
+export interface DockLayoutOpts {
+  /** Landscape: where the berth's centre sits across the picture (0..1), to leave room for the interface either side. */
+  cx?: number;
+  /** Landscape: the share of the picture's height kept clear below the walkway for the row of rooms. */
+  bottom?: number;
 }
 
 /**
  * The hangar around one ship, stretched to the screen's aspect: a sunk berth with room
- * for the clamp arms, station decks around it. Portrait keeps the ship a third of the way
- * down, clear of the panel stacked at the bottom.
+ * for the clamp arms, a walkway round it and the station deck beyond. Portrait keeps the
+ * ship a third of the way down, clear of the panel stacked at the bottom.
  */
-export function dockLayout(shipW: number, shipH: number, aspect: number, portrait: boolean): DockLayout {
+export function dockLayout(shipW: number, shipH: number, aspect: number, portrait: boolean, opts: DockLayoutOpts = {}): DockLayout {
   const m = Math.round(Math.max(10, 0.16 * Math.max(shipW, shipH)));
   const side = m + 8;
   const bayW = shipW + 2 * side;
   const bayH = shipH + 2 * m;
   const t = Math.max(16, Math.round(0.2 * Math.max(bayW, bayH)));
-  let W = bayW + 2 * t;
-  let H = bayH + 2 * t;
+  const tSide = Math.max(t, RING + 8);
+  const f = portrait ? 0 : Math.max(0, Math.min(0.4, opts.bottom ?? 0));
+  const foot = RING + 3;
+  let W = bayW + 2 * tSide;
+  let H = f > 0 ? Math.max(bayH + 2 * t, Math.ceil((bayH + t + foot) / (1 - f))) : bayH + 2 * t;
   if (W / H < aspect) W = Math.ceil(H * aspect);
   else H = Math.ceil(W / aspect);
-  const bx = Math.floor((W - bayW) / 2);
-  const by = portrait ? Math.max(0, Math.min(H - bayH, Math.round(0.34 * H - m - shipH / 2))) : Math.floor((H - bayH) / 2);
+  let bx = Math.floor((W - bayW) / 2);
+  if (!portrait && opts.cx !== undefined) bx = Math.max(RING + 6, Math.min(W - bayW - RING - 6, Math.round(opts.cx * W - bayW / 2)));
+  let by = Math.floor((H - bayH) / 2);
+  if (portrait) by = Math.max(0, Math.min(H - bayH, Math.round(0.34 * H - m - shipH / 2)));
+  else if (f > 0) by = Math.max(t, H - bayH - Math.ceil(f * H) - foot);
   const dw = Math.round(bayW * 0.62);
   const dx0 = bx + Math.floor((bayW - dw) / 2);
   return {
@@ -131,21 +144,7 @@ export function dockLayout(shipW: number, shipH: number, aspect: number, portrai
     sx: bx + side,
     sy: by + m,
     door: { x0: dx0, x1: dx0 + dw },
-    pipeTop: Math.max(4, Math.floor(by / 2)),
-    pipeBot: by + bayH + Math.max(4, Math.floor((H - by - bayH) / 2)),
-    pipeL: Math.max(4, Math.floor(bx / 2)),
-    pipeR: bx + bayW + Math.max(4, Math.floor((W - bx - bayW) / 2)),
   };
-}
-
-function pipeColor(along: number, across: number): RGB | null {
-  const ad = Math.abs(across + 0.5);
-  if (ad > 2.6) return null;
-  if (ad <= 0.6) return C.channel;
-  let c = mul(C.armor, 0.8 + 0.3 * (1 - (across + 2.6) / 5.2));
-  if (ad > 1.9) c = C.dark;
-  if ((((along % 16) + 16) % 16) < 2) c = mul(C.hull, 1.05);
-  return c;
 }
 
 // ------------------------------------------------------------------ the static hangar
@@ -158,8 +157,8 @@ export interface DockBase {
   beacons: Array<[number, number]>;
 }
 
-/** Decks, the berth floor with its markings, the rim, the door opening and the strip of space. */
-export function buildDockBase(L: DockLayout, shipW: number, shipH: number): DockBase {
+/** The deck and its walkway, the berth floor with its markings, the rim, the door opening, the strip of space, the props. */
+export function buildDockBase(L: DockLayout, shipW: number, shipH: number, life: DockLife): DockBase {
   const W = L.W;
   const H = L.H;
   const base = new Float32Array(W * H * 3);
@@ -234,32 +233,61 @@ export function buildDockBase(L: DockLayout, shipW: number, shipH: number): Dock
         put(i, c, null);
         continue;
       }
-      // station decks: plates, rivets, vents, lit skylights, status lights, service pipes
-      const px0 = Math.floor(x / 10);
-      const py0 = Math.floor(y / 10);
-      const hsh = hash(px0, py0, 31);
-      let c = mul(C.deck, 0.82 + 0.3 * hash(px0, py0, 32));
-      let g: RGB | null = null;
-      if (x % 10 === 0 || y % 10 === 0) c = mul(C.deck, 0.62);
-      if ((x % 10 === 2 || x % 10 === 8) && (y % 10 === 2 || y % 10 === 8) && hash(px0, py0, 33) < 0.5) c = mul(C.hull, 1.1);
-      if (hsh < 0.07 && x % 10 > 1 && x % 10 < 9 && y % 10 > 1 && y % 10 < 9) c = y % 2 === 0 ? mul(C.dark, 0.7) : mul(C.deck, 0.5);
-      else if (hsh < 0.12 && x % 10 > 2 && x % 10 < 8 && y % 10 > 3 && y % 10 < 7) {
-        c = mul(C.warm, 0.7 + 0.3 * hash(x, y, 34));
-        g = mul(C.warm, 0.55);
-      } else if (hsh > 0.97 && x % 10 === 5 && y % 10 === 5) {
-        c = hash(px0, py0, 35) < 0.5 ? C.field : C.amber;
-        g = c;
+      // the walkway: plates one and a half wide round the berth, an edge line either side
+      const dx = x < bx0 ? bx0 - x : x >= bx1 ? x - bx1 + 1 : 0;
+      const dy = y < by0 ? by0 - y : y >= by1 ? y - by1 + 1 : 0;
+      const dist = Math.max(dx, dy);
+      if (dist <= 3 + RING) {
+        const tx = Math.floor(x / 8);
+        const ty = Math.floor(y / 8);
+        let c = mul(C.walk, 0.94 + 0.12 * hash(tx, ty, 32));
+        if (x % 8 === 0 || y % 8 === 0) c = mul(C.walk, 0.8);
+        if (dist === 4) c = mul(C.walk, 1.12);
+        if (dist === 3 + RING) c = mul(C.walk, 0.55);
+        else if (dist === 2 + RING) c = mul(C.walk, 1.14);
+        put(i, c, null);
+        continue;
       }
-      let pc: RGB | null = null;
-      if (y < by0 - 4 || y > by1 + 3) pc = pipeColor(x, y + 0.5 - (y < by0 ? L.pipeTop : L.pipeBot));
-      if (!pc && (x < bx0 - 4 || x > bx1 + 3)) pc = pipeColor(y, x + 0.5 - (x < bx0 ? L.pipeL : L.pipeR));
-      if (pc) {
-        c = pc;
-        g = null;
+      // the deck beyond: smooth, lit from the berth, with faint panel seams and a touch of the berth's cyan
+      const nx = (x - W * 0.5) / W;
+      const ny = (y - H * 0.5) / H;
+      const rr = Math.min(1, Math.hypot(nx * 1.1, ny * 1.3));
+      let c = mix(C.far1, C.far0, Math.min(1, rr * rr * 1.25));
+      const near = dist - 3 - RING;
+      if (near < 18) c = mix(c, C.field, 0.07 * (1 - near / 18));
+      c = mul(c, 0.985 + 0.03 * bayer(x, y));
+      // big deck plates: a dark seam, a lit edge, rivets in the corners, now and then a grating or a status light
+      const fx = x % 40;
+      const fy = y % 40;
+      const hp = hash(Math.floor(x / 40), Math.floor(y / 40), 41);
+      c = mul(c, 0.95 + 0.1 * hp);
+      if (fx === 0 || fy === 0) c = mul(c, 0.8);
+      else if (fx === 1 || fy === 1) c = mul(c, 1.16);
+      if ((fx === 4 || fx === 35) && (fy === 4 || fy === 35)) c = mul(c, 1.45);
+      let fg: RGB | null = null;
+      if (hp < 0.2 && fx >= 10 && fx <= 29 && fy >= 16 && fy <= 25) c = mul(c, fy % 2 === 0 ? 0.55 : 0.82);
+      else if (hp > 0.86 && fx >= 35 && fx <= 36 && fy >= 35 && fy <= 36) {
+        c = hp > 0.93 ? C.field : C.amber;
+        fg = mul(c, 0.8);
       }
-      put(i, c, g);
+      // a dashed safety line round the hangar's zone
+      if ((near === 3 || near === 4) && (x + y) % 8 < 5) c = mix(c, C.hazY, 0.5);
+      put(i, c, fg);
     }
   }
+  paintProps(
+    life,
+    (px, py, c) => {
+      if (px >= 0 && py >= 0 && px < W && py < H) put(py * W + px, c, null);
+    },
+    (px, py, k) => {
+      if (px < 0 || py < 0 || px >= W || py >= H) return;
+      const i = py * W + px;
+      base[i * 3] *= k;
+      base[i * 3 + 1] *= k;
+      base[i * 3 + 2] *= k;
+    },
+  );
   const beacons: Array<[number, number]> = [
     [bx0 - 2, by0 - 2],
     [bx1 + 1, by0 - 2],
@@ -282,6 +310,8 @@ export interface DockFrame {
   docked: boolean;
   /** Which picture of the ship: 0 outside, 1 hull, 2.. decks. */
   layer: number;
+  /** The crew and props on the walkway, moving. */
+  life?: DockLife;
 }
 
 /** Draws one frame: crisp pixels into `img`, what glows into `glow`. */
@@ -346,6 +376,17 @@ export function renderDock(L: DockLayout, B: DockBase, s: DockSprite, f: DockFra
   }
   if (Math.sin(t * 3.2) > 0.6) for (const [px, py] of B.beacons) for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) set(px + a, py + b, C.red, C.red);
 
+  // the fuel conduit from the tank across the walkway lies on the floor: the crew walk over it
+  {
+    const big0 = s.h > 120;
+    const yf0 = L.sy + Math.round(s.h * (big0 ? 0.36 : 0.5));
+    for (let x = L.bx - 3 - RING + 6; x < L.bx - 3; x++) {
+      set(x, yf0, C.cable);
+      set(x, yf0 + 1, mul(C.cable, 0.7));
+    }
+  }
+  if (f.life) paintLife(f.life, t, set, darken);
+
   const sx = L.sx;
   const sy = Math.round(f.shipY);
   const px = s.views[0];
@@ -362,6 +403,7 @@ export function renderDock(L: DockLayout, B: DockBase, s: DockSprite, f: DockFra
     }
     return { r, x: side < 0 ? 0 : s.w - 1 };
   };
+  const big = s.h > 120;
   const arm = (row: number, side: number) => {
     const hit = edgeRow(row, side);
     const yc = sy + hit.r;
@@ -392,6 +434,17 @@ export function renderDock(L: DockLayout, B: DockBase, s: DockSprite, f: DockFra
     const wall = L.bx + L.bayW + 2;
     const end = wall + (sx + hit.x + 1 - wall) * e;
     const len = wall - end;
+    // the gangway's sleeve across the walkway, always there; the crew pass under it
+    const yg = L.sy + Math.round(s.h * (big ? 0.36 : 0.5));
+    for (let x = wall + 1; x < L.bx + L.bayW + 3 + RING; x++) {
+      set(x, yg - 3, mul(C.hull, 1.1));
+      set(x, yg + 3, C.dark);
+      for (let r = -2; r <= 2; r++) set(x, yg + r, mul(C.wall, 0.8));
+      if (x % 3 === 1) {
+        set(x, yg - 2, mul(C.warm, 0.8), mul(C.warm, 0.5));
+        set(x, yg + 2, mul(C.warm, 0.8), mul(C.warm, 0.5));
+      }
+    }
     for (let k = 0; k <= len; k++) {
       const x = wall - k;
       set(x, yc - 3, mul(C.hull, 1.15));
@@ -414,6 +467,18 @@ export function renderDock(L: DockLayout, B: DockBase, s: DockSprite, f: DockFra
     for (let a = -2; a <= 2; a++) for (let b = 0; b < 3; b++) set(wall + b, yc + a, a === 0 && b === 1 ? C.anti : mul(C.dark, 1.1), a === 0 && b === 1 ? C.anti : null);
     const end = wall + 3 + (sx + hit.x - 1 - wall - 3) * e;
     const len = end - (wall + 3);
+    const yf = L.sy + Math.round(s.h * (big ? 0.36 : 0.5));
+    const tankX = L.bx - 3 - RING + 6;
+    if (e >= 1) {
+      const total = wall - tankX + len;
+      for (let q = 0; q < Math.max(3, Math.floor(total / 9)); q++) {
+        const p = (t * 22 + q * 9) % Math.max(1, total);
+        if (p < wall - tankX) {
+          set(tankX + p, yf, C.anti, C.anti);
+          set(tankX + p - 1, yf, C.antiDim, mul(C.anti, 0.5));
+        }
+      }
+    }
     for (let k = 0; k <= len; k++) {
       set(wall + 3 + k, yc, C.cable);
       set(wall + 3 + k, yc + 1, mul(C.cable, 0.7));
@@ -426,7 +491,6 @@ export function renderDock(L: DockLayout, B: DockBase, s: DockSprite, f: DockFra
       }
     }
   };
-  const big = s.h > 120;
   for (const r of big ? [0.2, 0.64, 0.8] : [0.22, 0.78]) {
     arm(Math.round(s.h * r), -1);
     arm(Math.round(s.h * r), 1);
