@@ -208,26 +208,26 @@ const CSS = U(`
 #dock.portrait .go { position: static; width: auto; font-size: U(2.6); padding: U(2.1) U(2); letter-spacing: .16em; }
 #dock.portrait .go small { display: none; }
 #dock.portrait .deck { position: static; transform: none; gap: U(.8); }
-#dock.portrait .room { flex: 1 1 0; min-width: 0; aspect-ratio: 1; padding: U(.5); font-size: U(1.5); letter-spacing: .04em; gap: U(1); align-items: center; }
-#dock.portrait .room svg { width: U(4.6); height: U(4.6); }
+#dock.portrait .room { flex: 1 1 0; min-width: 0; aspect-ratio: 1; padding: U(.5); font-size: U(2.1); letter-spacing: .02em; gap: U(1.2); align-items: center; }
+#dock.portrait .room svg { width: U(6.4); height: U(6.4); }
 #dock.portrait .room small { display: none; }
 #dock.portrait .card { padding: U(1.6) U(2); gap: U(1); border-left-width: U(.6); }
-#dock.portrait .card .name { font-size: U(3.6); }
+#dock.portrait .card .name { font-size: U(4.2); }
 #dock.portrait .card .layers { display: none; }
-#dock.portrait .card .cls { font-size: U(2); letter-spacing: .08em; margin-top: U(-.4); }
-#dock.portrait .chip { font-size: U(1.8); padding: U(.4) U(1); }
+#dock.portrait .card .cls { font-size: U(2.4); letter-spacing: .06em; margin-top: U(-.4); }
+#dock.portrait .chip { font-size: U(2.2); padding: U(.5) U(1.2); }
 #dock.portrait .card .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: U(.4) U(1.2); }
-#dock.portrait .card .stats small { font-size: U(1.7); letter-spacing: .08em; }
-#dock.portrait .card .stats strong { font-size: U(3); }
+#dock.portrait .card .stats small { font-size: U(2.1); letter-spacing: .06em; }
+#dock.portrait .card .stats strong { font-size: U(3.6); }
 #dock.portrait .card .note { font-size: U(1.7); }
 #dock.portrait .layerbar { display: flex; flex-direction: column; gap: U(.9); position: absolute; right: U(2); top: calc(U(11.6) + env(safe-area-inset-top, 0px)); }
 #dock.portrait .layerbar button { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(2.4); letter-spacing: .06em; padding: U(1.6) U(1.8); justify-content: center; min-width: U(15); }
 #dock.portrait .layerbar button[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(20,48,74,.85); }
 #dock.portrait .cargo { padding: U(1.1) U(1.6); gap: U(.6); border-left-width: U(.6); }
-#dock.portrait .cargo .ch b { font-size: U(2.6); }
-#dock.portrait .cargo .ch span { font-size: U(1.9); }
-#dock.portrait .cargo .grid small { font-size: U(1.7); }
-#dock.portrait .cargo .grid strong { font-size: U(2.8); }
+#dock.portrait .cargo .ch b { font-size: U(3.2); }
+#dock.portrait .cargo .ch span { font-size: U(2.3); }
+#dock.portrait .cargo .grid small { font-size: U(2.1); }
+#dock.portrait .cargo .grid strong { font-size: U(3.4); }
 #dock.portrait .cargo .bar { height: U(1.1); }
 #dock.portrait .cargo .note { display: none; }
 #dock.portrait .ticker { position: static; width: auto; font-size: U(2.7); line-height: 1.4; padding: U(1.2) U(1.8); border-left-width: U(.6); }
