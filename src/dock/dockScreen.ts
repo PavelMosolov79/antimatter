@@ -188,15 +188,15 @@ const CSS = U(`
 #dock.portrait .brand b { font-size: U(3.4); letter-spacing: .24em; }
 #dock.portrait .brand .sub { font-size: U(1.5); letter-spacing: .12em; }
 #dock.portrait .res { gap: U(.6); }
-#dock.portrait .chip-res { font-size: U(1.9); padding: U(.7) U(1.1); gap: U(.7); }
+#dock.portrait .chip-res { font-size: U(2.5); padding: U(1) U(1.5); gap: U(1); }
 #dock.portrait .chip-res small { display: none; }
-#dock.portrait .chip-res i { width: U(1.5); height: U(1.5); }
-#dock.portrait .menu-btn { width: U(5.2); font-size: U(2.6); }
-#dock.portrait .menu-pop { right: U(2); top: calc(U(10.6) + env(safe-area-inset-top, 0px)); width: U(38); }
+#dock.portrait .chip-res i { width: U(2); height: U(2); }
+#dock.portrait .menu-btn { width: U(7.4); font-size: U(3.6); }
+#dock.portrait .menu-pop { right: U(2); top: calc(U(11.6) + env(safe-area-inset-top, 0px)); width: U(40); }
 #dock.portrait .menu-pop button { font-size: U(2.1); padding: U(1.8) U(2); }
-#dock.portrait .fleet { left: U(2); top: calc(U(10.6) + env(safe-area-inset-top, 0px)); }
-#dock.portrait .fleet-btn { display: flex; font-size: U(1.8); padding: U(.9) U(1.4); gap: U(1.2); pointer-events: auto; }
-#dock.portrait .bays { display: none; position: absolute; left: 0; top: U(5.4); width: U(52); pointer-events: auto; z-index: 3; }
+#dock.portrait .fleet { left: U(2); top: calc(U(11.6) + env(safe-area-inset-top, 0px)); }
+#dock.portrait .fleet-btn { display: flex; font-size: U(2.5); padding: U(1.5) U(2.2); gap: U(1.8); pointer-events: auto; }
+#dock.portrait .bays { display: none; position: absolute; left: 0; top: U(7.6); width: U(52); pointer-events: auto; z-index: 3; }
 #dock.portrait .fleet.open .bays { display: flex; }
 #dock.portrait .bay { width: auto; flex-direction: row; align-items: center; justify-content: flex-start; gap: U(1.6); padding: U(1); background: #0a0e1c; }
 #dock.portrait .bay .tx { flex: 1; }
@@ -204,32 +204,35 @@ const CSS = U(`
 #dock.portrait .bay b { font-size: U(2); }
 #dock.portrait .bay em { font-size: U(1.6); }
 #dock.portrait .bottom { display: flex; flex-direction: column; gap: U(1); position: absolute; left: U(2); right: U(2); bottom: calc(U(2) + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
-#dock.portrait .side { position: static; width: auto; max-height: U(34); }
-#dock.portrait .go { position: static; width: auto; font-size: U(2.2); padding: U(1.1) U(1.8); letter-spacing: .16em; }
+#dock.portrait .side { position: static; width: auto; max-height: U(62); }
+#dock.portrait .go { position: static; width: auto; font-size: U(2.6); padding: U(2.1) U(2); letter-spacing: .16em; }
 #dock.portrait .go small { display: none; }
-#dock.portrait .deck { position: static; transform: none; gap: U(.6); }
-#dock.portrait .room { flex: 1 1 0; min-width: 0; padding: U(.9) U(.3); font-size: U(1.3); letter-spacing: .06em; gap: U(.5); }
-#dock.portrait .room svg { width: U(3.2); height: U(3.2); }
+#dock.portrait .deck { position: static; transform: none; gap: U(.8); }
+#dock.portrait .room { flex: 1 1 0; min-width: 0; aspect-ratio: 1; padding: U(.5); font-size: U(1.5); letter-spacing: .04em; gap: U(1); align-items: center; }
+#dock.portrait .room svg { width: U(4.6); height: U(4.6); }
 #dock.portrait .room small { display: none; }
-#dock.portrait .card { padding: U(1.3) U(1.8); gap: U(.8); border-left-width: U(.6); }
-#dock.portrait .card .name { font-size: U(3); }
-#dock.portrait .card .cls, #dock.portrait .card .state, #dock.portrait .card .layers { display: none; }
+#dock.portrait .card { padding: U(1.6) U(2); gap: U(1); border-left-width: U(.6); }
+#dock.portrait .card .name { font-size: U(3.6); }
+#dock.portrait .card .layers { display: none; }
+#dock.portrait .card .cls { font-size: U(2); letter-spacing: .08em; margin-top: U(-.4); }
+#dock.portrait .chip { font-size: U(1.8); padding: U(.4) U(1); }
 #dock.portrait .card .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: U(.4) U(1.2); }
-#dock.portrait .card .stats small { font-size: U(1.35); }
-#dock.portrait .card .stats strong { font-size: U(2.4); }
-#dock.portrait .card .stats .more { display: none; }
+#dock.portrait .card .stats small { font-size: U(1.7); letter-spacing: .08em; }
+#dock.portrait .card .stats strong { font-size: U(3); }
 #dock.portrait .card .note { font-size: U(1.7); }
-#dock.portrait .layerbar { display: flex; flex-direction: column; gap: U(.6); position: absolute; right: U(2); top: calc(U(10.6) + env(safe-area-inset-top, 0px)); }
-#dock.portrait .layerbar button { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(1.5); letter-spacing: .06em; padding: U(.9) U(1.2); justify-content: center; min-width: U(10); }
+#dock.portrait .layerbar { display: flex; flex-direction: column; gap: U(.9); position: absolute; right: U(2); top: calc(U(11.6) + env(safe-area-inset-top, 0px)); }
+#dock.portrait .layerbar button { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-size: U(2.4); letter-spacing: .06em; padding: U(1.6) U(1.8); justify-content: center; min-width: U(15); }
 #dock.portrait .layerbar button[aria-pressed="true"] { color: #59e6ff; border-color: #59e6ff; background: rgba(20,48,74,.85); }
 #dock.portrait .cargo { padding: U(1.1) U(1.6); gap: U(.6); border-left-width: U(.6); }
-#dock.portrait .cargo .ch b { font-size: U(2.1); }
-#dock.portrait .cargo .ch span { font-size: U(1.5); }
-#dock.portrait .cargo .grid small { font-size: U(1.35); }
-#dock.portrait .cargo .grid strong { font-size: U(2); }
+#dock.portrait .cargo .ch b { font-size: U(2.6); }
+#dock.portrait .cargo .ch span { font-size: U(1.9); }
+#dock.portrait .cargo .grid small { font-size: U(1.7); }
+#dock.portrait .cargo .grid strong { font-size: U(2.8); }
 #dock.portrait .cargo .bar { height: U(1.1); }
 #dock.portrait .cargo .note { display: none; }
-#dock.portrait .ticker { display: none; }
+#dock.portrait .ticker { position: static; width: auto; font-size: U(2.7); line-height: 1.4; padding: U(1.2) U(1.8); border-left-width: U(.6); }
+#dock.portrait .ticker b { display: inline; font-size: U(2.1); margin: 0 U(1.2) 0 0; }
+#dock.portrait .ticker span { display: inline; }
 `);
 
 // ------------------------------------------------------------------ the screen
@@ -356,8 +359,8 @@ export class DockScreen {
     this.layerbar.className = 'layerbar';
     this.ticker.className = 'ticker';
     const bottom = div('bottom');
-    bottom.append(this.side, go, this.deckEl);
-    hud.append(top, this.menuPop, this.fleet, this.layerbar, this.ticker, bottom);
+    bottom.append(this.ticker, this.side, go, this.deckEl);
+    hud.append(top, this.menuPop, this.fleet, this.layerbar, bottom);
     r.append(this.cv, this.gv, hud);
     parent.appendChild(r);
     this.setStatus('docked');
@@ -811,7 +814,6 @@ export class DockScreen {
 
   /** The dispatcher's line changes every few seconds. */
   private tickLines(now: number): void {
-    if (this.portrait) return;
     if (now - this.lineAt < 5500 && this.ticker.firstChild) return;
     this.lineAt = now;
     const l = LINES[this.reduce ? 0 : this.lineIx++ % LINES.length];
