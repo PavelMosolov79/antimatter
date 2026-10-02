@@ -113,12 +113,19 @@ const CSS = `
 #road .rd-btn.small { padding: 7px 9px; font-size: 9px; }
 #road .rd-toast { position: absolute; left: 50%; bottom: 168px; transform: translate(-50%, 10px); max-width: calc(100% - 28px); background: rgba(10,14,30,.96); border: 1px solid #59e6ff; color: #e4e8fb; font-size: 12px; padding: 9px 14px; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; z-index: 8; text-align: center; }
 #road .rd-toast.on { opacity: 1; transform: translate(-50%, 0); }
-#road.phone .rd-card { grid-template-columns: auto minmax(0, 1fr); }
-#road.phone .rd-acts { grid-column: 1 / -1; flex-direction: row; }
-#road.phone .rd-acts .rd-btn { flex: 1; }
-#road.phone .rd-pic { width: 52px; height: 52px; }
+#road.phone .rd-sheet { padding: 22px 8px calc(8px + env(safe-area-inset-bottom, 0px)); }
+#road.phone .rd-card { grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; padding: 8px 10px; }
+#road.phone .rd-acts { grid-column: 1 / -1; flex-direction: row; gap: 5px; }
+#road.phone .rd-acts .rd-btn { flex: 1 1 0; min-width: 0; padding: 10px 4px; font-size: 9px; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#road.phone .rd-acts .rd-btn.go { flex: 1.5 1 0; }
+#road.phone .rd-pic { width: 38px; height: 38px; grid-row: auto; }
+#road.phone .rd-meta { font-size: 9px; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#road.phone .rd-ttl { font-size: 12px; letter-spacing: .06em; }
+#road.phone .rd-desc { font-size: 11px; }
+#road.phone .rd-chips { gap: 4px; margin-top: 4px; }
+#road.phone .rd-chip { font-size: 9px; letter-spacing: .05em; padding: 2px 5px; }
 #road.phone .rd-stats .rd-shipname { display: none; }
-#road.phone .rd-toast { bottom: 210px; }
+#road.phone .rd-toast { bottom: 160px; }
 #road .rd-stats span.safe { border-color: rgba(99,224,122,.4); }
 #road .rd-stats span.safe b { color: #63e07a; }
 #road .rd-stats span.risk { color: #ffd24a; border-color: rgba(255,210,74,.6); }
@@ -310,7 +317,7 @@ export class RoadScreen {
     const h = this.root.clientHeight || window.innerHeight;
     const phone = w < 560;
     const col = Math.min(w, 900);
-    return { w, h, phone, step: phone ? 206 : 250, ico: phone ? 124 : 156, padB: 190, padT: 300, col, off: (w - col) / 2 };
+    return { w, h, phone, step: phone ? 206 : 250, ico: phone ? 124 : 156, padB: phone ? 140 : 190, padT: 300, col, off: (w - col) / 2 };
   }
 
   private xOf(p: RoadPoint, M: Metrics): number {
@@ -593,10 +600,11 @@ export class RoadScreen {
     }
     info.append(meta, div('rd-ttl', text.title), div('rd-desc', text.sub), chips);
     const acts = div('rd-acts', '');
-    const go = button(st === 'current' ? (p.kind === 'dock' ? 'Зайти в док ▸' : p.kind === 'gate' ? 'Через врата ▸' : 'Начать миссию ▸') : st === 'done' ? 'Пройдена' : 'Откроется позже', () => this.fly(), 'go');
+    const phone = this.root.classList.contains('phone');
+    const go = button(st === 'current' ? (p.kind === 'dock' ? 'Зайти в док ▸' : p.kind === 'gate' ? 'Через врата ▸' : phone ? 'Начать ▸' : 'Начать миссию ▸') : st === 'done' ? 'Пройдена' : 'Откроется позже', () => this.fly(), 'go');
     go.disabled = st !== 'current' || this.busy;
-    const loc = button('⌖ К текущей', () => this.select(run.cleared + 1, true));
-    const back = button('↩ В последний док', () => this.askRetreat());
+    const loc = button(phone ? '⌖ Текущая' : '⌖ К текущей', () => this.select(run.cleared + 1, true));
+    const back = button(phone ? '↩ В док' : '↩ В последний док', () => this.askRetreat());
     back.disabled = this.busy || g.pointsToDock() === 0;
     acts.append(go, loc, back);
     card.append(pic, info, acts);

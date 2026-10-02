@@ -355,10 +355,12 @@ export class TitleScreen {
 
   /** The tap: the core glides to its menu spot while the logo and the list move in. */
   private openMenu(): void {
+    // "Continue" is display:none until its run is known; show it first and flush the style so it slides in like the rest instead of just appearing.
+    this.refreshItems();
+    void this.root.offsetWidth;
     this.root.dataset.phase = 'menu';
     this.scene.leftDown = this.layout.mode === 'landscape';
     this.anim = { t: 0, dur: this.reduce ? 0.01 : 0.9, from: { x: this.scene.cx, y: this.scene.cy } };
-    this.refreshItems();
   }
 
   /** Back from the game: straight to the menu, the core already full and in place. */
