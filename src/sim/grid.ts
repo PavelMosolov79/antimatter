@@ -51,6 +51,9 @@ export interface Module {
   blast: number;
   shieldMax: number;
   regen: number;
+  /** For a module from the player's pool: which one, and its upgrade level (levels.ts). */
+  pool?: string;
+  lv?: number;
 }
 
 export interface MassProps {
@@ -75,6 +78,8 @@ export interface ModuleOptions {
   blast?: number;
   shieldMax?: number;
   regen?: number;
+  pool?: string;
+  lv?: number;
 }
 
 function isStructural(m: number): boolean {
@@ -342,6 +347,8 @@ export class ShipGrid {
       blast: opts.blast ?? 0,
       shieldMax: opts.shieldMax ?? 0,
       regen: opts.regen ?? 0,
+      pool: opts.pool,
+      lv: opts.lv,
     };
     this.modules.push(module);
     const id = this.modules.length;

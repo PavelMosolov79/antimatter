@@ -13,13 +13,17 @@ import {
   putLadder,
   putModule,
   removeLadder,
-  removeModule,
+  removeModuleToStock,
+  takeFromStock,
   tileCapacity,
   type DeckGeo,
   type ModuleId,
+  type PoolModuleId,
   type ShipLayout,
 } from '../sim/layout';
 import { saveLayout } from '../sim/layoutStore';
+import type { Game } from '../game';
+import { LEVELS, LV_MAX, effectText, levelOf, upgradeCost } from '../sim/levels';
 import { SHIPS, shipDeckGeo } from '../sim/ships';
 
 /**
@@ -78,7 +82,27 @@ const CSS = U(`
 #mods .chip { font-size: U(.9); letter-spacing: .12em; text-transform: uppercase; padding: U(.3) U(.7); border: 1px solid; align-self: flex-start; }
 #mods .chip.ok { color: #63e07a; border-color: rgba(99,224,122,.45); }
 #mods .chip.warn { color: #ff4fd8; border-color: rgba(255,79,216,.5); }
-#mods .tools { left: U(3.2); top: calc(U(11.2) + env(safe-area-inset-top, 0px)); width: U(23); display: flex; flex-direction: column; gap: U(.6); }
+#mods .card.sel { gap: U(.7); }
+#mods .kind { font-size: U(.95); letter-spacing: .16em; text-transform: uppercase; color: #8a93b8; }
+#mods .lvl { display: flex; align-items: center; gap: U(.8); }
+#mods .pips { display: flex; gap: U(.3); }
+#mods .pips i { width: U(1.6); height: U(.8); background: #2a3452; }
+#mods .pips i.on { background: #e8c450; box-shadow: 0 0 U(.6) rgba(232,196,80,.6); }
+#mods .lvl b { font-size: U(1.05); letter-spacing: .14em; color: #e8c450; font-weight: 700; }
+#mods .eff { font-size: U(1); line-height: 1.35; color: #c9d2ef; text-shadow: none; }
+#mods .eff small { display: block; font-size: U(.8); letter-spacing: .16em; text-transform: uppercase; color: #6c77a0; }
+#mods .eff.nxt { color: #aaffd0; }
+#mods .eff.later { color: #8a93b8; }
+#mods .cost { display: flex; gap: U(.6); flex-wrap: wrap; }
+#mods .cost span { font-size: U(1); padding: U(.3) U(.7); border: 1px solid rgba(99,224,122,.45); color: #63e07a; text-shadow: none; }
+#mods .cost span.bad { color: #ff6a5a; border-color: rgba(255,106,90,.55); }
+#mods .card button { font-size: U(1.05); padding: U(.7) U(1); }
+#mods .card button:disabled { opacity: .45; cursor: default; }
+#mods .res { font-size: U(.9); color: #8a93b8; text-shadow: none; }
+#mods .res b { color: #63e07a; font-weight: 500; }
+#mods .pc .lvb { color: #e8c450; font-size: U(.8); letter-spacing: .1em; }
+#mods .stockhead { margin-top: U(.4); }
+#mods .tools { left: U(3.2); top: calc(U(11.2) + env(safe-area-inset-top, 0px)); width: U(25); display: grid; grid-template-columns: 1fr 1fr; gap: U(.6); }
 #mods .tools button { justify-content: flex-start; }
 #mods .actions { right: U(3.2); bottom: calc(U(3) + env(safe-area-inset-bottom, 0px)); width: U(29.6); display: flex; flex-direction: column; gap: U(.8); }
 .mfloat { position: fixed; z-index: 70; pointer-events: none; transform: translate(-50%, -50%); filter: drop-shadow(0 4px 10px rgba(0,0,0,.6)); }
@@ -107,7 +131,7 @@ const CSS = U(`
 #mods.portrait .pc canvas { width: U(10); }
 #mods.portrait .pc.lad canvas { width: U(5); margin: U(2.5) 0; }
 #mods.portrait .note { display: none; }
-#mods.portrait .tools { width: auto; flex-direction: row; flex-wrap: wrap; gap: U(1.2); }
+#mods.portrait .tools { width: auto; display: flex; flex-direction: row; flex-wrap: wrap; gap: U(1.2); }
 #mods.portrait .tools button { justify-content: center; flex: 1 1 auto; font-size: U(2.2); padding: U(1.5) U(1.4); }
 #mods.portrait .card { width: auto; padding: U(2.2) U(2.6); gap: U(1.2); border-left-width: U(.8); flex-direction: row; flex-wrap: wrap; align-items: center; }
 #mods.portrait .name { font-size: U(3.4); }
@@ -115,6 +139,16 @@ const CSS = U(`
 #mods.portrait .stats small { font-size: U(1.8); }
 #mods.portrait .stats strong { font-size: U(3.2); }
 #mods.portrait .chip { font-size: U(1.9); padding: U(.6) U(1.3); }
+#mods.portrait .card.sel { flex-direction: column; align-items: stretch; }
+#mods.portrait .pips i { width: U(3.4); height: U(1.6); }
+#mods.portrait .lvl b { font-size: U(2.3); }
+#mods.portrait .kind { font-size: U(1.9); }
+#mods.portrait .eff { font-size: U(2.2); }
+#mods.portrait .eff small { font-size: U(1.7); }
+#mods.portrait .cost span { font-size: U(2.1); padding: U(.6) U(1.4); }
+#mods.portrait .card button { font-size: U(2.4); padding: U(1.4) U(2); }
+#mods.portrait .res { font-size: U(2); }
+#mods.portrait .pc .lvb { font-size: U(1.7); }
 #mods.portrait .actions { width: auto; flex-direction: row; gap: U(1.6); }
 #mods.portrait .actions button { flex: 1 1 0; }
 #mods.portrait .actions button.go { flex: 1.6 1 0; font-size: U(2.9); }
@@ -136,6 +170,12 @@ interface Drag {
   i: number;
   j: number;
   tab: number | null;
+  /** Upgrade level the module carries (a stocked one), and the stock card it came from. */
+  lv: number;
+  stockId: number | null;
+  moved: boolean;
+  sx: number;
+  sy: number;
 }
 
 export class ModulesScreen {
@@ -176,11 +216,17 @@ export class ModulesScreen {
   private gestureLock = false;
   private panning: { x: number; y: number; tx: number; ty: number } | null = null;
   /** A touch on a pool card waits to see whether it scrolls the pool or pulls a module out of it. */
-  private pending: { id: number; x: number; y: number; spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean } } | null = null;
+  private pending: { id: number; x: number; y: number; spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean; lv?: number; stockId?: number | null } } | null = null;
+
+  /** The module whose card is open. */
+  private sel: number | null = null;
+  private stock = document.createElement('div');
+  private stockHead = div('head stockhead', 'В запасе');
 
   constructor(
     private onDone: (shipId: string) => void,
     parent: HTMLElement,
+    private game: Game,
   ) {
     const style = document.createElement('style');
     style.textContent = CSS;
@@ -233,7 +279,8 @@ export class ModulesScreen {
     lc.append(spriteCanvas('ladder', 1, 1, 10), span('Лестница'));
     lc.addEventListener('pointerdown', (e) => this.poolDown(e, { type: 'ladder', tw: 1, th: 1, id: null, ladder: true }));
     this.els.pool.appendChild(lc);
-    pool.append(head, this.els.pool, div('note', 'Тяните в палубу. Чтобы убрать, верните в пул. Колесо или щипок — масштаб.'));
+    this.stock.className = 'cards';
+    pool.append(head, this.els.pool, this.stockHead, this.stock, div('note', 'Тяните в палубу. Нажмите на модуль, чтобы улучшить. Чтобы убрать, верните в пул: уровень сохранится. Колесо или щипок — масштаб.'));
     this.els.info.className = 'card';
     this.els.tools.className = 'tools';
     for (const [t, label] of [
@@ -261,8 +308,18 @@ export class ModulesScreen {
     this.els.tools.append(brush, gridBtn);
     const actions = div('actions');
     const reset = button('По умолчанию', () => {
-      saveLayout(this.shipId, null);
-      this.layout = yardLayout(this.shipId, this.geo);
+      // Back to the yard's arrangement, but what the player paid for stays: base modules keep their levels, upgraded ones wait in the pool.
+      const old = this.layout;
+      const fresh = yardLayout(this.shipId, this.geo);
+      for (const m of fresh.mods) {
+        const o = old.mods.find((q) => q.base && q.type === m.type);
+        if (o?.lv) m.lv = o.lv;
+      }
+      fresh.stock = (old.stock ?? []).map((x) => ({ ...x }));
+      for (const o of old.mods) if (!o.base && levelOf(o) > 1) fresh.stock.push({ id: fresh.next++, type: o.type as PoolModuleId, lv: levelOf(o) });
+      this.layout = fresh;
+      this.sel = null;
+      this.save();
       this.refresh();
       this.flash('Расстановка по умолчанию');
     });
@@ -466,6 +523,7 @@ export class ModulesScreen {
       this.els.canvas.height = g.h * Z;
     }
     if (!this.els.status.textContent) this.els.status.textContent = 'Перетащите модуль из пула на палубу';
+    this.renderStock();
     this.draw();
   }
 
@@ -543,7 +601,93 @@ export class ModulesScreen {
       ctx.lineWidth = 2;
       ctx.strokeRect(r.x0 * Z, r.y0 * Z, (r.x1 - r.x0 + 1) * Z, (r.y1 - r.y0 + 1) * Z);
     }
+    for (const e of plan.ents) {
+      if (e.kind !== 'mod') continue;
+      const m = e.ref as { id: number; lv?: number };
+      const lv = levelOf(m);
+      const sel = this.sel === m.id;
+      const ps = Math.max(2, Z * 0.9);
+      const gap = Math.max(1, Z * 0.35);
+      for (let k = 0; k < LV_MAX; k++) {
+        if (k >= lv && !sel) continue;
+        ctx.fillStyle = k < lv ? '#e8c450' : 'rgba(255,255,255,0.18)';
+        ctx.fillRect(e.r.x0 * Z + Z * 1.6 + k * (ps + gap), e.r.y1 * Z - Z * 2.2, ps, ps * 0.8);
+      }
+      if (sel) {
+        ctx.strokeStyle = '#59e6ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(e.r.x0 * Z, e.r.y0 * Z, (e.r.x1 - e.r.x0 + 1) * Z, (e.r.y1 - e.r.y0 + 1) * Z);
+      }
+    }
     this.fillCard(plan);
+  }
+
+  /** Modules put back in the pool with a level above the first wait here as themselves. */
+  private renderStock(): void {
+    const list = this.layout.stock ?? [];
+    this.stock.replaceChildren();
+    this.stockHead.hidden = list.length === 0;
+    for (const it of list) {
+      const c = div('pc');
+      c.title = `${MODULE_INFO[it.type].name}, уровень ${it.lv}`;
+      c.append(spriteCanvas(it.type, 1, 1, 5), span(MODULE_INFO[it.type].name), Object.assign(span(`ур. ${it.lv} / ${LV_MAX}`), { className: 'lvb' }));
+      c.addEventListener('pointerdown', (e) => this.poolDown(e, { type: it.type as PoolModuleId, tw: 1, th: 1, id: null, ladder: false, lv: it.lv, stockId: it.id }));
+      this.stock.appendChild(c);
+    }
+  }
+
+  /** The open card of one module: its level, what it does now and next, and the price of the next level. */
+  private moduleCard(m: { id: number; type: ModuleId; tw: number; th: number; base: boolean; lv?: number }): void {
+    const c = this.els.info;
+    const lv = levelOf(m);
+    const def = LEVELS[m.type];
+    const info = MODULE_INFO[m.type];
+    c.replaceChildren();
+    c.classList.add('sel');
+    const pips = div('pips');
+    for (let k = 1; k <= LV_MAX; k++) pips.appendChild(Object.assign(document.createElement('i'), { className: k <= lv ? 'on' : '' }));
+    const lvl = div('lvl');
+    lvl.append(pips, Object.assign(document.createElement('b'), { textContent: `ур. ${lv} / ${LV_MAX}` }));
+    c.append(div('name', info.name), div('kind', `${info.kind}${m.base ? ' · базовый' : ''} · ${m.tw}×${m.th}`), lvl);
+    const eff = (cls: string, label: string, text: string) => {
+      const d = div(`eff ${cls}`);
+      d.append(Object.assign(document.createElement('small'), { textContent: label }), document.createTextNode(text));
+      return d;
+    };
+    if (!def.live) {
+      c.append(eff('later', 'Эффект', 'появится позже: пока такой модуль только занимает комнату, улучшать его нечем'));
+    } else {
+      c.append(eff('', 'Сейчас', effectText(m.type, lv, this.shipId)));
+      if (lv < LV_MAX) {
+        const cost = upgradeCost(m.tw, m.th, lv + 1);
+        const w = this.game.wallet;
+        const okC = w.credits >= cost.credits;
+        const okM = w.metal >= cost.metal;
+        const price = div('cost');
+        price.append(Object.assign(span(`Кредиты ${cost.credits}`), { className: okC ? '' : 'bad' }), Object.assign(span(`Металл ${cost.metal}`), { className: okM ? '' : 'bad' }));
+        const up = button('', () => this.upgrade(m.id));
+        up.className = 'go';
+        up.innerHTML = '<span>Улучшить</span><span>▸</span>';
+        up.disabled = !(okC && okM);
+        c.append(eff('nxt', `Уровень ${lv + 1}`, effectText(m.type, lv + 1, this.shipId)), price, up);
+      } else c.append(chip('ok', 'максимальный уровень'));
+    }
+    const w = this.game.wallet;
+    const res = div('res');
+    res.append(document.createTextNode('Ресурсы: Кредиты '), Object.assign(document.createElement('b'), { textContent: String(w.credits) }), document.createTextNode(' · Металл '), Object.assign(document.createElement('b'), { textContent: String(w.metal) }));
+    c.appendChild(res);
+  }
+
+  private upgrade(id: number): void {
+    const m = this.layout.mods.find((q) => q.id === id);
+    if (!m) return;
+    const lv = levelOf(m);
+    if (lv >= LV_MAX || !LEVELS[m.type].live) return;
+    if (!this.game.spendWallet(upgradeCost(m.tw, m.th, lv + 1))) return;
+    m.lv = lv + 1;
+    this.save();
+    this.refresh();
+    this.flash(`Модуль улучшен до уровня ${lv + 1}`);
   }
 
   private fillCard(plan: ReturnType<typeof planDeck>): void {
@@ -554,6 +698,13 @@ export class ModulesScreen {
     const set = new Set(plan.doors);
     for (const i of plan.doors) if (!set.has(i - 1) && !set.has(i - g.w)) doors++;
     const c = this.els.info;
+    const selMod = this.sel !== null ? this.layout.mods.find((q) => q.id === this.sel) : undefined;
+    if (this.sel !== null && !selMod) this.sel = null;
+    c.classList.toggle('sel', !!selMod);
+    if (selMod) {
+      this.moduleCard(selMod);
+      return;
+    }
     c.replaceChildren();
     const name = div('name', `Палуба ${this.deck}`);
     const stats = div('stats');
@@ -601,7 +752,7 @@ export class ModulesScreen {
     return -1;
   }
 
-  private poolDown(e: PointerEvent, spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean }): void {
+  private poolDown(e: PointerEvent, spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean; lv?: number; stockId?: number | null }): void {
     if (e.pointerType === 'mouse') {
       this.startDrag(e, spec);
       return;
@@ -609,11 +760,11 @@ export class ModulesScreen {
     this.pending = { id: e.pointerId, x: e.clientX, y: e.clientY, spec };
   }
 
-  private startDrag(e: PointerEvent, spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean }): void {
+  private startDrag(e: PointerEvent, spec: { type: ModuleId | 'ladder'; tw: number; th: number; id: number | null; ladder: boolean; lv?: number; stockId?: number | null }): void {
     if (e.type === 'pointerdown' && e.button !== 0) return;
     e.preventDefault();
     const cur = spec.ladder && spec.id !== null ? this.layout.lads.find((l) => l.id === spec.id) : undefined;
-    this.drag = { ...spec, z0: cur ? cur.z0 : this.deck < this.geo.depth - 1 ? this.deck : this.deck - 1, over: false, valid: false, i: 0, j: 0, tab: null };
+    this.drag = { ...spec, lv: spec.lv ?? 1, stockId: spec.stockId ?? null, moved: false, sx: e.clientX, sy: e.clientY, z0: cur ? cur.z0 : this.deck < this.geo.depth - 1 ? this.deck : this.deck - 1, over: false, valid: false, i: 0, j: 0, tab: null };
     const f = div('mfloat');
     f.appendChild(spriteCanvas(spec.type, spec.tw, spec.th, 3));
     document.body.appendChild(f);
@@ -698,6 +849,7 @@ export class ModulesScreen {
     const c = this.cellOf(e);
     const d = this.drag;
     if (d) {
+      if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true;
       this.moveFloater(e);
       d.over = c.inside;
       if (this.floater) this.floater.style.opacity = c.inside ? '0' : '1';
@@ -751,6 +903,11 @@ export class ModulesScreen {
     const under = document.elementFromPoint(e.clientX, e.clientY);
     const overPool = !!under?.closest?.('#mods .pool');
     const g = this.geo;
+    if (!d.moved && d.id !== null && !d.ladder) {
+      this.sel = d.id;
+      this.refresh();
+      return;
+    }
     if (d.ladder) {
       if (c.inside && d.valid) putLadder(g, this.layout, d.i, d.j, d.z0, d.id);
       else if (d.id !== null && overPool) removeLadder(this.layout, d.id);
@@ -775,8 +932,11 @@ export class ModulesScreen {
         return;
       }
     }
-    if (c.inside && d.valid) putModule(g, this.layout, d.type as ModuleId, this.deck, d.i, d.j, d.tw, d.th, d.id);
-    else if (cur && overPool) removeModule(this.layout, cur.id);
+    if (c.inside && d.valid) {
+      if (putModule(g, this.layout, d.type as ModuleId, this.deck, d.i, d.j, d.tw, d.th, d.id, d.lv) && d.stockId !== null) takeFromStock(this.layout, d.stockId);
+    } else if (cur && overPool) {
+      if (removeModuleToStock(this.layout, cur.id) && this.sel === cur.id) this.sel = null;
+    }
     this.save();
     this.refresh();
   }
@@ -795,6 +955,10 @@ export class ModulesScreen {
     if (this.tool === 'module') {
       const k = this.entAt(this.cellOf(e));
       if (k < 0 || !this.lastPlan) {
+        if (this.sel !== null) {
+          this.sel = null;
+          this.refresh();
+        }
         if (this.view.s > 1) this.panning = { x: e.clientX, y: e.clientY, tx: this.view.tx, ty: this.view.ty };
         return;
       }

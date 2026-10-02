@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   await nextFrame();
   const hud = new Hud(game, document.getElementById('hud')!);
   const dock = new DockScreen(game, document.body);
-  dock.setModules(new ModulesScreen((id) => dock.refreshShip(id), document.body));
+  dock.setModules(new ModulesScreen((id) => dock.refreshShip(id), document.body, game));
   const road = new RoadScreen(game, document.body);
   hud.update(performance.now());
 

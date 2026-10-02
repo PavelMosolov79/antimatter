@@ -130,6 +130,8 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
       blast: m.blast,
       shieldMax: m.shieldMax,
       regen: m.regen,
+      pool: m.pool,
+      lv: m.lv,
     };
     grid.modules.push(nm);
     const id = grid.modules.length;

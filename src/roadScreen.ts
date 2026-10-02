@@ -1,8 +1,8 @@
 import type { Game } from './game';
 import { KIND_LOOK, Px, SECTOR_LOOK, clamp, fbm, hashInt, makePointIcon, mulberry, playerMarker, rampPick } from './render/pointArt';
-import { holdCap } from './sim/cargo';
+
 import { ROAD, sectorOfLink, type RoadPoint } from './sim/road';
-import { SHIPS } from './sim/ships';
+import { SHIPS, shipHoldCap } from './sim/ships';
 
 /**
  * The campaign map, as designed in «Карта похода Antimatter»: one endless road that runs
@@ -549,7 +549,7 @@ export class RoadScreen {
     stat('Экипаж', run.ship ? String(g.runCrewAlive()) : '—');
     stat('Кредиты', String(g.wallet.credits), 'safe');
     stat('Металл', String(g.wallet.metal), 'safe');
-    const cap = holdCap(run.shipId);
+    const cap = shipHoldCap(run.shipId);
     const c = run.cargo;
     const full = c.metal >= cap;
     const holdChip = document.createElement('span');

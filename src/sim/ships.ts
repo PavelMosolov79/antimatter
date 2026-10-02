@@ -1,8 +1,10 @@
 import { ShipGrid, type Module, type WeaponState, type WeaponType } from './grid';
 import { buildBattleshipArt } from './battleshipArt';
+import { buildFighterArt } from './fighterArt';
 import { Mat } from './materials';
 import { DRIVES } from './propulsion';
-import { buildPlayerShip, deckGeo } from './interior';
+import { buildPlayerShip, currentLayout, deckGeo } from './interior';
+import { holdCapacity } from './levels';
 import type { DeckGeo } from './layout';
 
 function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number): void {
@@ -609,9 +611,59 @@ export function buildFreighter(): ShipGrid {
   return g;
 }
 
+/**
+ * The player's fighter hull: the approved blue wedge (fighterArt.ts), 39×62 cells with two
+ * decks, its guns, drives and nozzles where the picture puts them. The interior comes
+ * from the player's layout (interior.ts), so the decks here are bare floor.
+ */
+function playerFighterHull(): ShipGrid {
+  const art = buildFighterArt();
+  const g = new ShipGrid(art.w, art.h, 3);
+  for (let y = 0; y < art.h; y++) {
+    for (let x = 0; x < art.w; x++) {
+      const i = y * art.w + x;
+      if (!art.mask[i]) continue;
+      const p = art.part[i] > 0 ? art.parts[art.part[i] - 1] : null;
+      let mat: number = art.dist[i] === 1 ? Mat.ARMOR : Mat.HULL;
+      if (p?.kind === 'turret') mat = Mat.TURRET;
+      else if (p?.drive) mat = DRIVES[p.drive].mat;
+      g.setCell(x, y, 0, mat);
+      g.setPaint(g.idx(x, y, 0), art.color[i * 3], art.color[i * 3 + 1], art.color[i * 3 + 2], art.glow[i] !== 0);
+      for (let z = 1; z < 3; z++) if (art.dist[i] >= 2 * z + 1) g.setCell(x, y, z, Mat.DECK);
+    }
+  }
+  const centre = (cells: Array<[number, number]>): [number, number, number] => {
+    let sx = 0;
+    let sy = 0;
+    for (const [x, y] of cells) {
+      sx += x + 0.5;
+      sy += y + 0.5;
+    }
+    sx /= cells.length;
+    sy /= cells.length;
+    let best = cells[0];
+    for (const c of cells) if (Math.hypot(c[0] + 0.5 - sx, c[1] + 0.5 - sy) < Math.hypot(best[0] + 0.5 - sx, best[1] + 0.5 - sy)) best = c;
+    return [best[0], best[1], 0];
+  };
+  let pulses = 0;
+  for (const p of art.parts) {
+    const cells = p.cells.map(([x, y]): [number, number, number] => [x, y, 0]);
+    if (p.kind === 'turret') {
+      const weapon = p.heavy ? makeWeapon(g, 'heavy', 0, 1.2) : makeWeapon(g, 'pulse', pulses++ === 0 ? -0.2 : 0.2, 1.75);
+      g.addModule('turret', cells, { core: centre(p.cells), weapon });
+    } else if (p.drive) {
+      const spec = DRIVES[p.drive];
+      g.addModule(spec.kind, cells, { core: centre(p.cells), dirX: p.dirX, dirY: p.dirY, drive: p.drive, spoolUp: spec.spoolUp, spoolDown: spec.spoolDown });
+    }
+  }
+  // The legacy fighter's figures, so the bigger hull flies as the old one did.
+  tuneDrives(g, { accel: 30, turnPerThrust: 9.187, backShare: 0.478, sideShare: 0.249 });
+  return g;
+}
+
 /** The ships the player can fly: the hull from the yard, its interior laid out by the player (see interior.ts). */
 const PLAYER_HULLS: Record<string, () => ShipGrid> = {
-  fighter: () => buildFighter('strike'),
+  fighter: playerFighterHull,
   cruiser: buildCruiser,
   battleship: buildBattleship,
 };
@@ -620,6 +672,12 @@ const PLAYER_HULLS: Record<string, () => ShipGrid> = {
 export function shipDeckGeo(id: string): DeckGeo {
   if (!PLAYER_HULLS[id]) id = 'fighter';
   return deckGeo(id, PLAYER_HULLS[id]);
+}
+
+/** How much metal this ship's hold takes now: the class's own size grown by the storerooms in its layout. */
+export function shipHoldCap(id: string): number {
+  if (!PLAYER_HULLS[id]) id = 'fighter';
+  return holdCapacity(id, currentLayout(id, shipDeckGeo(id)));
 }
 
 export function playerShip(id: string): ShipGrid {

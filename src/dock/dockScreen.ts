@@ -1,7 +1,7 @@
 import type { Game } from '../game';
-import { holdCap } from '../sim/cargo';
+
 import type { ShipGrid } from '../sim/grid';
-import { SHIPS } from '../sim/ships';
+import { SHIPS, shipHoldCap } from '../sim/ships';
 import type { ModulesScreen } from './modulesScreen';
 import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockLayout, type DockSprite } from './dockArt';
 
@@ -357,7 +357,7 @@ export class DockScreen {
     const hm = f ? f.metal * (1 - e) : run.cargo.metal;
     const vc = w.credits - (f ? f.credits * (1 - e) : 0);
     const vm = w.metal - (f ? f.metal * (1 - e) : 0);
-    const cap = holdCap(run.shipId);
+    const cap = shipHoldCap(run.shipId);
     const n = (v: number) => Math.round(v).toLocaleString('ru-RU');
     const flowing = !!f && f.k < 1;
     const empty = hc < 1 && hm < 1;

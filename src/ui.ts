@@ -1,8 +1,8 @@
 import { Game, SCENARIOS, type Tool } from './game';
 import { OUTER_VIEW } from './render/shipView';
 import { RunScreen } from './runScreen';
-import { holdCap } from './sim/cargo';
-import { SHIPS } from './sim/ships';
+
+import { SHIPS, shipHoldCap } from './sim/ships';
 import { SECTOR_IDS, SECTORS } from './sim/space';
 import { moduleEfficiency } from './sim/grid';
 import { WEAPONS } from './sim/weapons';
@@ -752,7 +752,7 @@ export class Hud {
       const reward = inRun && g.state === 'won' ? g.pendingReward() : null;
       if (reward && g.run) {
         const hold = g.run.cargo;
-        const cap = holdCap(g.run.shipId);
+        const cap = shipHoldCap(g.run.shipId);
         const add = (html: string) => {
           const d = document.createElement('div');
           d.innerHTML = html;

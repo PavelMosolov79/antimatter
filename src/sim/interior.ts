@@ -14,6 +14,7 @@ import {
   type PlacedModule,
   type ShipLayout,
 } from './layout';
+import { levelOf } from './levels';
 import { savedLayout } from './layoutStore';
 import { Mat } from './materials';
 
@@ -156,6 +157,8 @@ export function applyLayout(grid: ShipGrid, geo: DeckGeo, layout: ShipLayout, sh
     const opts: ModuleOptions = { core };
     if (s.kind === 'reactor') Object.assign(opts, { power: sys.power, capacity: sys.capacity, blast: sys.blast });
     else if (s.kind === 'shield') Object.assign(opts, { shieldMax: sys.shield, regen: sys.regen });
+    opts.lv = levelOf(q);
+    if (s.kind === 'generic') opts.pool = q.type;
     grid.addModule(s.kind, s.cells, opts);
   }
   return plans;

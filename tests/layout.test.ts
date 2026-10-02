@@ -23,9 +23,9 @@ import { World } from '../src/sim/world';
 const IDS = ['fighter', 'cruiser', 'battleship'];
 
 describe('deck grid', () => {
-  it('fits only three 10×10 modules on the fighter and many more on the big ships', () => {
+  it('fits seven 10×10 modules on the new fighter (four and three by deck) and many more on the big ships', () => {
     const cap = IDS.map((id) => tileCapacity(shipDeckGeo(id), { mods: [], lads: [], corr: {}, next: 1 }).slots);
-    expect(cap[0]).toBe(3);
+    expect(cap[0]).toBe(7);
     expect(cap[1]).toBeGreaterThan(20);
     expect(cap[2]).toBeGreaterThan(150);
   });
@@ -51,12 +51,25 @@ describe('the yard layout', () => {
     for (let z = 1; z < geo.depth; z++) expect(planDeck(geo, l, z).issues).toEqual([]);
   });
 
-  it('puts the fighter core a row up from where the search would, so it sits centred', () => {
+  it('puts the new fighter base modules on its two decks and leaves four places free', () => {
     const geo = shipDeckGeo('fighter');
-    const core = defaultLayout(geo).mods.find((m) => m.type === 'core')!;
-    expect(core.deck).toBe(2);
-    const r = moduleRect(geo, 2, core);
-    expect([r.x0, r.y0]).toEqual([11, 27]);
+    const layout = defaultLayout(geo);
+    expect(layout.mods.map((m) => [m.type, m.deck])).toEqual([
+      ['bridge', 1],
+      ['shield', 1],
+      ['core', 2],
+    ]);
+    const { slots, free } = tileCapacity(geo, layout);
+    expect(slots).toBe(7);
+    expect(free).toBe(4);
+    // The bridge is the forward-most room, the core sits aft near the drives.
+    const centre = (t: string) => {
+      const m = layout.mods.find((q) => q.type === t)!;
+      const r = moduleRect(geo, m.deck, m);
+      return (r.y0 + r.y1) / 2;
+    };
+    expect(centre('bridge')).toBeLessThan(centre('shield'));
+    expect(centre('core')).toBeGreaterThan(40);
   });
 
   it('makes base modules bigger on bigger ships', () => {

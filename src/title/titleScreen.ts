@@ -1,7 +1,7 @@
 import type { Game } from '../game';
-import { holdCap } from '../sim/cargo';
+
 import { Road } from '../sim/road';
-import { SHIPS } from '../sim/ships';
+import { SHIPS, shipHoldCap } from '../sim/ships';
 import { CoreScene, makeSky, type Sky, type SkyLayout } from './coreArt';
 
 /**
@@ -404,7 +404,7 @@ export class TitleScreen {
 
   private runLine(shipId: string, mission: number, metal: number, hull: number | null): string {
     const ship = SHIPS.find((s) => s.id === shipId)?.label ?? '';
-    return `Забег · миссия ${mission} · ${ship}${hull !== null ? ` · корпус ${hull} %` : ''} · трюм ${metal}/${holdCap(shipId)}`;
+    return `Забег · миссия ${mission} · ${ship}${hull !== null ? ` · корпус ${hull} %` : ''} · трюм ${metal}/${shipHoldCap(shipId)}`;
   }
 
   private resetNewRunPrompt(): void {

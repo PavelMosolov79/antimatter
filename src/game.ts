@@ -2,11 +2,11 @@ import type { GridBody } from './sim/body';
 import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
 import { crewOnDeck, type Crew } from './sim/crew';
 import type { EnergyPriority } from './sim/systems';
-import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
+import { ENEMIES, SHIPS, buildFreighter, shipHoldCap } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
 import { repairShip, restAfterBattle } from './sim/run';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
-import { addToHold, deposit, emptyCargo, holdCap, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
+import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
 import { captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun } from './sim/runSave';
 import { mulberry32 } from './sim/rng';
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
@@ -168,6 +168,15 @@ export class Game {
     this.acc = 0;
   }
 
+  /** Pays for something from what the player owns outside a run (Кредиты, Металл); false if it is not enough. */
+  spendWallet(c: Cargo): boolean {
+    if (this.wallet.credits < c.credits || this.wallet.metal < c.metal) return false;
+    this.wallet.credits -= c.credits;
+    this.wallet.metal -= c.metal;
+    storeWallet(this.wallet);
+    return true;
+  }
+
   /** Throws away the run in progress, in memory or saved in the browser: the hold goes with it. */
   abandonRun(): void {
     this.run = null;
@@ -327,7 +336,7 @@ export class Game {
   pendingReward(): HoldResult | null {
     const run = this.run;
     if (!run || !run.fighting) return null;
-    return previewAdd(run.cargo, holdCap(run.shipId), rewardFor(run.fighting));
+    return previewAdd(run.cargo, shipHoldCap(run.shipId), rewardFor(run.fighting));
   }
 
   private startBattle(point: RoadPoint): void {
@@ -374,7 +383,7 @@ export class Game {
     run.ship = ship;
     restAfterBattle(ship);
     run.battlesWon++;
-    const got = addToHold(run.cargo, holdCap(run.shipId), rewardFor(point));
+    const got = addToHold(run.cargo, shipHoldCap(run.shipId), rewardFor(point));
     run.cleared = point.index;
     run.fighting = null;
     run.road.ensure(run.cleared);

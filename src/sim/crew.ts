@@ -1,3 +1,4 @@
+import { crewPlaces } from './levels';
 import type { GridBody } from './body';
 import { type Room, type RoomEdge, type RoomGraph, ensureRooms } from './compartments';
 import { moduleEfficiency, type ShipGrid } from './grid';
@@ -362,7 +363,8 @@ export function spawnCrew(grid: ShipGrid): Crew[] {
     }
     crew.push(makeCrew(post.role, false, post.moduleId, moduleCore(grid, post.moduleId)));
   }
-  const engineerCount = Math.max(1, Math.round(posts.length / 3));
+  // Roaming engineers: one for every three posts, and the quarters' places on top (modules of the pool carry their level).
+  const engineerCount = Math.max(1, Math.round(posts.length / 3)) + crewPlaces(grid.modules);
   const reactorModule = grid.modules.findIndex((m) => m.kind === 'reactor');
   const spawnAt = reactorModule >= 0 ? moduleCore(grid, reactorModule) : { x: grid.width / 2, y: grid.height / 2, z: 1 };
   for (let i = 0; i < engineerCount; i++) crew.push(makeCrew('engineer', true, -1, spawnAt));

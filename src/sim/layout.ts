@@ -50,6 +50,15 @@ export interface PlacedModule {
   tw: number;
   th: number;
   base: boolean;
+  /** Upgrade level 1…5 (levels.ts); a module without one is level 1. */
+  lv?: number;
+}
+
+/** A module taken off the deck with a level above the first: it waits in the pool as itself. */
+export interface StockItem {
+  id: number;
+  type: PoolModuleId;
+  lv: number;
 }
 
 export interface PlacedLadder {
@@ -67,6 +76,8 @@ export interface ShipLayout {
   /** Corridor floor cells by deck, as grid cell indices (y × width + x). */
   corr: Record<number, number[]>;
   next: number;
+  /** Upgraded modules put back in the pool. */
+  stock?: StockItem[];
 }
 
 /** What every ship starts with, sized to the class: [type, tiles wide, tiles tall, deck, aim cell]. */
@@ -80,9 +91,9 @@ interface BaseSpec {
 
 export const BASE_MODULES: Record<string, BaseSpec[]> = {
   fighter: [
-    { type: 'bridge', tw: 1, th: 1, deck: 1, aim: [9, 33] },
-    { type: 'shield', tw: 1, th: 1, deck: 1, aim: [22, 33] },
-    { type: 'core', tw: 1, th: 1, deck: 2, aim: [16, 36] },
+    { type: 'bridge', tw: 1, th: 1, deck: 1, aim: [19.5, 25] },
+    { type: 'shield', tw: 1, th: 1, deck: 1, aim: [19.5, 34] },
+    { type: 'core', tw: 1, th: 1, deck: 2, aim: [19.5, 50] },
   ],
   cruiser: [
     { type: 'bridge', tw: 2, th: 1, deck: 1, aim: [24, 26] },
@@ -97,9 +108,7 @@ export const BASE_MODULES: Record<string, BaseSpec[]> = {
 };
 
 /** Hand fixes to a deck's grid, where the best-fit shift leaves a module off-centre. */
-const ORIGIN_FIX: Record<string, Record<number, { ox: number; oy: number }>> = {
-  fighter: { 2: { ox: 2, oy: 0 } },
-};
+const ORIGIN_FIX: Record<string, Record<number, { ox: number; oy: number }>> = {};
 
 // ------------------------------------------------------------------ deck geometry
 
@@ -243,19 +252,77 @@ export function canPlaceLadder(g: DeckGeo, layout: ShipLayout, x: number, y: num
   return true;
 }
 
-/** The ladder joining these two decks that is closest to the middle of the hull, found by search. */
+/** Can the crew get from the ladder just placed to every room on both decks it joins? */
+function ladderReachesRooms(g: DeckGeo, layout: ShipLayout, ladderId: number): boolean {
+  const lad = layout.lads.find((l) => l.id === ladderId);
+  if (!lad) return false;
+  for (const z of [lad.z0, lad.z0 + 1]) {
+    const plan = planDeck(g, layout, z);
+    const start = plan.ents.findIndex((e) => e.kind === 'lad' && e.ref === lad);
+    if (start < 0) return false;
+    const seen = new Uint8Array(g.w * g.h);
+    const queue: number[] = [];
+    for (let i = 0; i < plan.entAt.length; i++) if (plan.entAt[i] === start) queue.push(i);
+    for (const i of queue) seen[i] = 1;
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q];
+      const x = i % g.w;
+      for (const n of [x > 0 ? i - 1 : -1, x < g.w - 1 ? i + 1 : -1, i - g.w, i + g.w]) {
+        if (n < 0 || n >= seen.length || seen[n]) continue;
+        const k = plan.kind[n];
+        if (k !== K.FIELD && k !== K.FLOOR && k !== K.MINT && k !== K.DOOR) continue;
+        seen[n] = 1;
+        queue.push(n);
+      }
+    }
+    for (let e = 0; e < plan.ents.length; e++) {
+      let hit = false;
+      for (let i = 0; i < plan.entAt.length && !hit; i++) if (plan.entAt[i] === e && seen[i]) hit = true;
+      if (!hit) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The ladder joining these two decks that is closest to the middle of the hull, found by
+ * search. On a small ship, where every room counts, the ladder goes first where it takes
+ * the fewest free places from the modules, and only where the crew can walk from it to
+ * every room on both decks.
+ */
 function placeLadders(g: DeckGeo, layout: ShipLayout): void {
+  const small = tileCapacity(g, { mods: [], lads: [], corr: {}, next: 1 }).slots <= 20;
   for (let z0 = 1; z0 + 1 < g.depth; z0++) {
-    let best: { d: number; x: number; y: number } | null = null;
     const aim = [g.w / 2 - 2, g.h * 0.6];
+    const found: Array<{ free: number; d: number; x: number; y: number }> = [];
     for (let y = 0; y < g.h - 4; y++) {
       for (let x = 0; x < g.w - 4; x++) {
         if (!canPlaceLadder(g, layout, x, y, z0, null)) continue;
         const d = Math.hypot(x - aim[0], y - aim[1]);
-        if (!best || d < best.d) best = { d, x, y };
+        let free = 0;
+        if (small) {
+          layout.lads.push({ id: -1, x, y, z0 });
+          free = tileCapacity(g, layout).free;
+          layout.lads.pop();
+        }
+        found.push({ free, d, x, y });
       }
     }
-    if (best) layout.lads.push({ id: layout.next++, x: best.x, y: best.y, z0 });
+    found.sort((a, b) => b.free - a.free || a.d - b.d);
+    let pick = found[0];
+    if (small) {
+      for (const c of found) {
+        const id = layout.next;
+        layout.lads.push({ id, x: c.x, y: c.y, z0 });
+        const ok = ladderReachesRooms(g, layout, id);
+        layout.lads.pop();
+        if (ok) {
+          pick = c;
+          break;
+        }
+      }
+    }
+    if (pick) layout.lads.push({ id: layout.next++, x: pick.x, y: pick.y, z0 });
   }
 }
 
@@ -280,7 +347,7 @@ export function defaultLayout(g: DeckGeo): ShipLayout {
 }
 
 export function cloneLayout(l: ShipLayout): ShipLayout {
-  return { mods: l.mods.map((m) => ({ ...m })), lads: l.lads.map((x) => ({ ...x })), corr: Object.fromEntries(Object.entries(l.corr).map(([k, v]) => [k, v.slice()])), next: l.next };
+  return { mods: l.mods.map((m) => ({ ...m })), lads: l.lads.map((x) => ({ ...x })), corr: Object.fromEntries(Object.entries(l.corr).map(([k, v]) => [k, v.slice()])), next: l.next, stock: (l.stock ?? []).map((x) => ({ ...x })) };
 }
 
 /** A saved layout is trusted only if everything in it still fits the ship's decks. */
@@ -520,7 +587,7 @@ export function clearCorridorUnder(g: DeckGeo, layout: ShipLayout, z: number, r:
 }
 
 /** Puts a module down (or moves one that is already in the layout). Returns false if it would not fit. */
-export function putModule(g: DeckGeo, layout: ShipLayout, type: ModuleId, z: number, i: number, j: number, tw: number, th: number, movingId: number | null): boolean {
+export function putModule(g: DeckGeo, layout: ShipLayout, type: ModuleId, z: number, i: number, j: number, tw: number, th: number, movingId: number | null, lv = 1): boolean {
   if (!canPlaceModule(g, layout, z, i, j, tw, th, movingId)) return false;
   const r = moduleRect(g, z, { i, j, tw, th });
   if (movingId !== null) {
@@ -529,7 +596,7 @@ export function putModule(g: DeckGeo, layout: ShipLayout, type: ModuleId, z: num
     m.deck = z;
     m.i = i;
     m.j = j;
-  } else layout.mods.push({ id: layout.next++, type, deck: z, i, j, tw, th, base: false });
+  } else layout.mods.push({ id: layout.next++, type, deck: z, i, j, tw, th, base: false, lv });
   clearCorridorUnder(g, layout, z, r);
   return true;
 }
@@ -540,6 +607,20 @@ export function removeModule(layout: ShipLayout, id: number): boolean {
   if (!m || m.base) return false;
   layout.mods = layout.mods.filter((q) => q.id !== id);
   return true;
+}
+
+/** Takes an upgraded module off the deck into the pool, where it waits with its level; a first-level one just goes back to the endless pool. */
+export function removeModuleToStock(layout: ShipLayout, id: number): boolean {
+  const m = layout.mods.find((q) => q.id === id);
+  if (!m || m.base || !removeModule(layout, id)) return false;
+  const lv = m.lv ?? 1;
+  if (lv > 1) (layout.stock ??= []).push({ id: layout.next++, type: m.type as PoolModuleId, lv });
+  return true;
+}
+
+/** Forgets a stocked module once it is on a deck again. */
+export function takeFromStock(layout: ShipLayout, stockId: number): void {
+  if (layout.stock) layout.stock = layout.stock.filter((x) => x.id !== stockId);
 }
 
 /** Puts a ladder down (or moves one) joining decks z0 and z0 + 1. */
