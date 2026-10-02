@@ -4,7 +4,8 @@ import { crewOnDeck, type Crew } from './sim/crew';
 import type { EnergyPriority } from './sim/systems';
 import { ENEMIES, SHIPS, buildFreighter } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
-import { encounterFor, generateMap, repairShip, restAfterBattle, type MapNode, type RunMap } from './sim/run';
+import { repairShip, restAfterBattle } from './sim/run';
+import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { mulberry32 } from './sim/rng';
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
@@ -17,20 +18,20 @@ export type Tool = 'fly' | 'crater';
 export type BattleState = 'playing' | 'won' | 'lost';
 export type Mode = 'sandbox' | 'run';
 export type RunPhase = 'dock' | 'map' | 'battle' | 'over';
-export type RunOutcome = 'victory' | 'defeat' | 'retreat';
+export type RunOutcome = 'defeat' | 'retreat';
 
-/** A run in progress: the map, where the player is on it, and the ship they carry between nodes. */
+/** A run in progress: the road, how far along it the player is, and the ship they carry between points. */
 export interface RunSession {
   shipId: string;
-  map: RunMap;
-  current: number;
-  visited: number[];
+  road: Road;
+  /** Index of the last point cleared (0 is the start gate); the current mission is the next one. */
+  cleared: number;
   outcome: RunOutcome | null;
   /** The player's ship as it left the last battle; null until the first fight builds it. */
   ship: GridBody | null;
   blueprint: ShipGrid;
   battlesWon: number;
-  fighting: MapNode | null;
+  fighting: RoadPoint | null;
   note: string;
 }
 
@@ -151,49 +152,54 @@ export class Game {
 
   startRun(): void {
     const spec = SHIPS.find((s) => s.id === this.shipId) ?? SHIPS[0];
-    const map = generateMap((Math.random() * 2 ** 31) >>> 0);
-    const start = map.nodes.find((n) => n.kind === 'start')!;
     this.run = {
       shipId: spec.id,
-      map,
-      current: start.id,
-      visited: [start.id],
+      road: new Road((Math.random() * 2 ** 31) >>> 0),
+      cleared: 0,
       outcome: null,
       ship: null,
       blueprint: spec.build(),
       battlesWon: 0,
       fighting: null,
-      note: 'Вылет из дока. Выберите следующий узел.',
+      note: 'Вылет из дока. Впереди первая миссия.',
     };
     this.runPhase = 'map';
   }
 
-  canTravel(nodeId: number): boolean {
+  /** The point the player flies to next: the road has no forks, so there is exactly one. */
+  canTravel(index: number): boolean {
     const run = this.run;
     if (!run || this.runPhase !== 'map') return false;
-    return run.map.nodes[run.current].next.includes(nodeId);
+    return index === run.cleared + 1 && !!run.road.points[index];
   }
 
-  travel(nodeId: number): void {
+  travel(index: number): void {
     const run = this.run;
-    if (!run || !this.canTravel(nodeId)) return;
-    const node = run.map.nodes[nodeId];
-    if (node.kind === 'repair') {
-      run.current = nodeId;
-      run.visited.push(nodeId);
+    if (!run || !this.canTravel(index)) return;
+    const point = run.road.points[index];
+    if (point.kind === 'combat' || point.kind === 'elite' || point.kind === 'boss') {
+      this.startBattle(point);
+      return;
+    }
+    run.cleared = index;
+    if (point.kind === 'dock') {
+      // Until the dock proper arrives on the road (cargo, timed repairs), a dock patches the hull on the spot.
       if (run.ship) {
         const rep = repairShip(run.ship, run.blueprint);
         restAfterBattle(run.ship);
-        run.note = `Ремонтная станция: залатано ${rep.rebuilt.length} клеток, укреплено ${rep.healed}.` + (rep.lostForGood > 0 ? ` Не восстановить в пути: ${rep.lostForGood} (оторвано или модуль уничтожен).` : '');
-      } else run.note = 'Ремонтная станция: корабль цел, чинить нечего.';
-      return;
+        run.note = `Док: залатано ${rep.rebuilt.length} клеток, укреплено ${rep.healed}.` + (rep.lostForGood > 0 ? ` Не восстановить в пути: ${rep.lostForGood} (оторвано или модуль уничтожен).` : '');
+      } else run.note = 'Док: корабль цел, чинить нечего.';
+    } else if (point.kind === 'gate') {
+      run.note = 'Врата пройдены. Новый сектор.';
+    } else if (!ENABLED[point.kind]) {
+      run.note = 'Эта точка пока пуста.';
     }
-    this.startBattle(node);
+    run.road.ensure(run.cleared);
   }
 
-  private startBattle(node: MapNode): void {
+  private startBattle(point: RoadPoint): void {
     const run = this.run!;
-    const enc = encounterFor(run.map, node);
+    const enc = encounterFor(point);
     const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
     const lock = this.world.lockFace;
     const autopilot = this.world.autopilot;
@@ -214,7 +220,7 @@ export class Game {
       const ey = Math.sin(a) * dist;
       this.world.spawnShip(es.build(), ex, ey, Math.atan2(-ex, ey), { name: es.label, team: 1, ai: es.ai });
     });
-    run.fighting = node;
+    run.fighting = point;
     this.runPhase = 'battle';
     this.state = 'playing';
     this.selectedWeapon = null;
@@ -222,11 +228,11 @@ export class Game {
     this.acc = 0;
   }
 
-  /** After the battle's end screen: back to the map, or on to the run's result. */
+  /** After the battle's end screen: back to the road, or on to the run's result. */
   continueRun(): void {
     const run = this.run;
     if (!run || this.runPhase !== 'battle') return;
-    const node = run.fighting!;
+    const point = run.fighting!;
     const ship = this.world.player;
     if (this.state === 'lost' || !ship) {
       run.outcome = 'defeat';
@@ -237,16 +243,11 @@ export class Game {
     run.ship = ship;
     restAfterBattle(ship);
     run.battlesWon++;
-    run.current = node.id;
-    run.visited.push(node.id);
+    run.cleared = point.index;
     run.fighting = null;
-    if (node.kind === 'boss') {
-      run.outcome = 'victory';
-      this.runPhase = 'over';
-    } else {
-      run.note = node.kind === 'elite' ? 'Элитный бой выигран.' : 'Бой выигран.';
-      this.runPhase = 'map';
-    }
+    run.road.ensure(run.cleared);
+    run.note = point.kind === 'boss' ? 'Рубеж взят. Впереди врата.' : point.kind === 'elite' ? 'Элитный бой выигран.' : 'Бой выигран.';
+    this.runPhase = 'map';
   }
 
   retreat(): void {

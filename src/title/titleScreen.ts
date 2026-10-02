@@ -381,7 +381,7 @@ export class TitleScreen {
     if (g && g.hasSession) {
       if (g.mode === 'run' && g.run && g.runPhase !== 'over' && g.runPhase !== 'dock') {
         const ship = SHIPS.find((s) => s.id === g.run!.shipId)?.label ?? '';
-        sub = `Забег · узел ${g.run.visited.length} из ${g.run.map.cols} · ${ship} · корпус ${Math.round(g.runHull() * 100)} %`;
+        sub = `Забег · миссия ${g.run.road.missionsDone(g.run.cleared) + 1} · ${ship} · корпус ${Math.round(g.runHull() * 100)} %`;
       } else if (g.mode === 'sandbox') {
         sub = `Песочница · ${SHIPS.find((s) => s.id === g.shipId)?.label ?? ''}`;
       } else if (g.mode === 'run' && g.runPhase === 'dock') {

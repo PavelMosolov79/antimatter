@@ -1,6 +1,7 @@
 import { Application } from 'pixi.js';
 import { DockScreen, prepareDockSprites } from './dock/dockScreen';
 import { ModulesScreen } from './dock/modulesScreen';
+import { RoadScreen } from './roadScreen';
 import { Game } from './game';
 import { Scene } from './render/scene';
 import { TitleScreen } from './title/titleScreen';
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
   const hud = new Hud(game, document.getElementById('hud')!);
   const dock = new DockScreen(game, document.body);
   dock.setModules(new ModulesScreen((id) => dock.refreshShip(id), document.body));
+  const road = new RoadScreen(game, document.body);
   hud.update(performance.now());
 
   title.step(0.9, 'Стабилизация ядра');
@@ -177,6 +179,7 @@ async function main(): Promise<void> {
     game.tick(t.deltaMS / 1000);
     hud.update(performance.now());
     dock.update();
+    road.update();
     title.watch();
   });
 

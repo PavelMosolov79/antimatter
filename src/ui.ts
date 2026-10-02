@@ -736,11 +736,11 @@ export class Hud {
     this.overlay.style.display = over ? 'flex' : 'none';
     if (over) {
       const boss = g.run?.fighting?.kind === 'boss';
-      this.overlayTitle.textContent = !inRun ? (g.state === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ') : g.state === 'won' ? (boss ? 'БОСС ПОВЕРЖЕН' : 'БОЙ ВЫИГРАН') : 'КОРАБЛЬ УНИЧТОЖЕН';
+      this.overlayTitle.textContent = !inRun ? (g.state === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ') : g.state === 'won' ? (boss ? 'РУБЕЖ ВЗЯТ' : 'БОЙ ВЫИГРАН') : 'КОРАБЛЬ УНИЧТОЖЕН';
       this.overlayTitle.className = g.state;
       this.sandboxButtons.style.display = inRun ? 'none' : '';
       this.runButton.style.display = inRun ? '' : 'none';
-      this.runButton.textContent = g.state === 'won' && !boss ? 'На карту ▸' : 'Итоги забега';
+      this.runButton.textContent = g.state === 'won' ? 'На карту ▸' : 'Итоги забега';
     }
     this.runScreen.update();
     // The dock and the sector map are full screens of their own: no battle bar under them.

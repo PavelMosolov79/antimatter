@@ -1,5 +1,4 @@
 import type { Game } from './game';
-import type { NodeKind } from './sim/run';
 import { SHIPS } from './sim/ships';
 
 const CSS = `
@@ -8,7 +7,6 @@ const CSS = `
 #runscreen .rs-box { pointer-events: auto; position: absolute; left: 50%; transform: translateX(-50%); background: rgba(8,12,22,.94); border: 1px solid #2c3d63; border-radius: 12px; padding: 18px 22px; box-sizing: border-box; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
 #runscreen.dim .rs-box { top: 50%; transform: translate(-50%, -50%); }
 #runscreen h2 { margin: 0 0 4px; font-size: 20px; letter-spacing: .14em; }
-#runscreen h2.victory { color: #63e07a; }
 #runscreen h2.defeat { color: #ff5a4a; }
 #runscreen h2.retreat { color: #ffb347; }
 #runscreen .rs-sub { color: #8fa4cc; margin-bottom: 12px; }
@@ -24,29 +22,9 @@ const CSS = `
 #runscreen .stats { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 4px 0 10px; color: #8fa4cc; }
 #runscreen .stats span { white-space: nowrap; }
 #runscreen .stats b { color: #cfe0ff; }
-#runscreen svg { display: block; width: 100%; height: auto; margin: 4px 0 8px; }
-#runscreen svg .node { cursor: default; }
-#runscreen svg .node.reach { cursor: pointer; }
-#runscreen svg .node.reach circle { stroke: #59e6ff; stroke-width: 2.5; }
-#runscreen svg .node.reach:hover circle { stroke: #ffffff; }
-#runscreen svg .node.here circle { stroke: #ffffff; stroke-width: 3; }
-#runscreen svg .node circle.hit { stroke: none !important; }
-#runscreen svg text { font: 11px ui-monospace, Menlo, Consolas, monospace; fill: #0a0e18; font-weight: 700; pointer-events: none; }
-#runscreen .legend { display: flex; flex-wrap: wrap; gap: 12px; color: #8fa4cc; font-size: 10.5px; margin-bottom: 10px; }
-#runscreen .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 `;
 
-const KIND: Record<NodeKind, { color: string; letter: string; label: string }> = {
-  start: { color: '#8fa4cc', letter: 'С', label: 'Старт' },
-  combat: { color: '#ff7a5a', letter: 'Б', label: 'Бой' },
-  elite: { color: '#ffb347', letter: 'Э', label: 'Элитный бой' },
-  repair: { color: '#63e07a', letter: 'Р', label: 'Ремонт' },
-  boss: { color: '#c77dff', letter: '★', label: 'Босс' },
-};
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-/** Sector map and run result — the screens between battles (the dock has its own screen, dock/dockScreen.ts). */
+/** The result of a run — the screen after it ends (the dock and the road have screens of their own: dock/dockScreen.ts, roadScreen.ts). */
 export class RunScreen {
   private readonly game: Game;
   private readonly root = document.createElement('div');
@@ -64,121 +42,31 @@ export class RunScreen {
   update(): void {
     const g = this.game;
     const phase = g.mode === 'run' ? g.runPhase : null;
-    const visible = phase === 'map' || phase === 'over';
+    const visible = phase === 'over';
     this.root.style.display = visible ? 'block' : 'none';
     if (!visible) {
       this.key = '';
       return;
     }
     const run = g.run;
-    const key = [phase, g.shipId, run?.current, run?.visited.length, run?.note, run?.outcome, window.innerWidth > window.innerHeight].join('|');
+    const key = [phase, g.shipId, run?.cleared, run?.outcome, window.innerWidth > window.innerHeight].join('|');
     if (key === this.key) return;
     this.key = key;
     this.root.className = 'dim';
     this.root.replaceChildren();
     const box = el('div', 'rs-box');
     this.root.appendChild(box);
-    if (phase === 'map') this.renderMap(box);
-    else this.renderOver(box);
-  }
-
-  private renderMap(box: HTMLElement): void {
-    const g = this.game;
-    const run = g.run!;
-    box.append(title('СЕКТОР'), text('rs-sub', `Выберите следующий узел — подсвечены доступные. Сектор #${run.map.seed.toString(16)}.`));
-    box.appendChild(this.statsRow());
-    box.appendChild(text('rs-note', run.note));
-
-    // A tall narrow screen (phone held upright) gets the map on its side: start at the
-    // bottom, boss at the top, so the nodes stay big enough to hit with a finger.
-    const vertical = window.innerHeight > window.innerWidth && window.innerWidth < 600;
-    const W = vertical ? 360 : 700;
-    const H = vertical ? 600 : 300;
-    const pad = 34;
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    const pos = (id: number) => {
-      const n = run.map.nodes[id];
-      const along = n.col / (run.map.cols - 1);
-      return vertical
-        ? { x: pad + n.row * (W - pad * 2), y: H - pad - along * (H - pad * 2) }
-        : { x: pad + along * (W - pad * 2), y: pad + n.row * (H - pad * 2) };
-    };
-    const visited = new Set(run.visited);
-    for (const n of run.map.nodes) {
-      for (const t of n.next) {
-        const a = pos(n.id);
-        const b = pos(t);
-        const line = document.createElementNS(SVG_NS, 'line');
-        line.setAttribute('x1', String(a.x));
-        line.setAttribute('y1', String(a.y));
-        line.setAttribute('x2', String(b.x));
-        line.setAttribute('y2', String(b.y));
-        const walked = visited.has(n.id) && visited.has(t);
-        line.setAttribute('stroke', walked ? '#59e6ff' : '#2a3a5c');
-        line.setAttribute('stroke-width', walked ? '3' : '1.5');
-        svg.appendChild(line);
-      }
-    }
-    for (const n of run.map.nodes) {
-      const p = pos(n.id);
-      const reach = g.canTravel(n.id);
-      const grp = document.createElementNS(SVG_NS, 'g');
-      grp.setAttribute('class', 'node' + (reach ? ' reach' : '') + (n.id === run.current ? ' here' : ''));
-      // A bigger invisible target round each node, so it can be hit with a finger.
-      const hit = document.createElementNS(SVG_NS, 'circle');
-      hit.setAttribute('cx', String(p.x));
-      hit.setAttribute('cy', String(p.y));
-      hit.setAttribute('r', '26');
-      hit.setAttribute('fill', 'transparent');
-      hit.setAttribute('class', 'hit');
-      grp.appendChild(hit);
-      const c = document.createElementNS(SVG_NS, 'circle');
-      c.setAttribute('cx', String(p.x));
-      c.setAttribute('cy', String(p.y));
-      c.setAttribute('r', n.kind === 'boss' ? '17' : '13');
-      c.setAttribute('fill', KIND[n.kind].color);
-      c.setAttribute('fill-opacity', visited.has(n.id) && n.id !== run.current ? '0.35' : '1');
-      c.setAttribute('stroke', '#0a0e18');
-      c.setAttribute('stroke-width', '2');
-      const t = document.createElementNS(SVG_NS, 'text');
-      t.setAttribute('x', String(p.x));
-      t.setAttribute('y', String(p.y + 4));
-      t.setAttribute('text-anchor', 'middle');
-      t.textContent = KIND[n.kind].letter;
-      const tip = document.createElementNS(SVG_NS, 'title');
-      tip.textContent = KIND[n.kind].label;
-      grp.append(c, t, tip);
-      if (reach) grp.addEventListener('click', () => this.game.travel(n.id));
-      svg.appendChild(grp);
-    }
-    box.appendChild(svg);
-
-    const legend = el('div', 'legend');
-    for (const k of ['combat', 'elite', 'repair', 'boss'] as NodeKind[]) {
-      const item = document.createElement('span');
-      const dot = document.createElement('i');
-      dot.style.background = KIND[k].color;
-      item.append(dot, document.createTextNode(KIND[k].label));
-      legend.appendChild(item);
-    }
-    box.appendChild(legend);
-    const row = el('div', 'rs-row');
-    row.appendChild(btn('Отступить в док', () => this.game.retreat()));
-    row.appendChild(btn('Главное меню', () => (this.game.screen = 'title')));
-    box.appendChild(row);
+    this.renderOver(box);
   }
 
   private renderOver(box: HTMLElement): void {
     const run = this.game.run!;
     const outcome = run.outcome ?? 'defeat';
-    const heading = outcome === 'victory' ? 'ЗАБЕГ ПРОЙДЕН' : outcome === 'retreat' ? 'ОТСТУПЛЕНИЕ' : 'КОРАБЛЬ ПОТЕРЯН';
+    const heading = outcome === 'retreat' ? 'ОТСТУПЛЕНИЕ' : 'КОРАБЛЬ ПОТЕРЯН';
     const sub =
-      outcome === 'victory'
-        ? 'Линкор уничтожен, сектор пройден. Корабль возвращается в док со всеми повреждениями.'
-        : outcome === 'retreat'
-          ? 'Корабль вернулся в док раньше времени — с тем, что осталось.'
-          : 'Корабль уничтожен. В MVP-4 он вернётся в док с максимальным ремонтом.';
+      outcome === 'retreat'
+        ? 'Корабль вернулся в док раньше времени — с тем, что осталось.'
+        : 'Корабль уничтожен. В MVP-4 он вернётся в док с максимальным ремонтом.';
     const h = title(heading);
     h.className = outcome;
     box.append(h, text('rs-sub', sub), this.statsRow());
@@ -201,7 +89,7 @@ export class RunScreen {
     stat('Корабль', SHIPS.find((s) => s.id === run.shipId)?.label ?? run.shipId);
     stat('Корпус', run.outcome === 'defeat' ? '0%' : `${Math.round(g.runHull() * 100)}%`);
     stat('Экипаж', run.ship ? String(g.runCrewAlive()) : run.outcome === 'defeat' ? '0' : '—');
-    stat('Пройдено узлов', String(run.visited.length - 1));
+    stat('Пройдено миссий', String(run.road.missionsDone(run.cleared)));
     stat('Боёв выиграно', String(run.battlesWon));
     return row;
   }

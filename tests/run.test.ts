@@ -1,68 +1,112 @@
 import { describe, expect, it } from 'vitest';
 import { ensureRooms } from '../src/sim/compartments';
 import { splitBody } from '../src/sim/fragment';
-import { RUN, encounterFor, generateMap, repairShip, restAfterBattle, type RunMap } from '../src/sim/run';
+import { RUN, repairShip, restAfterBattle } from '../src/sim/run';
+import { ENABLED, ROAD, Road, encounterFor, genLink, sectorOfLink } from '../src/sim/road';
 import { BOSS, ENEMIES, buildBattleship, buildBossBattleship, buildFighter } from '../src/sim/ships';
 import { World } from '../src/sim/world';
 
 const DT = 1 / 60;
 
-function reachableFrom(map: RunMap, start: number): Set<number> {
-  const seen = new Set([start]);
-  const queue = [start];
-  while (queue.length) {
-    const n = map.nodes[queue.shift()!];
-    for (const t of n.next) if (!seen.has(t)) (seen.add(t), queue.push(t));
-  }
-  return seen;
-}
-
-describe('run map', () => {
-  it('is the same map for the same seed and a different one for another', () => {
-    expect(generateMap(42)).toEqual(generateMap(42));
-    expect(generateMap(42)).not.toEqual(generateMap(43));
+describe('campaign road', () => {
+  it('is the same road for the same seed and a different one for another', () => {
+    expect(new Road(42).points).toEqual(new Road(42).points);
+    expect(new Road(42).points).not.toEqual(new Road(43).points);
+    expect(genLink(7, 2)).toEqual(genLink(7, 2));
   });
 
   for (const seed of [1, 7, 99, 1234, 98765]) {
-    it(`seed ${seed}: one start, one boss at the end, and every node is on some start→boss path`, () => {
-      const map = generateMap(seed);
-      const starts = map.nodes.filter((n) => n.kind === 'start');
-      const bosses = map.nodes.filter((n) => n.kind === 'boss');
-      expect(starts).toHaveLength(1);
-      expect(bosses).toHaveLength(1);
-      expect(starts[0].col).toBe(0);
-      expect(bosses[0].col).toBe(map.cols - 1);
-      const fromStart = reachableFrom(map, starts[0].id);
-      for (const n of map.nodes) {
-        expect(fromStart.has(n.id)).toBe(true);
-        expect(reachableFrom(map, n.id).has(bosses[0].id)).toBe(true);
-        for (const t of n.next) expect(map.nodes[t].col).toBe(n.col + 1);
+    it(`seed ${seed}: every link is a gate then ten missions, a dock fifth and a boss tenth, in its own sector`, () => {
+      for (let link = 0; link < 8; link++) {
+        const pts = genLink(seed, link);
+        expect(pts).toHaveLength(ROAD.stride);
+        expect(pts[0].kind).toBe('gate');
+        pts.forEach((p, k) => {
+          expect(p.index).toBe(link * ROAD.stride + k);
+          expect(p.link).toBe(link);
+          expect(p.sector).toBe(sectorOfLink(link));
+          if (k > 0) {
+            expect(p.slot).toBe(k);
+            expect(p.mission).toBe(link * ROAD.linkLen + k);
+          }
+        });
+        expect(pts[1].kind).toBe('combat');
+        expect(pts[ROAD.dockSlot].kind).toBe('dock');
+        expect(pts[ROAD.bossSlot].kind).toBe('boss');
+        for (let k = 1; k <= ROAD.linkLen; k++) {
+          // Only what the game can play so far, never three alike in a row, elites not before the run is under way.
+          expect(ENABLED[pts[k].kind]).toBe(true);
+          if (k >= 3 && pts[k].kind !== 'boss') expect(!(pts[k].kind === pts[k - 1].kind && pts[k].kind === pts[k - 2].kind) || pts[k].kind === 'combat').toBe(true);
+          if (pts[k].kind === 'elite') expect(pts[k].mission).toBeGreaterThanOrEqual(ROAD.eliteFromMission);
+        }
       }
-    });
-
-    it(`seed ${seed}: repair stations midway and just before the boss; elites only once the run is under way`, () => {
-      const map = generateMap(seed);
-      const repairs = map.nodes.filter((n) => n.kind === 'repair');
-      expect(repairs.map((n) => n.col).sort()).toEqual([Math.floor((map.cols - 1) / 2), map.cols - 2].sort());
-      for (const n of map.nodes) if (n.kind === 'elite') expect(n.col).toBeGreaterThanOrEqual(RUN.eliteFromCol);
     });
   }
 
-  it('gives every fight enemies that exist, the boss node the battleship, and repair nodes none', () => {
-    for (const seed of [5, 6, 7, 8, 9, 10]) for (const n of generateMap(seed).nodes) {
-      const map = generateMap(seed);
-      const enc = encounterFor(map, n);
-      if (n.kind === 'boss') expect(enc.enemies).toEqual(['boss']);
-      else if (n.kind === 'combat' || n.kind === 'elite') expect(enc.enemies.length).toBeGreaterThan(0);
-      else expect(enc.enemies).toEqual([]);
-      for (const id of enc.enemies) expect(ENEMIES.some((e) => e.id === id)).toBe(true);
-      expect(enc.celestials.some((c) => c.kind === 'planet')).toBe(true);
-      // Nothing sits on top of where the player or the enemies (boss furthest, straight up) spawn.
-      for (const c of enc.celestials) {
-        expect(Math.hypot(c.x, c.y) - c.radius).toBeGreaterThan(420);
-        expect(Math.hypot(c.x, c.y + 520) - c.radius).toBeGreaterThan(400);
+  it('is written ten missions at a time, the next link when the sixth mission of the current one is taken', () => {
+    const road = new Road(5);
+    expect(road.links).toBe(1);
+    expect(road.points).toHaveLength(ROAD.stride);
+    // Taking missions 1..5 (cleared 0..4) needs nothing new; mission 6 (cleared = 5) writes the next link.
+    for (let cleared = 0; cleared < 5; cleared++) expect(road.ensure(cleared)).toBe(false);
+    expect(road.ensure(5)).toBe(true);
+    expect(road.links).toBe(2);
+    expect(road.ensure(5)).toBe(false);
+    // The gate and the first missions of link two are already in front of the player at the boss.
+    expect(road.points[ROAD.stride].kind).toBe('gate');
+    // The same road written at once or step by step is identical.
+    const stepwise = new Road(5);
+    for (let c = 0; c < 40; c++) stepwise.ensure(c);
+    const direct = new Road(5);
+    direct.ensure(39);
+    expect(stepwise.points).toEqual(direct.points.slice(0, stepwise.points.length));
+    expect(stepwise.links).toBeGreaterThanOrEqual(4);
+  });
+
+  it('grows its enemies without limit but keeps them to ships that exist', () => {
+    const early = genLink(3, 0).filter((p) => p.kind === 'combat');
+    const late = genLink(3, 12).filter((p) => p.kind === 'combat');
+    const avg = (l: typeof early) => l.reduce((n, p) => n + p.enemies.length, 0) / l.length;
+    expect(avg(late)).toBeGreaterThan(avg(early));
+    expect(genLink(3, 12)[ROAD.bossSlot].enemies[0]).toBe('boss');
+    expect(genLink(3, 12)[ROAD.bossSlot].enemies.length).toBeGreaterThan(1);
+    for (const l of [0, 5, 20]) for (const p of genLink(9, l)) for (const id of p.enemies) expect(ENEMIES.some((e) => e.id === id)).toBe(true);
+    expect(genLink(3, 12)[ROAD.bossSlot].tier).toBeGreaterThan(genLink(3, 0)[ROAD.bossSlot].tier);
+  });
+
+  it('counts missions done without counting gates', () => {
+    const road = new Road(1);
+    expect(road.missionsDone(0)).toBe(0);
+    expect(road.missionsDone(3)).toBe(3);
+    road.ensure(11);
+    expect(road.missionsDone(11)).toBe(10);
+    expect(road.missionsDone(12)).toBe(11);
+  });
+
+  it('gives every fight enemies that exist, the boss point the battleship, and non-fights none', () => {
+    for (const seed of [5, 6, 7, 8]) {
+      const road = new Road(seed);
+      road.ensure(25);
+      for (const p of road.points) {
+        const enc = encounterFor(p);
+        if (p.kind === 'boss') expect(enc.enemies[0]).toBe('boss');
+        else if (p.kind === 'combat' || p.kind === 'elite') expect(enc.enemies.length).toBeGreaterThan(0);
+        else expect(enc.enemies).toEqual([]);
+        for (const id of enc.enemies) expect(ENEMIES.some((e) => e.id === id)).toBe(true);
+        expect(enc.celestials.some((c) => c.kind === 'planet')).toBe(true);
+        // Nothing sits on top of where the player or the enemies (boss furthest, straight up) spawn.
+        for (const c of enc.celestials) {
+          expect(Math.hypot(c.x, c.y) - c.radius).toBeGreaterThan(420);
+          expect(Math.hypot(c.x, c.y + 520) - c.radius).toBeGreaterThan(400);
+        }
       }
     }
+  });
+
+  it('puts elites and the boss in the crimson sky and the very first fight in the clear one', () => {
+    const pts = genLink(11, 0);
+    expect(encounterFor(pts[1]).sector).toBe('clear');
+    expect(encounterFor(pts[ROAD.bossSlot]).sector).toBe('crimson');
   });
 });
 

@@ -1,138 +1,19 @@
 import type { GridBody } from './body';
 import { ensureRooms } from './compartments';
 import { findComponents } from './fragment';
-import type { Celestial } from './gravity';
 import type { ShipGrid } from './grid';
 import { MATERIALS, Mat } from './materials';
-import { mulberry32, type Rng } from './rng';
-import { buildArena, type SectorId } from './space';
+import { ROAD } from './road';
 
 /**
- * One run: a seeded map of nodes from a start column to a single boss at the end. The
- * player picks a path column by column; the ship they fly carries every bit of damage
- * from node to node, with repair stations the only way to patch it up along the way.
+ * What a run does to the ship it carries: the damage stays from point to point, and
+ * only a dock patches it up on the way (the road itself is in road.ts).
  */
 
-export type NodeKind = 'start' | 'combat' | 'elite' | 'repair' | 'boss';
-
-export interface MapNode {
-  id: number;
-  col: number;
-  /** Vertical position within the column, 0..1, for drawing and non-crossing edges. */
-  row: number;
-  kind: NodeKind;
-  next: number[];
-}
-
-export interface RunMap {
-  seed: number;
-  cols: number;
-  nodes: MapNode[];
-}
-
 export const RUN = {
-  cols: 8,
-  minPerCol: 2,
-  maxPerCol: 4,
-  eliteFromCol: 3,
-  eliteChance: 0.25,
-  /** Share of the hull lost so far that one repair station patches back. */
-  repairShare: 0.5,
+  /** Share of the hull lost so far that one dock patches back. */
+  repairShare: ROAD.repairShare,
 };
-
-function pick<T>(rng: Rng, list: readonly T[]): T {
-  return list[Math.floor(rng() * list.length)];
-}
-
-export function generateMap(seed: number, cols = RUN.cols): RunMap {
-  const rng = mulberry32(seed);
-  const nodes: MapNode[] = [];
-  const byCol: MapNode[][] = [];
-  for (let c = 0; c < cols; c++) {
-    const n = c === 0 || c === cols - 1 ? 1 : RUN.minPerCol + Math.floor(rng() * (RUN.maxPerCol - RUN.minPerCol + 1));
-    const col: MapNode[] = [];
-    for (let r = 0; r < n; r++) {
-      const row = n === 1 ? 0.5 : (r + 0.5) / n;
-      const node: MapNode = { id: nodes.length, col: c, row, kind: 'combat', next: [] };
-      nodes.push(node);
-      col.push(node);
-    }
-    byCol.push(col);
-  }
-  byCol[0][0].kind = 'start';
-  byCol[cols - 1][0].kind = 'boss';
-
-  // Edges only ever go one column right, to the nearest node(s) by row, so paths fan out
-  // and merge without tangling; then every node that ended up with no way in gets one.
-  for (let c = 0; c < cols - 1; c++) {
-    const a = byCol[c];
-    const b = byCol[c + 1];
-    const link = (from: MapNode, to: MapNode) => {
-      if (!from.next.includes(to.id)) from.next.push(to.id);
-    };
-    for (let i = 0; i < a.length; i++) {
-      if (a.length === 1) {
-        for (const t of b) link(a[i], t);
-        continue;
-      }
-      const j = Math.round((i * (b.length - 1)) / (a.length - 1));
-      link(a[i], b[j]);
-      if (j + 1 < b.length && rng() < 0.35) link(a[i], b[j + 1]);
-      else if (j - 1 >= 0 && rng() < 0.35) link(a[i], b[j - 1]);
-    }
-    for (let j = 0; j < b.length; j++) {
-      if (a.some((n) => n.next.includes(b[j].id))) continue;
-      const i = a.length === 1 ? 0 : Math.round((j * (a.length - 1)) / Math.max(1, b.length - 1));
-      link(a[i], b[j]);
-    }
-    for (const n of a) n.next.sort((p, q) => nodes[p].row - nodes[q].row);
-  }
-
-  // Node kinds: a repair station midway and one right before the boss; elites only
-  // once the player has had a few fights to find their feet.
-  const mid = Math.floor((cols - 1) / 2);
-  pick(rng, byCol[mid]).kind = 'repair';
-  pick(rng, byCol[cols - 2]).kind = 'repair';
-  for (let c = RUN.eliteFromCol; c < cols - 1; c++) {
-    for (const n of byCol[c]) if (n.kind === 'combat' && rng() < RUN.eliteChance) n.kind = 'elite';
-  }
-  return { seed, cols, nodes };
-}
-
-export interface Encounter {
-  enemies: string[];
-  /** The sky behind the arena and the seed that arranges its clouds. */
-  sector: SectorId;
-  skySeed: number;
-  celestials: Celestial[];
-}
-
-const COMBAT_EARLY = [['scout'], ['scout', 'scout'], ['raider']];
-const COMBAT_MID = [['raider', 'scout'], ['hunter'], ['scout', 'scout', 'scout']];
-const COMBAT_LATE = [['raider', 'hunter'], ['hunter', 'scout', 'scout'], ['raider', 'raider']];
-const ELITE = [['raider', 'raider', 'scout'], ['hunter', 'raider'], ['hunter', 'hunter', 'scout']];
-
-/** What waits at a node: its enemies and the bodies of its arena, both from the map's seed. */
-export function encounterFor(map: RunMap, node: MapNode): Encounter {
-  const rng = mulberry32((map.seed * 7919 + node.id * 104729) >>> 0);
-  let enemies: string[] = [];
-  const depth = node.col / (map.cols - 1);
-  if (node.kind === 'boss') enemies = ['boss'];
-  else if (node.kind === 'elite') enemies = pick(rng, ELITE);
-  else if (node.kind === 'combat') enemies = pick(rng, depth < 0.34 ? COMBAT_EARLY : depth < 0.67 ? COMBAT_MID : COMBAT_LATE);
-  const sector = sectorFor(rng, node, depth);
-  // The boss waits at the edge of a huge black hole; elites by a small one (the crimson sector's own).
-  const hole = node.kind === 'boss' ? 'large' : undefined;
-  return { enemies, sector, skySeed: Math.floor(rng() * 100000), celestials: buildArena(rng, sector, { hole, gentle: node.kind === 'combat' && node.col === 1 }) };
-}
-
-/** Which sector's sky a node has: the first fight a quiet clear one, elites and the boss the dangerous crimson one, the rest by depth. */
-export function sectorFor(rng: Rng, node: MapNode, depth: number): SectorId {
-  if (node.kind === 'boss' || node.kind === 'elite') return 'crimson';
-  if (node.kind === 'combat' && node.col === 1) return 'clear';
-  const early = depth < 0.5 ? ['violet', 'green'] : ['ice', 'violet'];
-  return early[Math.floor(rng() * early.length)] as SectorId;
-}
 
 /**
  * Between battles the crew get the air back into every compartment whose hull is still
