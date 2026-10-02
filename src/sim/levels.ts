@@ -10,6 +10,9 @@ import type { ModuleId, PlacedModule, ShipLayout } from './layout';
 
 export const LV_MAX = 5;
 
+/** What an engineer in a ship with a workshop restores per second to a room's damaged cells, at the workshop's first level (×1). */
+export const FIELD_REPAIR_BASE = 3;
+
 export interface LevelDef {
   /** What the effect is, to finish with the value. */
   title: string;
@@ -20,17 +23,17 @@ export interface LevelDef {
 }
 
 export const LEVELS: Record<ModuleId, LevelDef> = {
-  gun: { title: 'Орудия стреляют быстрее', values: [0, 10, 20, 30, 45], unit: 'pct', live: false },
-  eng: { title: 'Раскрутка маршевых короче', values: [0, 15, 30, 45, 60], unit: 'pct', live: false },
-  rcs: { title: 'Поворот и сдвиг мощнее', values: [0, 10, 20, 30, 40], unit: 'pct', live: false },
-  work: { title: 'Пробоины герметизируют быстрее', values: [1, 1.25, 1.5, 1.75, 2], unit: 'times', live: false },
-  med: { title: 'Шанс космонавта пережить гибель модуля', values: [0, 15, 30, 45, 60], unit: 'pct', live: false },
+  gun: { title: 'Орудия стреляют быстрее', values: [0, 10, 20, 30, 45], unit: 'pct', live: true },
+  eng: { title: 'Раскрутка маршевых короче', values: [0, 15, 30, 45, 60], unit: 'pct', live: true },
+  rcs: { title: 'Поворот и сдвиг мощнее', values: [0, 10, 20, 30, 40], unit: 'pct', live: true },
+  work: { title: 'Инженеры чинят клетки отсека быстрее', values: [1, 1.25, 1.5, 1.75, 2], unit: 'times', live: true },
+  med: { title: 'Шанс космонавта пережить гибель модуля', values: [0, 15, 30, 45, 60], unit: 'pct', live: true },
   crew: { title: 'Места для космонавтов', values: [2, 3, 4, 5, 6], unit: 'plus', live: true },
   store: { title: 'Трюм больше на', values: [50, 75, 100, 130, 170], unit: 'pct', live: true },
-  helm: { title: 'Пилот пересаживается за', values: [6, 5, 4, 3, 2], unit: 'sec', live: false },
-  core: { title: 'Мощность реактора', values: [0, 10, 20, 30, 40], unit: 'pct', live: false },
-  shield: { title: 'Ёмкость щита', values: [0, 15, 30, 45, 60], unit: 'pct', live: false },
-  bridge: { title: 'Дальность захвата цели', values: [0, 10, 20, 30, 40], unit: 'pct', live: false },
+  helm: { title: 'Пилот пересаживается за', values: [6, 5, 4, 3, 2], unit: 'sec', live: true },
+  core: { title: 'Мощность реактора', values: [0, 10, 20, 30, 40], unit: 'pct', live: true },
+  shield: { title: 'Ёмкость щита', values: [0, 15, 30, 45, 60], unit: 'pct', live: true },
+  bridge: { title: 'Дальность орудий', values: [0, 10, 20, 30, 40], unit: 'pct', live: true },
 };
 
 export const levelOf = (m: { lv?: number }): number => Math.max(1, Math.min(LV_MAX, m.lv ?? 1));
@@ -54,6 +57,7 @@ export function effectText(type: ModuleId, lv: number, shipId: string): string {
   const d = LEVELS[type];
   let s = shortEffect(type, lv);
   if (type === 'store') s += ` (${holdCap(shipId)} → ${Math.round(holdCap(shipId) * (1 + effectValue(type, lv) / 100))} мет.)`;
+  if (type === 'work') s += ` (${Math.round(FIELD_REPAIR_BASE * effectValue(type, lv) * 100) / 100} ед. прочности в секунду)`;
   if (type === 'core' && effectValue(type, lv) > 0) s += `, радиус взрыва +${Math.round(effectValue(type, lv) * 0.8)}%`;
   if (type === 'shield' && effectValue(type, lv) > 0) s += `, перезарядка +${Math.round(effectValue(type, lv) * 0.7)}%`;
   return `${d.title} ${s}`;

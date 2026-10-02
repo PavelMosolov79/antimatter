@@ -41,12 +41,10 @@ function addPool(geo: DeckGeo, layout: ShipLayout, type: 'store' | 'crew' | 'gun
 }
 
 describe('module levels', () => {
-  it('has five levels, and only the effects that exist in the game can be upgraded', () => {
+  it('has five levels and an effect for every module', () => {
     expect(LV_MAX).toBe(5);
     for (const d of Object.values(LEVELS)) expect(d.values).toHaveLength(LV_MAX);
-    expect(LEVELS.store.live).toBe(true);
-    expect(LEVELS.crew.live).toBe(true);
-    expect(LEVELS.gun.live).toBe(false);
+    for (const d of Object.values(LEVELS)) expect(d.live).toBe(true);
   });
 
   it('prices a level by its step and the size of the module', () => {

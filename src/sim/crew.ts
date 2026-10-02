@@ -1,4 +1,5 @@
-import { crewPlaces } from './levels';
+import { shipEffects } from './effects';
+import { crewPlaces, effectValue, levelOf } from './levels';
 import type { GridBody } from './body';
 import { type Room, type RoomEdge, type RoomGraph, ensureRooms } from './compartments';
 import { moduleEfficiency, type ShipGrid } from './grid';
@@ -49,6 +50,8 @@ export interface Crew {
   suited: boolean;
   /** Countdown to the next random step while wandering (see wanderBehavior). */
   wanderCooldown: number;
+  /** Seconds a pilot still needs at a reserve helm before the ship can be flown from it (levels.ts: the helm module's level). */
+  seat: number;
 }
 
 const CREW = {
@@ -337,6 +340,7 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     dangerTime: 0,
     suited: false,
     wanderCooldown: 0,
+    seat: 0,
   };
 }
 
@@ -452,6 +456,8 @@ function decideStationary(crew: Crew, grid: ShipGrid, graph: RoomGraph, roster: 
     if (spare !== null) {
       crew.homeModule = spare;
       crew.orphaned = false;
+      const post = grid.modules[spare];
+      crew.seat = post.pool === 'helm' ? effectValue('helm', levelOf(post)) : 0;
     } else {
       wanderBehavior(crew, grid, graph, curId, dt);
       return;
@@ -511,6 +517,7 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     room.firefighting = false;
   }
 
+  const rescue = shipEffects(grid).rescue;
   for (const crew of sys.crew) {
     if (crew.dead) continue;
 
@@ -528,6 +535,7 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     else decideStationary(crew, grid, graph, sys.crew, dt);
 
     moveAlong(crew, dt);
+    if (crew.task === 'atPost' && crew.seat > 0) crew.seat = Math.max(0, crew.seat - dt);
 
     const roomId = currentRoom(grid, graph, crew);
     const room = roomId >= 0 ? graph.rooms[roomId] : null;
@@ -542,6 +550,8 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     const xi = Math.floor(crew.x);
     const yi = Math.floor(crew.y);
     if (xi < 0 || yi < 0 || xi >= grid.width || yi >= grid.height || grid.mat[grid.idx(xi, yi, crew.z)] === 0) {
+      // A medical bay may get them out: the survivor lands on the nearest cell of the deck still standing.
+      if (world.rng() < rescue && rescueTo(crew, grid)) continue;
       crew.dead = true;
       continue;
     }
@@ -570,12 +580,39 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
   }
 }
 
+/** Moves a crew member whose cell was destroyed to the nearest cell of the same deck that still stands; false if there is none near. */
+function rescueTo(crew: Crew, grid: ShipGrid): boolean {
+  const cx = Math.floor(crew.x);
+  const cy = Math.floor(crew.y);
+  for (let r = 1; r <= 8; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+        const m = grid.mat[grid.idx(x, y, crew.z)];
+        if (m === 0 || m === Mat.WALL || m === Mat.DOOR) continue;
+        crew.x = x + 0.5;
+        crew.y = y + 0.5;
+        crew.waypoints = [];
+        crew.roomId = -1;
+        crew.roomVersion = -1;
+        crew.destRoom = -1;
+        crew.task = 'idle';
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function pilotAvailable(body: GridBody): boolean {
   const crew = body.sys?.crew;
   if (!crew) return true;
   const hasBridge = body.grid.modules.some((m) => m.kind === 'bridge');
   if (!hasBridge) return true;
-  return crew.some((c) => c.role === 'pilot' && !c.dead && c.task === 'atPost');
+  return crew.some((c) => c.role === 'pilot' && !c.dead && c.task === 'atPost' && c.seat <= 0);
 }
 
 export function crewOnDeck(crew: Crew[], z: number): Crew[] {

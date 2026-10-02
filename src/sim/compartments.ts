@@ -1,6 +1,7 @@
 import type { GridBody } from './body';
+import { shipEffects } from './effects';
 import type { ShipGrid } from './grid';
-import { Mat } from './materials';
+import { MATERIALS, Mat } from './materials';
 import type { World } from './world';
 
 export type EdgeKind = 'door' | 'ladder';
@@ -245,8 +246,16 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
   if (!sys) return;
   const graph = ensureRooms(body);
   const grid = body.grid;
+  // With a workshop aboard, an engineer working a room also puts its damaged cells back in order (effects.ts).
+  const repair = shipEffects(grid).fieldRepair;
 
   for (const room of graph.rooms) {
+    if (repair > 0 && (room.sealing || room.firefighting)) {
+      for (const i of room.cells) {
+        const m = grid.mat[i];
+        if (m !== 0 && grid.hp[i] < MATERIALS[m].hp) grid.hp[i] = Math.min(MATERIALS[m].hp, grid.hp[i] + repair * dt);
+      }
+    }
     let breachedCells = 0;
     for (const i of room.cells) {
       // Breached means nothing shallower than this level still shields the column from

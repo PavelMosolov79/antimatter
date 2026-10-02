@@ -1,4 +1,5 @@
 import type { GridBody } from './body';
+import { shipEffects } from './effects';
 import { moduleEfficiency, type TargetRef, type WeaponType } from './grid';
 import { segmentVsCells, segmentVsShield } from './raycast';
 import { absorbShield, shieldActive, spendEnergy } from './systems';
@@ -254,10 +255,13 @@ export function updateWeapons(world: World, dt: number): void {
       sys.autoTime = world.time;
       sys.autoTarget = nearestHostile(world, b);
     }
+    // Upgraded modules speed the guns up and stretch their reach (effects.ts).
+    const fx = shipEffects(b.grid);
     for (const m of b.grid.modules) {
       const w = m.weapon;
       if (m.kind !== 'turret' || !w) continue;
-      const def = WEAPONS[w.type];
+      const base = WEAPONS[w.type];
+      const def = fx.range === 1 ? base : { ...base, range: base.range * fx.range };
       const eff = moduleEfficiency(m);
       w.firing = false;
       w.cooldown = Math.max(0, w.cooldown - dt);
@@ -303,10 +307,10 @@ export function updateWeapons(world: World, dt: number): void {
       if (def.type === 'beam') {
         if (spendEnergy(sys, def.energyPerSec * dt)) {
           w.firing = true;
-          fireBeam(world, mx, my, dx, dy, def, sys.team, dt * eff);
+          fireBeam(world, mx, my, dx, dy, def, sys.team, dt * eff * fx.fireRate);
         }
       } else if (w.cooldown <= 0 && spendEnergy(sys, def.energy)) {
-        w.cooldown = 1 / (def.rof * eff);
+        w.cooldown = 1 / (def.rof * eff * fx.fireRate);
         world.projectiles.push({
           x: mx,
           y: my,
