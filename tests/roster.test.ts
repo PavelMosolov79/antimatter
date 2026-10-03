@@ -102,6 +102,18 @@ describe('the people', () => {
     expect(m.ship).toBeNull();
   });
 
+  it('knows where each post is on the ship, for putting people on it', () => {
+    for (const spec of SHIPS) {
+      const grid = spec.build();
+      for (const p of postsOf(grid)) {
+        expect(p.x).toBeGreaterThanOrEqual(0);
+        expect(p.x).toBeLessThan(grid.width);
+        expect(p.y).toBeLessThan(grid.height);
+        expect(p.z).toBeLessThan(grid.depth);
+      }
+    }
+  });
+
   it('is kept between sessions', () => {
     const r = emptyRoster();
     staffShip(r, SHIPS[0].id, SHIPS[0].build(), mulberry32(2));

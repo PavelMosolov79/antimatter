@@ -92,6 +92,16 @@ export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number, tint: 
         g = ((def.color >> 8) & 255) * f * tint[1];
         bl = (def.color & 255) * f * tint[2];
       }
+      if (m === Mat.DOOR) {
+        const did = grid.doorIdx[i];
+        if (did !== 0 && grid.doors[did - 1].locked) {
+          // sealed by the ship round a breach: red
+          const k = 0.75 + 0.25 * Math.sin(time * 6);
+          r = 235 * k * tint[0];
+          g = 40 * k * tint[1];
+          bl = 40 * k * tint[2];
+        }
+      }
       if (layer >= 0 && rooms) {
         const rid = rooms.cellRoom[i];
         if (rid >= 0) {

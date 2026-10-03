@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { GridBody } from '../src/sim/body';
-import { ensureRooms, roomsOnDeck } from '../src/sim/compartments';
+import { ensureRooms, roomsOnDeck, setDoorOpen } from '../src/sim/compartments';
 import { pilotAvailable, updateCrew } from '../src/sim/crew';
 import { splitBody } from '../src/sim/fragment';
-import { buildFighter } from '../src/sim/ships';
+import { Mat } from '../src/sim/materials';
+import { buildFighter, playerShip } from '../src/sim/ships';
 import { World } from '../src/sim/world';
 
 const DT = 1 / 60;
@@ -113,11 +114,10 @@ describe('pilot post and flight control', () => {
       for (const cell of [...m.cells]) ship.grid.removeCell(cell);
     }
     run(world, 15); // long enough for every pilot candidate to end up dead or permanently orphaned with no post left
-    const vx0 = ship.vx;
-    const vy0 = ship.vy;
-    run(world, 0.5);
-    expect(ship.vx).toBeCloseTo(vx0, 5);
-    expect(ship.vy).toBeCloseTo(vy0, 5);
+    expect(pilotAvailable(ship)).toBe(false);
+    // no drive command at all: whatever the fires may do to the hull, nothing is pushing the ship
+    const c = world.playerControl;
+    expect(Math.abs(c.main) + Math.abs(c.back) + Math.abs(c.right) + Math.abs(c.left) + Math.abs(c.torque)).toBe(0);
   });
 });
 
@@ -164,13 +164,13 @@ describe('engineers', () => {
     const y = ship.grid.yOf(cell);
     ship.grid.removeCell(ship.grid.idx(x, y, 0));
 
-    run(world, 4); // engineer arrives and starts sealing before it fully vents
-    expect(shieldBay.sealing).toBe(true);
+    run(world, 4); // an engineer arrives, works the breach and patches it before the air is gone
+    expect(shieldBay.patched).toBe(true);
     const pressureAtSeal = shieldBay.pressure;
-    expect(pressureAtSeal).toBeGreaterThan(0);
+    expect(pressureAtSeal).toBeGreaterThan(0.5);
 
     run(world, 5);
-    expect(shieldBay.pressure).toBeGreaterThanOrEqual(pressureAtSeal - 0.01); // held, not vented (it even recovers a little)
+    expect(shieldBay.pressure).toBeGreaterThanOrEqual(pressureAtSeal - 0.01); // the patch holds without anyone standing there
   });
 
   it('extinguishes a fire faster than it would decay on its own in vacuum', () => {
@@ -268,6 +268,12 @@ describe('crew across a hull fragmentation split', () => {
   });
 });
 
+/** Every room but one is left without air and nobody is left to patch the hole, so there is nowhere safe to run to. */
+function nowhereToRun(ship: GridBody, except: number): void {
+  for (const r of ensureRooms(ship).rooms) if (r.id !== except) r.pressure = 0.1;
+  for (const c of ship.sys!.crew!) if (c.role === 'engineer') c.dead = true;
+}
+
 describe('ejection through a breach', () => {
   it('sucks an unsuited crew member out through an actively venting breach and kills them', () => {
     const { world, ship } = makePlayer();
@@ -278,9 +284,10 @@ describe('ejection through a breach', () => {
     const x = ship.grid.xOf(cell);
     const y = ship.grid.yOf(cell);
     ship.grid.removeCell(ship.grid.idx(x, y, 0)); // breach the hull right above the bridge
+    nowhereToRun(ship, ensureRooms(ship).cellRoom[ship.grid.idx(x, y, 1)]);
 
     expect(pilot.dead).toBe(false);
-    run(world, 3); // enough for pressure to fall below the ejection threshold
+    for (let i = 0; i < 60 * 25 && pilot.task !== 'ejected'; i++) world.step(DT); // until the pressure has fallen below the ejection threshold
     expect(pilot.task).toBe('ejected');
     expect(pilot.suited).toBe(false);
 
@@ -297,7 +304,8 @@ describe('ejection through a breach', () => {
     const x = ship.grid.xOf(cell);
     const y = ship.grid.yOf(cell);
     ship.grid.removeCell(ship.grid.idx(x, y, 0));
-    run(world, 3);
+    nowhereToRun(ship, ensureRooms(ship).cellRoom[ship.grid.idx(x, y, 1)]);
+    for (let i = 0; i < 60 * 15 && pilot.task !== 'ejected'; i++) world.step(DT);
     expect(pilot.task).toBe('ejected');
     const atEjection = { x: pilot.x, y: pilot.y };
 
@@ -455,31 +463,253 @@ describe('engineers responding to a call are not treated like bystanders', () =>
     expect(engineer.dead).toBe(false);
   });
 
-  it('does not dispatch an engineer to a room that has already fully vented — nothing left to save', () => {
-    // Breach every column of the room at once (not just one cell) so it vents
-    // to nothing within a fraction of a second — faster than any engineer could
-    // realistically travel there and start sealing — instead of the single-cell
-    // breach other tests use, which a responding engineer is meant to catch and
-    // hold steady (see 'holds a breached room steady...' above).
+  it('still sends an engineer to a room that has vented dry, to close the hole so the air can come back', () => {
     const { world, ship } = makePlayer();
     const graph = ensureRooms(ship);
     const shieldBay = roomsOnDeck(graph, 1)[1];
-    for (const cell of shieldBay.cells) {
-      const x = ship.grid.xOf(cell);
-      const y = ship.grid.yOf(cell);
-      ship.grid.removeCell(ship.grid.idx(x, y, 0));
+    const cells = shieldBay.cells.filter((i) => ship.grid.mod[i] === 0).slice(0, 6);
+    for (const cell of cells) ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(cell), ship.grid.yOf(cell), 0));
+    for (let i = 0; i < 60 * 20 && shieldBay.pressure > 0.02; i++) world.step(DT);
+    expect(shieldBay.pressure).toBeLessThan(0.05); // really bone dry
+    run(world, 15);
+    expect(shieldBay.patched).toBe(true);
+    expect(shieldBay.pressure).toBeGreaterThan(0.1); // the air is coming back
+  });
+});
+
+describe('life aboard: what the crew does when the hull is pierced', () => {
+  function pierce(ship: GridBody, roomId: number): void {
+    const room = ensureRooms(ship).rooms[roomId];
+    const cell = room.cells.find((i) => ship.grid.mat[ship.grid.idx(ship.grid.xOf(i), ship.grid.yOf(i), 0)] !== 0 && ship.grid.mod[i] === 0) ?? room.cells[0];
+    ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(cell), ship.grid.yOf(cell), 0));
+  }
+
+  it('gets everybody out of a pierced room before the air is gone, and nobody dies', () => {
+    for (const build of [() => buildFighter('strike')]) {
+      const world0 = new World(1);
+      const probe = world0.spawnShip(build(), 0, 0, 0, { name: 'P', team: 0, player: true });
+      const rooms = ensureRooms(probe).rooms.length;
+      for (let r = 0; r < rooms; r++) {
+        const world = new World(1);
+        const ship = world.spawnShip(build(), 0, 0, 0, { name: 'P', team: 0, player: true });
+        run(world, 1);
+        const before = ship.sys!.crew!.length;
+        pierce(ship, r);
+        run(world, 30);
+        const lost = ship.sys!.crew!.filter((c) => c.dead).length;
+        expect(lost, `room ${r}`).toBe(0);
+        expect(ship.sys!.crew!.length).toBe(before);
+      }
     }
+  });
 
-    // Check shortly after it's vented dry, not later — once ejection has had time to
-    // kick in, a dispatched-then-ejected engineer's task also reads as "not toPost/seal"
-    // (it becomes 'ejected'), which would let this test pass even without the fix by
-    // hiding the wrong root cause behind a different, unrelated bug's symptom.
+  it('runs out of the pierced room at once, not when the air is nearly gone', () => {
+    const { world, ship } = makePlayer();
     run(world, 1);
-    expect(shieldBay.pressure).toBeLessThan(0.02); // sanity: it really is bone dry
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    const graph = ensureRooms(ship);
+    const room = graph.rooms[graph.cellRoom[ship.grid.idx(Math.floor(pilot.x), Math.floor(pilot.y), pilot.z)]];
+    const cell = room.cells.find((i) => ship.grid.mod[i] === 0)!;
+    ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(cell), ship.grid.yOf(cell), 0));
+    run(world, 0.3);
+    expect(pilot.task).toBe('flee');
+    expect(room.pressure).toBeGreaterThan(0.9);
+  });
 
-    const engineer = ship.sys!.crew!.find((c) => c.role === 'engineer')!;
-    expect(engineer.task).not.toBe('toPost');
-    expect(engineer.task).not.toBe('seal');
-    expect(engineer.destRoom).not.toBe(shieldBay.id);
+  it('never stands about in a doorway: a person is on a door cell only while walking through it', () => {
+    const { world, ship } = makePlayer();
+    run(world, 1);
+    const graph = ensureRooms(ship);
+    for (const r of [0, 2, 5]) pierce(ship, Math.min(r, graph.rooms.length - 1));
+    const onDoor = new Map<number, number>();
+    let worst = 0;
+    for (let i = 0; i < 60 * 40; i++) {
+      world.step(DT);
+      for (const c of ship.sys!.crew!) {
+        if (c.dead) continue;
+        const cell = ship.grid.idx(Math.floor(c.x), Math.floor(c.y), c.z);
+        if (ship.grid.mat[cell] === Mat.DOOR) {
+          const t = (onDoor.get(c.id) ?? 0) + DT;
+          onDoor.set(c.id, t);
+          worst = Math.max(worst, t);
+        } else onDoor.set(c.id, 0);
+      }
+    }
+    expect(worst).toBeLessThan(2.5);
+  });
+
+  it('goes back to the post once the room is patched, and not before', () => {
+    const { world, ship } = makePlayer();
+    run(world, 1);
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    for (const c of ship.sys!.crew!) if (c.role === 'engineer') c.dead = true; // nobody to patch it yet
+    const graph = ensureRooms(ship);
+    const room = graph.rooms[graph.cellRoom[ship.grid.idx(Math.floor(pilot.x), Math.floor(pilot.y), pilot.z)]];
+    const cell = room.cells.find((i) => ship.grid.mod[i] === 0)!;
+    ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(cell), ship.grid.yOf(cell), 0));
+    run(world, 6);
+    expect(pilot.task).not.toBe('atPost'); // the room is still open to space
+    expect(pilot.dead).toBe(false);
+    room.patched = true;
+    room.patchHoles = room.holes;
+    run(world, 25);
+    expect(pilot.task).toBe('atPost');
+  });
+
+  it('sends only the nearest engineer to a breach, and the rest keep walking their rounds', () => {
+    const world = new World(1);
+    const ship = world.spawnShip(playerShip('cruiser'), 0, 0, 0, { name: 'P', team: 0, player: true });
+    run(world, 6); // the engineers spread out
+    const engineers = ship.sys!.crew!.filter((c) => c.role === 'engineer');
+    expect(engineers.length).toBeGreaterThanOrEqual(2);
+    const graph = ensureRooms(ship);
+    const room = graph.rooms.find((r) => r.z === 1 && r.cells.length > 20)!;
+    const cell = room.cells.find((i) => ship.grid.mod[i] === 0)!;
+    ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(cell), ship.grid.yOf(cell), 0));
+    run(world, 0.2);
+    const called = engineers.filter((e) => e.incident !== null);
+    expect(called.length).toBe(1);
+    // the others are not called: they keep their rounds (or step out of the pierced room if they happened to be in it)
+    for (const e of engineers.filter((x) => x.incident === null)) expect(['wander', 'flee']).toContain(e.task);
+  });
+
+  it('spreads the engineers over the ship while nothing is wrong', () => {
+    const world = new World(1);
+    const ship = world.spawnShip(playerShip('cruiser'), 0, 0, 0, { name: 'P', team: 0, player: true });
+    run(world, 25);
+    const graph = ensureRooms(ship);
+    const rooms = new Set(
+      ship.sys!.crew!
+        .filter((c) => c.role === 'engineer' && !c.dead)
+        .map((c) => graph.cellRoom[ship.grid.idx(Math.floor(c.x), Math.floor(c.y), c.z)]),
+    );
+    expect(rooms.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the patch on without the engineer, until a new hole is made', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const shieldBay = roomsOnDeck(graph, 1)[2];
+    const [c0, c1] = shieldBay.cells.filter((i) => ship.grid.mod[i] === 0);
+    ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(c0), ship.grid.yOf(c0), 0));
+    run(world, 10);
+    expect(shieldBay.patched).toBe(true);
+    expect(shieldBay.sealing).toBe(false); // the engineer has gone about their business
+    const p = shieldBay.pressure;
+    run(world, 5);
+    expect(shieldBay.pressure).toBeGreaterThanOrEqual(p - 0.001);
+    // another hole undoes the patch
+    for (const e of ship.sys!.crew!) if (e.role === 'engineer') e.dead = true;
+    ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(c1), ship.grid.yOf(c1), 0));
+    run(world, 0.5);
+    expect(shieldBay.patched).toBe(false);
+  });
+
+  it('wanders the whole ship, not just one room, when it has no post', () => {
+    const { world, ship } = makePlayer();
+    const pilot = ship.sys!.crew!.find((c) => c.role === 'pilot')!;
+    pilot.x = 15;
+    pilot.y = 33;
+    pilot.z = 2;
+    pilot.roomId = -1;
+    for (const m of ship.grid.modules) {
+      if (m.kind !== 'bridge') continue;
+      for (const cell of [...m.cells]) ship.grid.removeCell(cell);
+    }
+    const graph = ensureRooms(ship);
+    const seen = new Set<number>();
+    for (let i = 0; i < 60 * 90; i++) {
+      world.step(DT);
+      seen.add(graph.cellRoom[ship.grid.idx(Math.floor(pilot.x), Math.floor(pilot.y), pilot.z)]);
+    }
+    expect(pilot.dead).toBe(false);
+    expect(seen.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('reaches a room whose module was blown away without walking into the hole', () => {
+    const { world, ship } = makePlayer();
+    for (const m of ship.grid.modules) if (m.kind === 'bridge') for (const cell of [...m.cells]) ship.grid.removeCell(cell);
+    run(world, 25);
+    expect(ship.sys!.crew!.filter((c) => c.role === 'engineer' && c.dead).length).toBe(0);
+  });
+});
+
+describe('what an engineer can and cannot patch, and where a post-less crew member goes', () => {
+  function breach(ship: GridBody, room: ReturnType<typeof ensureRooms>['rooms'][number], holes: number): void {
+    const cells = room.cells.filter((i) => ship.grid.mod[i] === 0 && ship.grid.mat[ship.grid.idx(ship.grid.xOf(i), ship.grid.yOf(i), 0)] !== 0).slice(0, holes);
+    expect(cells.length).toBe(holes);
+    for (const c of cells) ship.grid.removeCell(ship.grid.idx(ship.grid.xOf(c), ship.grid.yOf(c), 0));
+  }
+
+  it('patches a breach of up to six cells', () => {
+    const { world, ship } = makePlayer();
+    const room = roomsOnDeck(ensureRooms(ship), 1)[2];
+    breach(ship, room, 6);
+    run(world, 40);
+    expect(room.holes).toBe(6);
+    expect(room.patched).toBe(true);
+  });
+
+  it('does not send an engineer to a wider breach: it stays open, and nobody goes in', () => {
+    const { world, ship } = makePlayer();
+    const room = roomsOnDeck(ensureRooms(ship), 1)[2];
+    breach(ship, room, 9);
+    run(world, 2);
+    expect(ship.sys!.crew!.some((c) => c.role === 'engineer' && c.incident === room.id)).toBe(false);
+    run(world, 40);
+    expect(room.patched).toBe(false);
+    expect(room.pressure).toBeLessThan(0.05);
+    // and none of the engineers went into the room to die there
+    expect(ship.sys!.crew!.filter((c) => c.role === 'engineer' && c.dead).length).toBe(0);
+  });
+
+  it('seals the doors of a room with a breach too wide to patch, once nobody is left in it, and keeps them shut', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const room = roomsOnDeck(graph, 1)[2];
+    const doorsOf = graph.edges.filter((e) => e.kind === 'door' && (e.a === room.id || e.b === room.id)).map((e) => ship.grid.doors[e.doorId!]);
+    expect(doorsOf.length).toBeGreaterThan(0);
+    breach(ship, room, 9);
+    run(world, 30);
+    for (const d of doorsOf) {
+      expect(d.locked).toBe(true);
+      expect(d.open).toBe(false);
+    }
+    // the player cannot open one either
+    const id = graph.edges.find((e) => e.kind === 'door' && (e.a === room.id || e.b === room.id))!.doorId!;
+    setDoorOpen(ship.grid, id, true);
+    expect(ship.grid.doors[id].open).toBe(false);
+  });
+
+  it('does not seal the doors of a breach an engineer can patch', () => {
+    const { world, ship } = makePlayer();
+    const graph = ensureRooms(ship);
+    const room = roomsOnDeck(graph, 1)[2];
+    breach(ship, room, 4);
+    run(world, 30);
+    for (const e of graph.edges) if (e.kind === 'door' && (e.a === room.id || e.b === room.id)) expect(ship.grid.doors[e.doorId!].locked).toBeFalsy();
+  });
+
+  it('sends a gunner whose turret is gone to the nearest turret nobody is manning', () => {
+    const { world, ship } = makePlayer();
+    run(world, 2);
+    const grid = ship.grid;
+    const gunners = ship.sys!.crew!.filter((c) => c.role === 'gunner');
+    expect(gunners.length).toBeGreaterThanOrEqual(3);
+    const [mover, ...others] = gunners;
+    for (const o of others) o.dead = true; // their turrets are free now
+    const lost = grid.modules[mover.homeModule];
+    // stand the gunner well away from his turret before it is destroyed, so he lives
+    const away = others[0];
+    mover.x = away.x;
+    mover.y = away.y;
+    mover.z = away.z;
+    mover.roomId = -1;
+    mover.waypoints = [];
+    for (const cell of [...lost.cells]) grid.removeCell(cell);
+    // the mover stands at the second gunner's turret, so that one is the nearest
+    run(world, 1);
+    expect(mover.orphaned).toBe(false);
+    expect(mover.homeModule).toBe(others[0].homeModule);
   });
 });

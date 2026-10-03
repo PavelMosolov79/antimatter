@@ -1,4 +1,5 @@
 import { moduleSprite, paintDeck } from '../sim/interiorArt';
+import { moduleFaceCanvas, moduleSheetCanvas } from '../render/moduleArt';
 import { yardLayout, currentLayout } from '../sim/interior';
 import {
   MODULE_INFO,
@@ -541,6 +542,15 @@ export class ModulesScreen {
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, this.els.canvas.width, this.els.canvas.height);
     ctx.drawImage(off, 0, 0, g.w * Z, g.h * Z);
+    // the new pictures over the rooms of the modules and ladder shafts (the room inside, not the wall)
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    for (const e of plan.ents) {
+      const iw = e.r.x1 - e.r.x0 - 1;
+      const ih = e.r.y1 - e.r.y0 - 1;
+      ctx.drawImage(moduleSheetCanvas(e.type, iw, ih, e.tw, e.th), (e.r.x0 + 1) * Z, (e.r.y0 + 1) * Z, iw * Z, ih * Z);
+    }
+    ctx.imageSmoothingEnabled = false;
     const o = g.org[z];
     if (this.showGrid) {
       ctx.strokeStyle = 'rgba(111,211,255,0.2)';
@@ -583,11 +593,13 @@ export class ModulesScreen {
         }
       }
       const spr = moduleSprite(d.type, d.tw, d.th);
-      const gc = spriteCanvas(d.type, d.tw, d.th, 1);
+      const gc = spriteCanvas(d.type, d.tw, d.th, 8);
       const gx = d.ladder ? d.i : o.ox + TILE * d.i;
       const gy = d.ladder ? d.j : o.oy + TILE * d.j;
       ctx.globalAlpha = 0.9;
+      ctx.imageSmoothingEnabled = true;
       ctx.drawImage(gc, gx * Z, gy * Z, spr.w * Z, spr.h * Z);
+      ctx.imageSmoothingEnabled = false;
       ctx.globalAlpha = 1;
       ctx.fillStyle = d.valid ? 'rgba(80,230,150,0.28)' : 'rgba(255,80,90,0.4)';
       ctx.fillRect(gx * Z, gy * Z, spr.w * Z, spr.h * Z);
@@ -1007,20 +1019,7 @@ function chip(kind: 'ok' | 'warn', text: string): HTMLDivElement {
   return div(`chip ${kind}`, text);
 }
 
-/** A module's picture with its wall on a canvas, `scale` times the size of a cell. */
+/** A module's picture with its wall on a canvas, `scale` pixels to a cell. */
 function spriteCanvas(type: ModuleId | 'ladder', tw: number, th: number, scale: number): HTMLCanvasElement {
-  const s = moduleSprite(type, tw, th);
-  const c = document.createElement('canvas');
-  c.width = s.w;
-  c.height = s.h;
-  c.getContext('2d')!.putImageData(new ImageData(s.px as unknown as Uint8ClampedArray<ArrayBuffer>, s.w, s.h), 0, 0);
-  if (scale === 1) return c;
-  const out = document.createElement('canvas');
-  out.width = s.w * scale;
-  out.height = s.h * scale;
-  const ctx = out.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(c, 0, 0, out.width, out.height);
-  return out;
+  return moduleFaceCanvas(type, tw, th, scale);
 }
-

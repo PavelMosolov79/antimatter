@@ -90,10 +90,25 @@ export function moduleEfficiency(m: Module): number {
   return m.coreAlive && m.total > 0 ? m.alive / m.total : 0;
 }
 
+/** The picture of a module on a deck of a player's ship: its kind and the room inside it (cells, without the wall). */
+export interface Decor {
+  type: string;
+  z: number;
+  x0: number;
+  y0: number;
+  w: number;
+  h: number;
+  /** Size in tiles of the layout (a big bridge is 2×1 or 3×2). */
+  tw: number;
+  th: number;
+}
+
 export interface Door {
   cell: number;
   open: boolean;
   destroyed: boolean;
+  /** Sealed by the ship round a breach too wide to patch: shut, red, and nobody opens it. */
+  locked?: boolean;
 }
 
 export class ShipGrid {
@@ -108,6 +123,8 @@ export class ShipGrid {
   readonly colCount: Uint8Array;
   modules: Module[] = [];
   doors: Door[] = [];
+  /** What to draw over the rooms of the modules (render/decorView.ts); only the player's ships have it. */
+  decor: Decor[] = [];
   /**
    * Optional hand-drawn look, one colour per cell (r,g,b as 0..~400 so over-bright
    * highlights survive until shading). Ships that have it render these colours instead

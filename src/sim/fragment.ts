@@ -143,8 +143,14 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
     const y = src.yOf(d.cell);
     if (labels[y * w + x] !== label) continue;
     const ni = grid.idx(x - minX, y - minY, src.zOf(d.cell));
-    grid.doors.push({ cell: ni, open: d.open, destroyed: d.destroyed });
+    grid.doors.push({ cell: ni, open: d.open, destroyed: d.destroyed, locked: d.locked });
     grid.doorIdx[ni] = grid.doors.length;
+  }
+  for (const d of src.decor) {
+    const cx = d.x0 + Math.floor(d.w / 2);
+    const cy = d.y0 + Math.floor(d.h / 2);
+    if (labels[cy * w + cx] !== label) continue;
+    grid.decor.push({ ...d, x0: d.x0 - minX, y0: d.y0 - minY });
   }
   return { grid, bx: minX, by: minY, moduleMap };
 }

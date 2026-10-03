@@ -22,6 +22,11 @@ export interface Room {
    */
   sealing: boolean;
   firefighting: boolean;
+  /** How many cells of the room are open to space. */
+  holes: number;
+  /** An engineer has patched the holes: the air stays in (and slowly comes back) until a new hole is made. */
+  patched: boolean;
+  patchHoles: number;
 }
 
 export interface RoomEdge {
@@ -40,7 +45,11 @@ export interface RoomGraph {
 }
 
 export const COMPARTMENTS = {
-  breachRate: 0.3,
+  breachRate: 0.06,
+  /** However wide the hole, the air does not leave a room faster than this per second (seconds to flee in). */
+  maxBreachRate: 0.5,
+  /** How fast the air comes back in a patched room. */
+  repressRate: 0.12,
   flowRate: 1.1,
   fireGrowth: 0.14,
   fireVacuumDecay: 1.4,
@@ -51,6 +60,8 @@ export const COMPARTMENTS = {
   ignitionFeed: 220,
   minOxygen: 0.12,
   engineerExtinguishRate: 1,
+  /** A breach of more cells than this cannot be patched by an engineer; the doors round such a room seal themselves. */
+  sealMaxHoles: 6,
 };
 
 function clamp01(v: number): number {
@@ -111,7 +122,7 @@ export function buildRooms(grid: ShipGrid): RoomGraph {
       if (cells.length < MIN_ROOM_CELLS) continue;
       const id = rooms.length;
       for (const c of cells) cellRoom[c] = id;
-      rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false, sealing: false, firefighting: false });
+      rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false, sealing: false, firefighting: false, holes: 0, patched: false, patchHoles: 0 });
     }
   }
 
@@ -163,6 +174,8 @@ function blend(oldGraph: RoomGraph, newGraph: RoomGraph, oldCellFor: (newCell: n
     let pressureSum = 0;
     let fireSum = 0;
     let breached = false;
+    let patched = false;
+    let patchHoles = 0;
     for (const cell of nr.cells) {
       const oldId = oldGraph.cellRoom[oldCellFor(cell)];
       if (oldId === -1) continue;
@@ -170,12 +183,18 @@ function blend(oldGraph: RoomGraph, newGraph: RoomGraph, oldCellFor: (newCell: n
       pressureSum += or.pressure;
       fireSum += or.fire;
       if (or.breached) breached = true;
+      if (or.patched) {
+        patched = true;
+        patchHoles = Math.max(patchHoles, or.patchHoles);
+      }
       matchedCells++;
     }
     if (matchedCells > 0) {
       nr.pressure = pressureSum / matchedCells;
       nr.fire = fireSum / matchedCells;
       nr.breached = breached;
+      nr.patched = patched;
+      nr.patchHoles = patchHoles;
     }
   }
 }
@@ -222,7 +241,49 @@ function autoCloseDoors(grid: ShipGrid, graph: RoomGraph, roomId: number): void 
 
 export function setDoorOpen(grid: ShipGrid, doorId: number, open: boolean): void {
   const door = grid.doors[doorId];
-  if (door && !door.destroyed) door.open = open;
+  if (door && !door.destroyed && !door.locked) door.open = open;
+}
+
+/** A door sealed by the ship: people do not plan their way through it. */
+export function edgeLocked(grid: ShipGrid, edge: RoomEdge): boolean {
+  return edge.kind === 'door' && edge.doorId !== undefined && !!grid.doors[edge.doorId]?.locked;
+}
+
+/**
+ * Round a breach too wide to patch the doors of the room seal themselves (shut and red) so the air of
+ * the rest of the ship stays in. A door is not sealed while somebody is still in it or still in the room:
+ * the ship never shuts people in with the vacuum. When the breach is gone the doors are free again.
+ */
+function lockdown(grid: ShipGrid, graph: RoomGraph, crew: Array<{ x: number; y: number; z: number; dead: boolean }>): void {
+  const wide = new Set<number>();
+  for (const room of graph.rooms) if (room.holes > COMPARTMENTS.sealMaxHoles && !room.patched) wide.add(room.id);
+  const occupied = new Set<number>();
+  const onCell = new Set<number>();
+  for (const c of crew) {
+    if (c.dead) continue;
+    const xi = Math.floor(c.x);
+    const yi = Math.floor(c.y);
+    if (xi < 0 || yi < 0 || xi >= grid.width || yi >= grid.height || c.z < 0 || c.z >= grid.depth) continue;
+    const i = grid.idx(xi, yi, c.z);
+    onCell.add(i);
+    const r = graph.cellRoom[i];
+    if (r >= 0) occupied.add(r);
+  }
+  const keep = new Set<number>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== 'door' || edge.doorId === undefined) continue;
+    const door = grid.doors[edge.doorId];
+    if (door.destroyed) continue;
+    const bad = wide.has(edge.a) ? edge.a : wide.has(edge.b) ? edge.b : -1;
+    if (bad >= 0) {
+      keep.add(edge.doorId);
+      if (door.locked) continue;
+      if (occupied.has(bad) || onCell.has(door.cell)) continue;
+      door.open = false;
+      door.locked = true;
+    }
+  }
+  for (let d = 0; d < grid.doors.length; d++) if (grid.doors[d].locked && !keep.has(d)) grid.doors[d].locked = false;
 }
 
 function applyFireDamage(world: World, body: GridBody, room: Room, budget: number): void {
@@ -269,12 +330,20 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
     }
     const wasBreached = room.breached;
     room.breached = breachedCells > 0;
-    // An engineer actively sealing the breach (crew.ts) stops the leak from getting any
-    // worse, but doesn't retroactively fix the hull — the room stays "breached" and the
-    // patch holds only as long as someone's there working it.
-    if (breachedCells > 0 && !room.sealing) room.pressure = clamp01(room.pressure - COMPARTMENTS.breachRate * breachedCells * dt);
+    room.holes = breachedCells;
+    // A patch (put on by an engineer, see crew.ts) holds until another hole is made.
+    if (room.patched && breachedCells > room.patchHoles) room.patched = false;
+    if (breachedCells === 0) room.patched = false;
+    // An engineer working the breach stops the leak at once; once the work is done the room stays
+    // patched. The hull itself is not mended (that is dock work), the air just stays in.
+    if (breachedCells > 0) {
+      if (!room.sealing && !room.patched) room.pressure = clamp01(room.pressure - Math.min(COMPARTMENTS.maxBreachRate, COMPARTMENTS.breachRate * breachedCells) * dt);
+      else room.pressure = clamp01(room.pressure + COMPARTMENTS.repressRate * dt);
+    }
     if (!wasBreached && room.breached) autoCloseDoors(grid, graph, room.id);
   }
+
+  lockdown(grid, graph, sys.crew ?? []);
 
   for (const edge of graph.edges) {
     if (!edgeOpen(grid, edge)) continue;
@@ -333,6 +402,7 @@ export interface DoorInfo {
   z: number;
   open: boolean;
   destroyed: boolean;
+  locked: boolean;
   roomA: number;
   roomB: number;
 }
@@ -350,6 +420,7 @@ export function doorsOnDeck(grid: ShipGrid, graph: RoomGraph, z: number): DoorIn
       z,
       open: door.open,
       destroyed: door.destroyed,
+      locked: !!door.locked,
       roomA: edge.a,
       roomB: edge.b,
     });

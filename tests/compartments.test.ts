@@ -255,7 +255,7 @@ describe('fire', () => {
       const doorEdge = graph.edges.find((e) => e.kind === 'door' && (e.a === shieldBay.id || e.b === shieldBay.id) && (e.a === aftBay.id || e.b === aftBay.id))!;
       setDoorOpen(ship.grid, doorEdge.doorId!, false);
       breachCells(ship, aftBay.cells.slice(0, 10), 1);
-      run(world, ship, 6);
+      run(world, ship, 10);
       expect(aftBay.pressure).toBeLessThan(0.05);
       aftBay.fire = 1;
       run(world, ship, 2);
@@ -306,7 +306,7 @@ describe('reactor fire interacts with MVP-1 detonation', () => {
     breachCells(ship, reactorModule.cells, reactorRoom.z);
     // A handful of ticks is enough to vent this small room before the fire can do much damage
     // or spread far enough to threaten the graph's structural cells.
-    for (let i = 0; i < 60 * 2; i++) {
+    for (let i = 0; i < 60 * 4; i++) {
       updateCompartments(world, ship, DT);
       updateSystems(world, ship, DT);
     }

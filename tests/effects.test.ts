@@ -5,7 +5,7 @@ import { updateCrew, pilotAvailable } from '../src/sim/crew';
 import { buildPlayerShip, yardLayout } from '../src/sim/interior';
 import { canPlaceModule, cloneLayout, putModule, type DeckGeo, type ShipLayout } from '../src/sim/layout';
 import { applyPropulsion } from '../src/sim/propulsion';
-import { buildCruiser, buildFighter, shipDeckGeo } from '../src/sim/ships';
+import { buildCruiser, buildFighter, playerShip, shipDeckGeo } from '../src/sim/ships';
 import { World } from '../src/sim/world';
 import { FIELD_REPAIR_BASE, LEVELS } from '../src/sim/levels';
 
@@ -126,6 +126,8 @@ describe('module effects', () => {
   it('can save a crew member from a module that is destroyed under them, but only with a medical bay', () => {
     const tryIt = (mods: Array<[Pool, number]>) => {
       const s = ship(mods);
+      // the bay's rescue is a chance (at most 95%): fix the dice so the test does not depend on the luck of the draw
+      (s.world as unknown as { rng: () => number }).rng = () => 0.5;
       const crew = s.body.sys!.crew!.find((c) => c.role === 'engineer')!;
       const x = Math.floor(crew.x);
       const y = Math.floor(crew.y);
@@ -153,6 +155,102 @@ describe('module effects', () => {
     for (let i = 0; i < 60 * 6; i++) updateCrew(s.world, s.body, 1 / 60);
     expect(pilot.seat).toBe(0);
     expect(pilotAvailable(s.body)).toBe(true);
+  });
+
+  it('keeps the captain out of a vented room on his way to a reserve helm', () => {
+    // the main bridge is pierced and blown up; the only way to the reserve helm leads through its room,
+    // so he waits where it is safe instead of walking into the vacuum and being thrown out
+    const layout: ShipLayout = cloneLayout(yardLayout('cruiser', geo()));
+    expect(putModule(geo(), layout, 'helm', 1, 0, 5, 1, 1, null, 2)).toBe(true);
+    const grid = buildPlayerShip('cruiser', buildCruiser, layout);
+    const world = new World(5);
+    const body = world.spawnShip(grid, 0, 0, 0, { name: 'P', team: 0, player: true });
+    const s = { grid, world, body };
+    const pilot = s.body.sys!.crew!.find((c) => c.role === 'pilot')!;
+    for (let i = 0; i < 120; i++) s.world.step(1 / 60);
+    const graph = ensureRooms(s.body);
+    const room = graph.rooms[graph.cellRoom[s.grid.idx(Math.floor(pilot.x), Math.floor(pilot.y), pilot.z)]];
+    let n = 0;
+    for (const c of room.cells) {
+      if (n >= 3) break;
+      const x = s.grid.xOf(c);
+      const y = s.grid.yOf(c);
+      if (s.grid.mat[s.grid.idx(x, y, 0)] !== 0) {
+        s.grid.removeCell(s.grid.idx(x, y, 0));
+        n++;
+      }
+    }
+    const cells = [...s.grid.modules[pilot.homeModule].cells];
+    for (let i = 0; i < 60 * 11; i++) {
+      if (i === 180) for (const c of cells) s.grid.removeCell(c);
+      s.world.step(1 / 60);
+    }
+    expect(pilot.dead).toBe(false);
+    expect(pilot.task).not.toBe('ejected');
+    expect(pilot.orphaned).toBe(true); // he is waiting, not running through the vacuum yet
+  });
+
+  it('after a long wait the captain risks the way through the vented room to the reserve helm', () => {
+    const layout: ShipLayout = cloneLayout(yardLayout('fighter', shipDeckGeo('fighter')));
+    expect(putModule(shipDeckGeo('fighter'), layout, 'helm', 2, 1, 3, 1, 1, null, 2)).toBe(true);
+    const world = new World(5);
+    (world as unknown as { rng: () => number }).rng = () => 0.99; // the dice are kind
+    const body = world.spawnShip(playerShip('fighter', layout), 0, 0, 0, { name: 'P', team: 0, player: true });
+    const grid = body.grid;
+    const pilot = body.sys!.crew!.find((c) => c.role === 'pilot')!;
+    for (let i = 0; i < 120; i++) world.step(1 / 60);
+    const graph = ensureRooms(body);
+    const room = graph.rooms[graph.cellRoom[grid.idx(Math.floor(pilot.x), Math.floor(pilot.y), pilot.z)]];
+    let n = 0;
+    for (const c of room.cells) {
+      if (n >= 3) break;
+      const x = grid.xOf(c);
+      const y = grid.yOf(c);
+      if (grid.mat[grid.idx(x, y, 0)] !== 0) {
+        grid.removeCell(grid.idx(x, y, 0));
+        n++;
+      }
+    }
+    // the engineers of this layout cannot get to the bridge, so nobody patches it: the only way is through
+    const cells = [...grid.modules[pilot.homeModule].cells];
+    for (let i = 0; i < 60 * 60; i++) {
+      if (i === 180) for (const c of cells) grid.removeCell(c);
+      world.step(1 / 60);
+    }
+    expect(pilot.dead).toBe(false);
+    expect(pilot.task).toBe('atPost');
+    expect(grid.modules[pilot.homeModule].pool).toBe('helm');
+  });
+
+  it('takes the captain of a fighter to the reserve helm after a breach, not stuck on a ladder shaft', () => {
+    // the nearest "safe room" used to be a ladder shaft: he stood on a ladder with nowhere to step and fled forever
+    const layout: ShipLayout = cloneLayout(yardLayout('fighter', shipDeckGeo('fighter')));
+    expect(putModule(shipDeckGeo('fighter'), layout, 'helm', 1, 1, 4, 1, 1, null, 2)).toBe(true);
+    const world = new World(5);
+    const body = world.spawnShip(playerShip('fighter', layout), 0, 0, 0, { name: 'P', team: 0, player: true });
+    const grid = body.grid;
+    const pilot = body.sys!.crew!.find((c) => c.role === 'pilot')!;
+    for (let i = 0; i < 120; i++) world.step(1 / 60);
+    const graph = ensureRooms(body);
+    const room = graph.rooms[graph.cellRoom[grid.idx(Math.floor(pilot.x), Math.floor(pilot.y), pilot.z)]];
+    let n = 0;
+    for (const c of room.cells) {
+      if (n >= 3) break;
+      const x = grid.xOf(c);
+      const y = grid.yOf(c);
+      if (grid.mat[grid.idx(x, y, 0)] !== 0) {
+        grid.removeCell(grid.idx(x, y, 0));
+        n++;
+      }
+    }
+    const cells = [...grid.modules[pilot.homeModule].cells];
+    for (let i = 0; i < 60 * 30; i++) {
+      if (i === 180) for (const c of cells) grid.removeCell(c);
+      world.step(1 / 60);
+    }
+    expect(pilot.dead).toBe(false);
+    expect(pilot.task).toBe('atPost');
+    expect(grid.modules[pilot.homeModule].pool).toBe('helm');
   });
 
   it('lets engineers put the damaged cells of the room they work back in order, if there is a workshop', () => {

@@ -1,66 +1,47 @@
 import { Container, Sprite, Texture } from 'pixi.js';
 import type { CrewRole } from '../sim/crew';
 import type { World } from '../sim/world';
+import { ASTRO_H, ASTRO_W, astronautCanvas } from './astronaut';
 
-const ROLE_COLOR: Record<CrewRole, number> = {
-  pilot: 0xff3ea6,
-  gunner: 0xffb347,
-  shieldop: 0x59e6ff,
-  engineer: 0xffe066,
-};
+/** How wide an astronaut is on the deck, in cells of the ship (the drawing is 41×20 pixels, arms spread). */
+const ASTRO_CELLS = 3.2;
 
 /**
- * A crew member's post is often the same material color the fill would be on its own
- * (e.g. the shieldop stands right on a shield generator, which is the same blue a plain
- * fill would use) — a single-color badge with only one border can disappear against a
- * background that happens to match it. A white halo plus a dark ring around the role
- * color, like a map pin, always has at least one ring that contrasts with whatever
- * material is underneath. `Sprite.tint` multiplies every pixel uniformly, which would
- * also tint the white halo away from white, so instead of one tintable texture this
- * bakes one full-color texture per role directly (only 4 of them, built once) — the
- * same nearest-scaled canvas-texture technique as the turret barrels in combatFx.ts
- * (the shared, untinted `Texture.WHITE` this used originally defaults to linear
- * filtering, which at this zoom level sampled padding from its shared atlas into a
- * blurred, hollow-looking ring instead of a solid badge).
+ * One texture per profession, made once: the astronaut seen from above, the suit in the colour of the
+ * profession (see astronaut.ts). Smoothed when shrunk, so a person stays readable at any zoom.
  */
-const badgeTextures = new Map<CrewRole, Texture>();
+const textures = new Map<CrewRole, Texture>();
 
-function getBadgeTexture(role: CrewRole): Texture {
-  let tex = badgeTextures.get(role);
+function getTexture(role: CrewRole): Texture {
+  let tex = textures.get(role);
   if (tex) return tex;
-  const art = ['WWWWWWW', 'WDDDDDW', 'WDRRRDW', 'WDRRRDW', 'WDRRRDW', 'WDDDDDW', 'WWWWWWW'];
-  const canvas = document.createElement('canvas');
-  canvas.width = 7;
-  canvas.height = 7;
-  const ctx = canvas.getContext('2d')!;
-  const roleHex = `#${ROLE_COLOR[role].toString(16).padStart(6, '0')}`;
-  const color: Record<string, string> = { W: '#f2f6ff', D: '#0c0f18', R: roleHex };
-  for (let y = 0; y < 7; y++) {
-    for (let x = 0; x < 7; x++) {
-      ctx.fillStyle = color[art[y][x]];
-      ctx.fillRect(x, y, 1, 1);
-    }
-  }
-  tex = Texture.from(canvas);
-  tex.source.scaleMode = 'nearest';
-  badgeTextures.set(role, tex);
+  tex = Texture.from(astronautCanvas(role));
+  tex.source.scaleMode = 'linear';
+  textures.set(role, tex);
   return tex;
 }
 
+/** The turn (in radians, clockwise) that makes the downward-facing drawing look along (dx, dy) in ship coordinates, snapped to a quarter turn. */
+function quarterTurn(dx: number, dy: number): number {
+  if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? Math.PI / 2 : -Math.PI / 2;
+  return dy < 0 ? Math.PI : 0;
+}
+
+interface Seen {
+  x: number;
+  y: number;
+  turn: number;
+}
+
 /**
- * Small pixel-block badges for crew, drawn only on the matching interior deck view — the
- * opposite gating from turrets, which only show on the hull/outer view.
- *
- * Two things made a dot on top of the hull texture read badly at this scale: smoothly
- * gliding through fractional ship-grid positions made it look like it was drifting loose
- * from the pixel grid instead of belonging to it, and a flat color with no border blends
- * right into a module of a similar hue. Snapping the render position to the cell the
- * crew member currently occupies — never the smooth in-between position the sim uses for
- * movement timing — and baking a dark outline into the badge texture fixes both.
+ * Crew on the deck being viewed, drawn as astronauts. They hop from cell to cell with the rest of the
+ * ship's blocky art (never glide), turn to face where they walk, and stand facing the consoles (up)
+ * when they are at their post. The sprite does not inherit the ship's rotation, so it is added here.
  */
 export class CrewView {
   readonly container = new Container();
   private sprites = new Map<number, Sprite>();
+  private seen = new Map<number, Seen>();
 
   update(world: World, layerView: number): void {
     const crew = world.player?.sys?.crew;
@@ -75,15 +56,15 @@ export class CrewView {
       seen.add(c.id);
       let s = this.sprites.get(c.id);
       if (!s) {
-        s = new Sprite(getBadgeTexture(c.role));
+        s = new Sprite(getTexture(c.role));
         s.anchor.set(0.5);
-        s.width = 1;
-        s.height = 1;
+        s.width = ASTRO_CELLS;
+        s.height = (ASTRO_CELLS * ASTRO_H) / ASTRO_W;
         this.container.addChild(s);
         this.sprites.set(c.id, s);
       }
       s.visible = true;
-      s.texture = getBadgeTexture(c.role);
+      s.texture = getTexture(c.role);
       // Snap to the exact ship cell the crew member currently occupies rather than the
       // smooth sub-cell position the simulation moves through — the badge should hop
       // pixel to pixel with the rest of the ship's own blocky art, not glide.
@@ -95,7 +76,19 @@ export class CrewView {
       // sprite itself doesn't inherit the ship's rotation the way BodyView's hull
       // sprite does — without this it stays screen-upright while the ship turns under
       // it, reading as pinned to the screen instead of standing on the deck.
-      s.rotation = body.angle;
+      let st = this.seen.get(c.id);
+      if (!st) {
+        st = { x: c.x, y: c.y, turn: Math.PI };
+        this.seen.set(c.id, st);
+      }
+      const mx = c.x - st.x;
+      const my = c.y - st.y;
+      if (Math.hypot(mx, my) > 0.02) {
+        st.turn = quarterTurn(mx, my);
+        st.x = c.x;
+        st.y = c.y;
+      } else if (c.task === 'atPost') st.turn = Math.PI;
+      s.rotation = body.angle + st.turn;
     }
     for (const [id, s] of this.sprites) {
       if (!seen.has(id)) s.visible = false;
@@ -109,5 +102,6 @@ export class CrewView {
   reset(): void {
     for (const s of this.sprites.values()) s.destroy();
     this.sprites.clear();
+    this.seen.clear();
   }
 }

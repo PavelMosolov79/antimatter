@@ -142,6 +142,10 @@ export interface Post {
   label: string;
   /** A second place at the helm: nobody sits there to begin with. */
   reserve: boolean;
+  /** Where the module's core is on the ship (cell column, row and deck). */
+  x: number;
+  y: number;
+  z: number;
 }
 
 /** The manned places of a ship as built: the helm, every turret, the shield. */
@@ -150,9 +154,10 @@ export function postsOf(grid: ShipGrid): Post[] {
   let helm = 0;
   let turret = 0;
   grid.modules.forEach((m) => {
-    if (m.kind === 'bridge') out.push({ key: m.key, role: 'pilot', label: helm++ === 0 ? 'Мостик' : 'Резервный пост', reserve: helm > 1 });
-    else if (m.kind === 'turret') out.push({ key: m.key, role: 'gunner', label: `Турель ${++turret}`, reserve: false });
-    else if (m.kind === 'shield') out.push({ key: m.key, role: 'shieldop', label: 'Щит', reserve: false });
+    const at = { x: grid.xOf(m.core), y: grid.yOf(m.core), z: grid.zOf(m.core) };
+    if (m.kind === 'bridge') out.push({ key: m.key, role: 'pilot', label: helm++ === 0 ? 'Мостик' : 'Резервный пост', reserve: helm > 1, ...at });
+    else if (m.kind === 'turret') out.push({ key: m.key, role: 'gunner', label: `Турель ${++turret}`, reserve: false, ...at });
+    else if (m.kind === 'shield') out.push({ key: m.key, role: 'shieldop', label: 'Щит', reserve: false, ...at });
   });
   return out;
 }

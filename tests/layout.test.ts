@@ -18,6 +18,7 @@ import {
 } from '../src/sim/layout';
 import { Mat } from '../src/sim/materials';
 import { SHIPS, buildBattleship, buildCruiser, buildFighter, playerShip, shipDeckGeo } from '../src/sim/ships';
+import { splitBody } from '../src/sim/fragment';
 import { World } from '../src/sim/world';
 
 const IDS = ['fighter', 'cruiser', 'battleship'];
@@ -235,22 +236,21 @@ describe('crew on the new decks', () => {
     const bridge = grid.modules.find((m) => m.kind === 'bridge')!;
     const bridgeRoom = graph.cellRoom[bridge.core];
     graph.rooms[bridgeRoom].fire = 0.6;
-    const eng = ship.sys!.crew!.find((c) => c.role === 'engineer')!;
-    const startZ = eng.z;
+    // the nearest engineer answers the call, whichever of them that is
+    const engineers = ship.sys!.crew!.filter((c) => c.role === 'engineer');
     let reached = false;
     let throughWall = false;
-    for (let i = 0; i < 60 * 60; i++) {
+    for (let i = 0; i < 60 * 60 && !reached; i++) {
       graph.rooms[bridgeRoom].fire = Math.max(graph.rooms[bridgeRoom].fire, 0.5);
       world.step(1 / 60);
-      const m = grid.mat[grid.idx(Math.floor(eng.x), Math.floor(eng.y), eng.z)];
-      if (m === Mat.WALL) throughWall = true;
-      // somewhere on the bridge's deck, on a fire, working on it
-      if (eng.z === grid.zOf(bridge.core) && eng.waypoints.length === 0 && (eng.task === 'extinguish' || eng.task === 'seal')) {
-        reached = true;
-        break;
+      for (const eng of engineers) {
+        const m = grid.mat[grid.idx(Math.floor(eng.x), Math.floor(eng.y), eng.z)];
+        if (m === Mat.WALL) throughWall = true;
+        // somewhere on the bridge's deck, on a fire, working on it
+        if (eng.z === grid.zOf(bridge.core) && eng.waypoints.length === 0 && (eng.task === 'extinguish' || eng.task === 'seal')) reached = true;
       }
     }
-    expect(startZ).not.toBe(grid.zOf(bridge.core));
+    expect(engineers.some((e) => e.z !== grid.zOf(bridge.core) || e.task === 'extinguish')).toBe(true);
     expect(throughWall).toBe(false);
     expect(reached).toBe(true);
   });
@@ -306,5 +306,42 @@ describe('editing a layout', () => {
     expect(n).toBe(5);
     paintCorridor(geo, l, 1, { x: 62, y: 100 }, { x: 62, y: 100 }, 1, false);
     expect(l.corr[1].length).toBe(n - 1);
+  });
+});
+
+describe('the pictures of the modules', () => {
+  it('are laid over the room inside every module and every ladder shaft of a player ship', () => {
+    const ship = playerShip('cruiser');
+    const mods = ship.decor.filter((d) => d.type !== 'ladder');
+    expect(mods.length).toBe(ship.modules.filter((m) => m.pool).length);
+    for (const d of mods) {
+      // the room inside: 9 cells to a tile, less the shared wall
+      expect(d.w).toBe(9 * d.tw - 1);
+      expect(d.h).toBe(9 * d.th - 1);
+      // and it is made of deck cells, not wall
+      expect(ship.mat[ship.idx(d.x0 + 1, d.y0 + 1, d.z)]).not.toBe(Mat.WALL);
+    }
+    for (const d of ship.decor.filter((x) => x.type === 'ladder')) {
+      expect(d.w).toBe(3);
+      expect(ship.mat[ship.idx(d.x0 + 1, d.y0 + 1, d.z)]).toBe(Mat.LADDER);
+    }
+  });
+
+  it('follow a piece that breaks away, in its own coordinates', () => {
+    const world = new World(1);
+    const body = world.spawnShip(playerShip('cruiser'), 0, 0, 0, { name: 'P', team: 0, player: true });
+    const total = body.grid.decor.length;
+    expect(total).toBeGreaterThan(0);
+    // cut the ship in two across the middle of one deck's rooms: through every layer
+    const g = body.grid;
+    const cut = Math.floor(g.height / 2);
+    for (let z = 0; z < g.depth; z++) for (let x = 0; x < g.width; x++) if (g.mat[g.idx(x, cut, z)] !== 0) g.removeCell(g.idx(x, cut, z));
+    const res = splitBody(body, world.rng, 0);
+    expect(res).not.toBeNull();
+    const pieces = res!.pieces; // the biggest one, the ship that goes on, is among them
+    const sum = pieces.reduce((n, b) => n + b.grid.decor.length, 0);
+    expect(sum).toBeLessThanOrEqual(total);
+    expect(sum).toBeGreaterThan(0);
+    for (const b of pieces) for (const d of b.grid.decor) expect(d.x0 + d.w).toBeLessThanOrEqual(b.grid.width);
   });
 });

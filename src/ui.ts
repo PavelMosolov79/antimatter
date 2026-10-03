@@ -859,9 +859,9 @@ export class Hud {
         el.btn.className = 'destroyed';
         el.btn.disabled = true;
       } else {
-        el.btn.disabled = false;
-        el.btn.textContent = d.open ? 'ОТКР' : 'ЗАКР';
-        el.btn.className = d.open ? 'on' : '';
+        el.btn.disabled = d.locked;
+        el.btn.textContent = d.locked ? 'ЗАПЕРТА' : d.open ? 'ОТКР' : 'ЗАКР';
+        el.btn.className = d.locked ? 'destroyed' : d.open ? 'on' : '';
       }
     }
   }

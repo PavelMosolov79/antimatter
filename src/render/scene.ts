@@ -5,6 +5,7 @@ import { DRIVES, driveOf, isNozzle, liveCentroid } from '../sim/propulsion';
 import type { World } from '../sim/world';
 import { CombatFx } from './combatFx';
 import { CrewView } from './crewView';
+import { DecorView } from './decorView';
 import { createCelestialView, type CelestialView } from './celestials';
 import { Particles } from './particles';
 import { BodyView, OUTER_VIEW } from './shipView';
@@ -21,6 +22,7 @@ export class Scene {
   readonly bodyLayer = new Container();
   readonly particles = new Particles();
   readonly combat = new CombatFx();
+  readonly decorView = new DecorView();
   readonly crewView = new CrewView();
   readonly debug = new Graphics();
   private views = new Map<number, BodyView>();
@@ -37,7 +39,7 @@ export class Scene {
     this.app = app;
     app.stage.addChild(this.starfield.container);
     app.stage.addChild(this.worldLayer);
-    this.worldLayer.addChild(this.celestialLayer, this.bodyLayer, this.combat.container, this.crewView.container, this.particles.container, this.debug);
+    this.worldLayer.addChild(this.celestialLayer, this.bodyLayer, this.decorView.container, this.combat.container, this.crewView.container, this.particles.container, this.debug);
   }
 
   get scale(): number {
@@ -58,6 +60,7 @@ export class Scene {
     this.particles.clear();
     this.combat.reset();
     this.crewView.reset();
+    this.decorView.reset();
     for (const c of [...this.celestialLayer.children]) c.destroy({ children: true });
     this.celestialViews = world.celestials.map(createCelestialView);
     for (const v of this.celestialViews) this.celestialLayer.addChild(v.root);
@@ -111,6 +114,7 @@ export class Scene {
     world.events.length = 0;
     this.particles.update(simDt);
     this.combat.update(world, simDt, s, this.layerView);
+    this.decorView.update(world.player, this.layerView, s, now);
     this.crewView.update(world, this.layerView);
     this.drawDebug(world);
   }

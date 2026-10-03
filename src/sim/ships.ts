@@ -5,7 +5,7 @@ import { Mat } from './materials';
 import { DRIVES } from './propulsion';
 import { buildPlayerShip, currentLayout, deckGeo } from './interior';
 import { holdCapacity } from './levels';
-import type { DeckGeo } from './layout';
+import type { DeckGeo, ShipLayout } from './layout';
 
 function addLadder(grid: ShipGrid, x: number, y: number, z0: number, z1: number): void {
   for (let z = z0; z <= z1; z++) {
@@ -680,8 +680,8 @@ export function shipHoldCap(id: string): number {
   return holdCapacity(id, currentLayout(id, shipDeckGeo(id)));
 }
 
-export function playerShip(id: string): ShipGrid {
-  return buildPlayerShip(id, PLAYER_HULLS[id]);
+export function playerShip(id: string, layout?: ShipLayout): ShipGrid {
+  return buildPlayerShip(id, PLAYER_HULLS[id], layout);
 }
 
 export const SHIPS: ShipSpec[] = [

@@ -161,7 +161,10 @@ export function applyLayout(grid: ShipGrid, geo: DeckGeo, layout: ShipLayout, sh
     opts.lv = lv;
     opts.pool = q.type;
     grid.addModule(s.kind, s.cells, opts);
+    const room = inner(e);
+    grid.decor.push({ type: q.type, z: q.deck, x0: room.x0, y0: room.y0, w: room.w, h: room.h, tw: q.tw, th: q.th });
   }
+  for (const l of layout.lads) for (const z of [l.z0, l.z0 + 1]) grid.decor.push({ type: 'ladder', z, x0: l.x + 1, y0: l.y + 1, w: 3, h: 3, tw: 1, th: 1 });
   return plans;
 }
 
