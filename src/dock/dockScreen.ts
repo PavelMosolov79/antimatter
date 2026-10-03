@@ -3,9 +3,10 @@ import type { Game } from '../game';
 import type { ShipGrid } from '../sim/grid';
 import { SHIPS, shipHoldCap } from '../sim/ships';
 import type { ModulesScreen } from './modulesScreen';
-import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockLayout, type DockSprite } from './dockArt';
+import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockFrame, type DockLayout, type DockSprite } from './dockArt';
 import { makeLife, stepLife, type DockLife } from './dockLife';
 import { SPARE_SHIP } from '../sim/repairConfig';
+import { damagedGrid, putBack, repairOrder } from '../sim/repair';
 
 /**
  * The dock, as designed in «Док Antimatter»: the ship held at a berth in a space station's
@@ -315,6 +316,20 @@ export class DockScreen {
   private uiAt = 0;
   private bayEm = new Map<string, HTMLElement>();
   private bayCv = new Map<string, HTMLCanvasElement>();
+  /** The repair at work: the ship as it is repainted cell by cell, the drones, the cells just put back. */
+  private vis: {
+    key: string;
+    bp: ShipGrid;
+    grid: ShipGrid;
+    order: number[];
+    done: number;
+    flashes: Array<{ x: number; y: number; t: number }>;
+    paintedAt: number;
+    dirty: boolean;
+    drones: Array<{ x: number; y: number }>;
+  } | null = null;
+  /** The three repair drones, in ship cells: they circle the ship, fly to the broken cells, and come back. */
+  private drones: Array<{ x: number; y: number }> | null = null;
   private titleSub = document.createElement('span');
   private statusEl = document.createElement('span');
   private goBtn!: HTMLButtonElement;
@@ -768,6 +783,98 @@ export class DockScreen {
     this.paintThumb(this.shipId);
   }
 
+  /**
+   * While a repair runs the drones do it: each of three works on one of the next cells to come
+   * back, a yellow beam on it, and the ship is repainted as the cells return, one by one.
+   */
+  private tickVis(dt: number, now: number): NonNullable<DockFrame['repair']> | undefined {
+    if (this.phase !== 'docked' || this.root.hidden) {
+      this.drones = null;
+      return undefined;
+    }
+    const sw = this.sprite.w;
+    const sh = this.sprite.h;
+    // where a drone circles when it has nothing to do (the same ring as before, round the ship)
+    const slot = (i: number): { x: number; y: number } => {
+      const ang = this.t * (0.35 + i * 0.12) + i * 2.1;
+      return { x: sw / 2 + Math.cos(ang) * (sw / 2 + this.L.side * 0.65), y: sh / 2 + Math.sin(ang) * (sh / 2 + this.L.m * 0.55) };
+    };
+    if (!this.drones) this.drones = [0, 1, 2].map((i) => slot(i));
+    const drones = this.drones;
+    const st = this.game.repairState();
+    if (!st.job || !st.from) {
+      // the repair is over (or never was): paint the last cells at once, and the drones fly back to circle the ship
+      if (this.vis?.dirty) {
+        this.sprite = makeDockSprite(this.vis.grid);
+        this.paintThumb(this.shipId);
+      }
+      this.vis = null;
+      this.flyDrones(drones, [0, 1, 2].map((i) => slot(i)), dt);
+      return { drones: drones.map((d) => ({ x: d.x, y: d.y, target: null })), flashes: [] };
+    }
+    const key = `${st.shipId}|${st.jobId}`;
+    let v = this.vis;
+    if (!v || v.key !== key) {
+      const bp = this.game.blueprint(st.shipId);
+      const order = repairOrder(st.from, bp);
+      const k0 = Math.min(order.length, Math.floor(order.length * st.job.p));
+      const spec = SHIPS.find((x) => x.id === st.shipId) ?? SHIPS[0];
+      const grid = damagedGrid(spec.build(), st.from);
+      for (let k = 0; k < k0; k++) putBack(grid, bp, order[k]);
+      v = this.vis = { key, bp, grid, order, done: k0, flashes: [], paintedAt: now, dirty: false, drones };
+      this.sprite = makeDockSprite(grid);
+      this.paintThumb(this.shipId);
+    }
+    const n = v.order.length;
+    const k = Math.min(n, Math.floor(n * st.job.p));
+    while (v.done < k) {
+      const bi = v.order[v.done++];
+      v.flashes.push({ x: v.bp.xOf(bi), y: v.bp.yOf(bi), t: now });
+      putBack(v.grid, v.bp, bi);
+      v.dirty = true;
+    }
+    // the picture of the ship follows, a few times a second (the big ships cost more to paint)
+    const gap = v.grid.width * v.grid.height > 8000 ? 380 : 150;
+    if (v.dirty && now - v.paintedAt > gap) {
+      this.sprite = makeDockSprite(v.grid);
+      v.paintedAt = now;
+      v.dirty = false;
+      this.paintThumb(this.shipId);
+    }
+    v.flashes = v.flashes.filter((f) => now - f.t < 400);
+    // the drones fly to the next cells to come back; the beam is on only once a drone is there
+    const hover = [
+      [-15, -13],
+      [15, -13],
+      [0, 17],
+    ];
+    const targets = [0, 1, 2].map((i) => {
+      const bi = v!.order[k + i];
+      return bi === undefined ? null : { x: v!.bp.xOf(bi), y: v!.bp.yOf(bi) };
+    });
+    const want = targets.map((tg, i) => (tg ? { x: tg.x + hover[i][0], y: tg.y + hover[i][1] } : slot(i)));
+    this.flyDrones(drones, want, dt);
+    const beams = targets.map((tg, i) => (tg && Math.hypot(drones[i].x - want[i].x, drones[i].y - want[i].y) < 4 ? tg : null));
+    return { drones: drones.map((d, i) => ({ x: d.x, y: d.y, target: beams[i] })), flashes: v.flashes.map((f) => ({ x: f.x, y: f.y, age: (now - f.t) / 1000 })) };
+  }
+
+  /** Moves the drones toward where they are wanted at a flying speed, so they are seen to go. */
+  private flyDrones(drones: Array<{ x: number; y: number }>, want: Array<{ x: number; y: number }>, dt: number): void {
+    const step = 70 * dt;
+    drones.forEach((d, i) => {
+      const dx = want[i].x - d.x;
+      const dy = want[i].y - d.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= step) {
+        d.x = want[i].x;
+        d.y = want[i].y;
+      } else {
+        d.x += (dx / dist) * step;
+        d.y += (dy / dist) * step;
+      }
+    });
+  }
+
   /** Four times a second: timers, the fleet's states, the way out's note, the repair card, the wallet. */
   private uiTick(): void {
     this.updateFleetStatus();
@@ -1043,6 +1150,7 @@ export class DockScreen {
     if (!this.reduce && this.life) stepLife(this.life, dt);
     this.tickLines(now);
     this.game.tickRepairs(Date.now());
+    const repair = this.tickVis(dt, now);
     if (now - this.uiAt > 250) {
       this.uiAt = now;
       this.uiTick();
@@ -1057,7 +1165,7 @@ export class DockScreen {
       }
     } else if (this.phase === 'docked') this.renderResources();
     if (!this.root.hidden) {
-      renderDock(this.L, this.B, this.sprite, { t: this.t, shipY: this.shipY, e: this.e, docked: this.phase === 'docked', layer: this.layer, life: this.life }, this.img, this.glow);
+      renderDock(this.L, this.B, this.sprite, { t: this.t, shipY: this.shipY, e: this.e, docked: this.phase === 'docked', layer: this.layer, life: this.life, repair }, this.img, this.glow);
       this.ctx.putImageData(this.img, 0, 0);
       this.gctx.putImageData(this.glow, 0, 0);
     }

@@ -312,6 +312,8 @@ export interface DockFrame {
   layer: number;
   /** The crew and props on the walkway, moving. */
   life?: DockLife;
+  /** A repair under way: the drones, the cells their beams are on, the cells just put back (all in ship cells). */
+  repair?: { drones: Array<{ x: number; y: number; target: { x: number; y: number } | null }>; flashes: Array<{ x: number; y: number; age: number }> };
 }
 
 /** Draws one frame: crisp pixels into `img`, what glows into `glow`. */
@@ -520,17 +522,79 @@ export function renderDock(L: DockLayout, B: DockBase, s: DockSprite, f: DockFra
       g[oo + 3] = 0;
     }
   }
-  // maintenance drones circling the ship once it's locked in
-  if (f.docked) {
+  // maintenance drones: circling the ship once it's locked in, or, while it is repaired, at work with a yellow beam on a broken cell
+  /** A drone at work is bigger: a dark body with a pale rim, a yellow lamp at the nozzle. */
+  const drawWorker = (dxp: number, dyp: number, n: number) => {
+    const cx = Math.round(dxp);
+    const cy = Math.round(dyp);
+    for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) darken(cx + a + 3, cy + b + 3, 0.55);
+    for (let a = -2; a <= 2; a++) {
+      for (let b = -2; b <= 2; b++) {
+        if (Math.abs(a) === 2 && Math.abs(b) === 2) continue;
+        const edge = Math.abs(a) === 2 || Math.abs(b) === 2;
+        set(cx + a, cy + b, edge ? mul(C.drone, a < 0 || b < 0 ? 1.2 : 0.95) : mul(C.dark, 1.3));
+      }
+    }
+    const on = Math.sin(t * 8 + n) > -0.2;
+    set(cx, cy, on ? mul(C.warm, 1) : mul(C.warm, 0.5), on ? C.warm : null);
+    set(cx - 2, cy - 2, C.lock, C.lock);
+    set(cx + 2, cy - 2, n % 2 ? C.red : C.lock, n % 2 ? C.red : C.lock);
+  };
+  const drawDrone = (dxp: number, dyp: number, n: number) => {
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) darken(Math.round(dxp) + a + 2, Math.round(dyp) + b + 2, 0.55);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) set(dxp + a, dyp + b, a === 0 && b === 0 ? mul(C.dark, 1.2) : a === -1 || b === -1 ? mul(C.drone, 1.15) : C.drone);
+    const on = Math.sin(t * 6 + n) > 0;
+    const lc = on ? (n % 2 ? C.lock : C.red) : C.dark;
+    set(dxp, dyp - 1, lc, on ? lc : null);
+  };
+  if (f.repair) {
+    const R = f.repair;
+    const beam: RGB = [255, 226, 110];
+    const blend = (x: number, y: number, c: RGB, k: number) => {
+      x = Math.round(x);
+      y = Math.round(y);
+      if (x < 0 || y < 0 || x >= W || y >= H) return;
+      const o = (y * W + x) * 4;
+      d[o] = d[o] * (1 - k) + c[0] * k;
+      d[o + 1] = d[o + 1] * (1 - k) + c[1] * k;
+      d[o + 2] = d[o + 2] * (1 - k) + c[2] * k;
+      g[o] = c[0] * k;
+      g[o + 1] = c[1] * k;
+      g[o + 2] = c[2] * k;
+      g[o + 3] = 255;
+    };
+    for (const fl of R.flashes) {
+      const k = Math.max(0, 1 - fl.age / 0.4);
+      blend(sx + fl.x, sy + fl.y, [255, 250, 215], 0.95 * k);
+    }
+    R.drones.forEach((dr, n) => {
+      const px = sx + dr.x;
+      const py = sy + dr.y;
+      if (dr.target) {
+        const tx = sx + dr.target.x;
+        const ty = sy + dr.target.y;
+        const len = Math.max(Math.abs(tx - px), Math.abs(ty - py));
+        for (let i = 3; i < len; i++) {
+          const k = i / len;
+          const bx = px + (tx - px) * k;
+          const by = py + (ty - py) * k;
+          const bright = (i + Math.floor(t * 24)) % 4 === 0 ? 1 : 0.8;
+          set(bx, by, mul(beam, bright), beam);
+          // a second pixel beside it makes the beam thick
+          set(bx + (Math.abs(tx - px) > Math.abs(ty - py) ? 0 : 1), by + (Math.abs(tx - px) > Math.abs(ty - py) ? 1 : 0), mul(beam, 0.7 * bright), mul(beam, 0.7));
+        }
+        // the cell under the beam burns white-hot
+        const hot = 0.7 + 0.3 * Math.sin(t * 30 + n);
+        for (const [ox, oy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) blend(tx + ox, ty + oy, [255, 245, 190], ox === 0 && oy === 0 ? hot : hot * 0.45);
+        if (Math.sin(t * 23 + n * 2) > 0.2) set(tx + (n % 2 ? 2 : -2), ty - 2, beam, beam);
+        if (Math.sin(t * 19 + n * 3) > 0.4) set(tx + (n % 2 ? -2 : 2), ty + 2, [255, 255, 255], beam);
+      }
+      drawWorker(px, py, n);
+    });
+  } else if (f.docked) {
     for (let n = 0; n < 3; n++) {
       const ang = t * (0.35 + n * 0.12) + n * 2.1;
-      const dxp = sx + s.w / 2 + Math.cos(ang) * (s.w / 2 + L.side * 0.65);
-      const dyp = sy + s.h / 2 + Math.sin(ang) * (s.h / 2 + L.m * 0.55);
-      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) darken(Math.round(dxp) + a + 2, Math.round(dyp) + b + 2, 0.55);
-      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) set(dxp + a, dyp + b, a === 0 && b === 0 ? mul(C.dark, 1.2) : a === -1 || b === -1 ? mul(C.drone, 1.15) : C.drone);
-      const on = Math.sin(t * 6 + n) > 0;
-      const lc = on ? (n % 2 ? C.lock : C.red) : C.dark;
-      set(dxp, dyp - 1, lc, on ? lc : null);
+      drawDrone(sx + s.w / 2 + Math.cos(ang) * (s.w / 2 + L.side * 0.65), sy + s.h / 2 + Math.sin(ang) * (s.h / 2 + L.m * 0.55), n);
     }
   }
 }

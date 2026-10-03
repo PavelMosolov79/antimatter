@@ -69,12 +69,14 @@ export function standing(entry: GarageEntry, bp: ShipGrid, now: number): Standin
   const job = entry.job;
   if (!job) return { diff: entry.damage, p: 0, left: 0, done: false, running: false };
   const p = job.total <= 0 ? 1 : Math.max(0, Math.min(1, (now - job.start) / (job.total * 1000)));
-  const left = Math.max(0, job.total - (now - job.start) / 1000);
+  const left = Math.max(0, Math.min(job.total, job.total - (now - job.start) / 1000));
   return { diff: repairedDiff(job.from, bp, p), p, left, done: p >= 1, running: true };
 }
 
 /** Speeds a running repair up: the time left is halved, or ended. */
 export function speedUp(job: RepairJob, now: number, mode: 'half' | 'full'): void {
+  // a repair not yet begun (the drones still on their way) is begun at once
+  if (job.start > now) job.start = now;
   const elapsed = Math.max(0, (now - job.start) / 1000);
   const left = Math.max(0, job.total - elapsed);
   job.total = elapsed + (mode === 'half' ? left / 2 : 0);

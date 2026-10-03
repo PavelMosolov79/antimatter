@@ -1,4 +1,5 @@
 import type { ShipGrid } from './grid';
+import { Mat } from './materials';
 import { hash2 } from './rng';
 import { REPAIR, SPARE_SHIP } from './repairConfig';
 import { fromBase64, toBase64, type SavedShip } from './runSave';
@@ -67,26 +68,27 @@ export function wreckOf(bp: ShipGrid): SavedShip {
 }
 
 export interface Quote {
-  /** Real seconds (after `timeScale`), the designed seconds, and the metal. */
+  /** Real seconds (after `timeScale`), the seconds before it, and the metal. */
   secs: number;
   design: number;
   metal: number;
 }
 
+/** How bad the damage is, for how long its repair takes. */
+export function severity(d: Damage): 'light' | 'medium' | 'heavy' {
+  if (d.wreck) return 'heavy';
+  const loss = 1 - d.hull;
+  const mods = d.modulesTotal > 0 ? d.modules / d.modulesTotal : 0;
+  if (loss < REPAIR.lightMaxLoss && mods < REPAIR.lightMaxModules) return 'light';
+  if (loss < REPAIR.mediumMaxLoss && mods < REPAIR.mediumMaxModules) return 'medium';
+  return 'heavy';
+}
+
 export function quote(d: Damage, shipId: string, where: 'home' | 'road'): Quote {
   if (!d.any) return { secs: 0, design: 0, metal: 0 };
   const spare = shipId === SPARE_SHIP;
-  const mul = REPAIR.classTime[shipId] ?? 1;
-  let design: number;
-  let metal: number;
-  if (spare) {
-    const frac = d.hullCells > 0 ? d.cells / d.hullCells : 0;
-    design = REPAIR.spareSeconds * Math.max(0.15, Math.min(1, frac * 4 + (d.modules > 0 ? 0.1 : 0)));
-    metal = 0;
-  } else {
-    design = Math.min((d.cells * REPAIR.secPerCell + d.hurt * REPAIR.secPerHurtCell + d.modules * REPAIR.secPerModule) * mul, REPAIR.maxMinutes * 60);
-    metal = Math.ceil(d.cells * REPAIR.metalPerCell + d.hurt * REPAIR.metalPerHurtCell + d.modules * REPAIR.metalPerModule);
-  }
+  let design = REPAIR.tierSeconds[severity(d)] * (REPAIR.classTime[shipId] ?? 1);
+  let metal = spare ? 0 : Math.ceil(d.cells * REPAIR.metalPerCell + d.hurt * REPAIR.metalPerHurtCell + d.modules * REPAIR.metalPerModule);
   if (where === 'road') {
     design *= REPAIR.roadTime;
     metal = Math.ceil(metal * REPAIR.roadCost);
@@ -96,7 +98,7 @@ export function quote(d: Damage, shipId: string, where: 'home' | 'road'): Quote 
 
 /** The premium price of what is left of a repair. */
 export function quantaFor(secsLeft: number): number {
-  return Math.max(1, Math.ceil((secsLeft / REPAIR.timeScale / 60) * REPAIR.quantaPerMinute));
+  return Math.max(1, Math.ceil((secsLeft / 60) * REPAIR.quantaPerMinute));
 }
 
 /**
@@ -108,6 +110,19 @@ export function repairedDiff(saved: SavedShip | null, bp: ShipGrid, p: number): 
   if (!saved || p >= 1) return null;
   if (p <= 0) return saved;
   const bytes = fromBase64(saved.gone);
+  const order = repairOrder(saved, bp);
+  const back = Math.floor(order.length * p);
+  for (let k = 0; k < back; k++) bytes[order[k] >> 3] &= ~(1 << (order[k] & 7));
+  const hp = saved.hp.slice(Math.floor(saved.hp.length * p));
+  const left = order.length - back;
+  if (left === 0 && hp.length === 0 && saved.dead.length === 0 && !saved.allDead) return null;
+  return { gone: toBase64(bytes), hp, dead: saved.dead, allDead: saved.allDead };
+}
+
+/** The cells (as blueprint indices) a repair puts back, in the order it does: plain hull first, the cells of modules last. */
+export function repairOrder(saved: SavedShip | null, bp: ShipGrid): number[] {
+  if (!saved) return [];
+  const bytes = fromBase64(saved.gone);
   const total = bp.width * bp.height * bp.depth;
   const plain: number[] = [];
   const inModule: number[] = [];
@@ -115,11 +130,44 @@ export function repairedDiff(saved: SavedShip | null, bp: ShipGrid, p: number): 
     if (!goneBit(bytes, bi)) continue;
     (bp.mod[bi] !== 0 ? inModule : plain).push(bi);
   }
-  const order = [...plain, ...inModule];
-  const back = Math.floor(order.length * p);
-  for (let k = 0; k < back; k++) bytes[order[k] >> 3] &= ~(1 << (order[k] & 7));
-  const hp = saved.hp.slice(Math.floor(saved.hp.length * p));
-  const left = order.length - back;
-  if (left === 0 && hp.length === 0 && saved.dead.length === 0 && !saved.allDead) return null;
-  return { gone: toBase64(bytes), hp, dead: saved.dead, allDead: saved.allDead };
+  return [...plain, ...inModule];
+}
+
+/** A ship freshly built as `fresh` with the damage of `saved` put on it (the cells shot away removed, the hurt ones hurt). */
+export function damagedGrid(fresh: ShipGrid, saved: SavedShip | null): ShipGrid {
+  if (!saved) return fresh;
+  const bytes = fromBase64(saved.gone);
+  const total = fresh.width * fresh.height * fresh.depth;
+  for (let bi = 0; bi < total; bi++) if (goneBit(bytes, bi) && fresh.mat[bi] !== 0) fresh.removeCell(bi);
+  for (const [bi, hp] of saved.hp) if (fresh.mat[bi] !== 0) fresh.hp[bi] = hp;
+  fresh.version++;
+  return fresh;
+}
+
+/** Puts one cell of the blueprint back on a ship that was built from it (the cell, its paint, its place in its module). */
+export function putBack(g: ShipGrid, bp: ShipGrid, bi: number): void {
+  const m = bp.mat[bi];
+  if (m === 0 || g.mat[bi] !== 0) return;
+  const x = bp.xOf(bi);
+  const y = bp.yOf(bi);
+  const z = bp.zOf(bi);
+  if (m === Mat.DOOR) {
+    const did = g.doorIdx[bi];
+    if (did !== 0) {
+      g.setCell(x, y, z, Mat.DOOR);
+      g.doors[did - 1].destroyed = false;
+    } else g.addDoor(x, y, z);
+  } else g.setCell(x, y, z, m);
+  if (bp.paintFlags && bp.paintFlags[bi]) {
+    const pr = bp.paintRGB!;
+    g.setPaint(bi, pr[bi * 3], pr[bi * 3 + 1], pr[bi * 3 + 2], (bp.paintFlags[bi] & 2) !== 0);
+  }
+  const bm = bp.mod[bi];
+  if (bm !== 0) {
+    const mod = g.modules[bm - 1];
+    g.mod[bi] = bm;
+    mod.alive++;
+    if (bi === mod.core) mod.coreAlive = true;
+    if (!mod.cells.includes(bi)) mod.cells.push(bi);
+  }
 }

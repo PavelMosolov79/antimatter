@@ -6,7 +6,7 @@ import { ENEMIES, SHIPS, buildFreighter, shipHoldCap } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
 import { restAfterBattle } from './sim/run';
 import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './sim/repair';
-import { QUANTA_PER_BOSS, QUANTA_PER_RUN, SPARE_SHIP } from './sim/repairConfig';
+import { QUANTA_PER_BOSS, QUANTA_PER_RUN, REPAIR, SPARE_SHIP } from './sim/repairConfig';
 import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
@@ -59,8 +59,10 @@ export interface RepairState {
   damage: Damage;
   quote: Quote;
   job: { p: number; left: number } | null;
-  /** The damage the repair under way started with. */
+  /** The damage the repair under way started with, as a difference from the blueprint, and when it started (its identity). */
   base: Damage | null;
+  from: SavedShip | null;
+  jobId: number;
 }
 
 export interface ShipStatus {
@@ -116,7 +118,6 @@ export class Game {
   garage: Garage = loadGarage();
   /** Things the dock should say when it opens (a repair finished while the game was closed). */
   dockNotes: string[] = [];
-  private visualAt = 0;
   private baseDamage = new WeakMap<RepairJob, Damage>();
   private bpCache = new Map<string, ShipGrid>();
   selectedWeapon: number | null = null;
@@ -260,7 +261,7 @@ export class Game {
         this.baseDamage.set(job, base);
       }
     }
-    return { shipId, where, damage, quote: quote(damage, shipId, where), job: job ? { p, left } : null, base };
+    return { shipId, where, damage, quote: quote(damage, shipId, where), job: job ? { p, left } : null, base, from: job ? job.from : null, jobId: job ? job.start : 0 };
   }
 
   /** The state of a ship for the fleet list. */
@@ -279,7 +280,8 @@ export class Game {
     const bp = this.blueprint(st.shipId);
     const run = this.run;
     const from = st.where === 'road' && run ? run.diff : standing(entryOf(this.garage, st.shipId), bp, Date.now()).diff;
-    const job: RepairJob = { start: Date.now(), total: st.quote.secs, from, where: st.where };
+    // the clock starts when the repair drones have flown to the ship
+    const job: RepairJob = { start: Date.now() + REPAIR.droneLead * 1000, total: st.quote.secs, from, where: st.where };
     if (st.where === 'road' && run) {
       run.job = job;
       this.saveRun();
@@ -289,7 +291,6 @@ export class Game {
       e.job = job;
       storeGarage(this.garage);
     }
-    this.visualAt = 0;
     return 'ok';
   }
 
@@ -311,7 +312,6 @@ export class Game {
     speedUp(job, Date.now(), mode);
     if (st.where === 'road') this.saveRun();
     else storeGarage(this.garage);
-    this.visualAt = 0;
     this.tickRepairs(Date.now());
     return true;
   }
@@ -340,9 +340,8 @@ export class Game {
       finished = true;
     }
     if (finished) storeGarage(this.garage);
-    const running = (this.runPhase === 'roaddock' && !!run?.job) || (this.runPhase === 'dock' && !!this.garage[this.shipId]?.job);
-    if (finished || (running && now - this.visualAt > 2500)) {
-      this.visualAt = now;
+    // while a repair runs the dock repaints the ship itself, cell by cell (the drones work); the berth is rebuilt only when it ends
+    if (finished) {
       if (this.runPhase === 'dock' || this.runPhase === 'roaddock') this.refreshDockShip();
     }
     return finished;
@@ -561,7 +560,6 @@ export class Game {
     this.world = new World(this.seed++);
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
     else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
-    if (run.job) this.visualAt = 0;
     this.runPhase = 'roaddock';
     this.state = 'playing';
     this.selectedWeapon = null;

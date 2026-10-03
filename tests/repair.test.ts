@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
 import type { Scene } from '../src/render/scene';
 import { ROAD } from '../src/sim/road';
-import { damageOf, quantaFor, quote, repairedDiff, wreckOf } from '../src/sim/repair';
+import { damageOf, quantaFor, quote, repairedDiff, severity, wreckOf } from '../src/sim/repair';
 import { QUANTA_PER_BOSS, REPAIR, SPARE_SHIP } from '../src/sim/repairConfig';
 import { loadGarage } from '../src/sim/garage';
 import { captureShip, loadWallet, restoreShip } from '../src/sim/runSave';
@@ -74,21 +74,30 @@ describe('the damage of a ship', () => {
 });
 
 describe('what a repair costs', () => {
-  it('grows with the damage, takes longer on heavier ships, costs nothing on the spare', () => {
-    const light = damaged('cruiser', 0.05);
-    const heavy = damaged('cruiser', 0.3);
-    const ql = quote(damageOf(light.diff, light.bp), 'cruiser', 'home');
-    const qh = quote(damageOf(heavy.diff, heavy.bp), 'cruiser', 'home');
-    expect(qh.metal).toBeGreaterThan(ql.metal);
-    expect(qh.secs).toBeGreaterThan(ql.secs);
-    const sp = damaged(SPARE_SHIP);
-    const qs = quote(damageOf(sp.diff, sp.bp), SPARE_SHIP, 'home');
-    expect(qs.metal).toBe(0);
-    expect(qs.secs).toBeGreaterThan(0);
-    expect(qs.design).toBeLessThanOrEqual(REPAIR.spareSeconds);
+  it('takes ten, fifteen or twenty seconds by how bad the damage is, and costs metal by the damage', () => {
+    const q = (share: number, id = 'cruiser') => {
+      const d = damaged(id, share);
+      return { dmg: damageOf(d.diff, d.bp), q: quote(damageOf(d.diff, d.bp), id, 'home') };
+    };
+    const light = q(0.03);
+    const medium = q(0.15);
+    const heavy = q(0.4);
+    expect(severity(light.dmg)).toBe('light');
+    expect(severity(medium.dmg)).toBe('medium');
+    expect(severity(heavy.dmg)).toBe('heavy');
+    expect(light.q.secs).toBe(10);
+    expect(medium.q.secs).toBe(15);
+    expect(heavy.q.secs).toBe(20);
+    expect(heavy.q.metal).toBeGreaterThan(medium.q.metal);
+    expect(medium.q.metal).toBeGreaterThan(light.q.metal);
+    // the same on any ship, free on the spare
+    expect(q(0.15, 'battleship').q.secs).toBe(15);
+    const sp = q(0.03, SPARE_SHIP);
+    expect(sp.q.metal).toBe(0);
+    expect(sp.q.secs).toBe(10);
     const wr = SHIPS[1].build();
     const qw = quote(damageOf(wreckOf(wr), wr), 'cruiser', 'home');
-    expect(qw.design).toBeLessThanOrEqual(REPAIR.maxMinutes * 60);
+    expect(qw.secs).toBe(20);
   });
 
   it('is quicker and cheaper at a dock on the road', () => {
@@ -100,9 +109,10 @@ describe('what a repair costs', () => {
     expect(road.metal).toBe(Math.ceil(home.metal * REPAIR.roadCost));
   });
 
-  it('prices speeding up by the minutes left as designed, at least one', () => {
+  it('prices speeding up by the time left, at least one', () => {
     expect(quantaFor(0.001)).toBe(1);
-    expect(quantaFor(600 * REPAIR.timeScale)).toBe(Math.ceil(10 * REPAIR.quantaPerMinute));
+    expect(quantaFor(60)).toBe(Math.ceil(REPAIR.quantaPerMinute));
+    expect(quantaFor(120)).toBeGreaterThan(quantaFor(10));
   });
 });
 
