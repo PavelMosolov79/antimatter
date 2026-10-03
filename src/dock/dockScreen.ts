@@ -2,6 +2,7 @@ import type { Game } from '../game';
 
 import type { ShipGrid } from '../sim/grid';
 import { SHIPS, shipHoldCap } from '../sim/ships';
+import type { CrewScreen } from './crewScreen';
 import type { ModulesScreen } from './modulesScreen';
 import { buildDockBase, dockLayout, makeDockSprite, renderDock, type DockBase, type DockFrame, type DockLayout, type DockSprite } from './dockArt';
 import { makeLife, stepLife, type DockLife } from './dockLife';
@@ -34,11 +35,10 @@ const ROOMS: Array<{ id: Room; label: string; icon: string; soon: boolean }> = [
   { id: 'hangar', label: 'Ангар', icon: '<path d="M3 20V9l9-5 9 5v11M7 20v-6h10v6"/>', soon: false },
   { id: 'repair', label: 'Ремонт', icon: '<rect x="3.5" y="3.5" width="17" height="17"/><path d="M12 7.5v9M7.5 12h9"/>', soon: false },
   { id: 'mods', label: 'Модули', icon: '<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>', soon: false },
-  { id: 'crew', label: 'Экипаж', icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 3-6 6-6s6 2 6 6"/><circle cx="17" cy="9" r="2"/><path d="M16 14c3 0 5 2 5 5"/>', soon: true },
+  { id: 'crew', label: 'Экипаж', icon: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 3-6 6-6s6 2 6 6"/><circle cx="17" cy="9" r="2"/><path d="M16 14c3 0 5 2 5 5"/>', soon: false },
   { id: 'shop', label: 'Магазин', icon: '<path d="M5 8h14l-1 12H6z"/><path d="M9 8a3 3 0 0 1 6 0"/>', soon: true },
 ];
 const SOON: Record<string, { title: string; text: string }> = {
-  crew: { title: 'Экипаж', text: 'Здесь будут космонавты корабля: найм, уровни и переназначение между кораблями.' },
   shop: { title: 'Магазин', text: 'Здесь будут новые модули и корабли за кредиты и металл.' },
 };
 const LINES: Array<[string, string]> = [
@@ -475,6 +475,12 @@ export class DockScreen {
   }
 
   private modules: ModulesScreen | null = null;
+  private crewScreen: CrewScreen | null = null;
+
+  /** Hooks up the crew screen this dock opens from its «Экипаж» room. */
+  setCrew(c: CrewScreen): void {
+    this.crewScreen = c;
+  }
 
   /** Hooks up the module menu this dock opens from its «Модули» room. */
   setModules(m: ModulesScreen): void {
@@ -748,6 +754,10 @@ export class DockScreen {
     this.menuPop.hidden = true;
     if (id === 'mods') {
       this.openModules();
+      return;
+    }
+    if (id === 'crew') {
+      if (this.phase === 'docked' && this.crewScreen) this.crewScreen.open(this.shipId || this.game.shipId, this.road);
       return;
     }
     this.room = id;

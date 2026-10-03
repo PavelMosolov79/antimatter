@@ -7,6 +7,8 @@ import type { ShipGrid } from './sim/grid';
 import { restAfterBattle } from './sim/run';
 import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './sim/repair';
 import { QUANTA_PER_BOSS, QUANTA_PER_RUN, REPAIR, SPARE_SHIP } from './sim/repairConfig';
+import { CREW } from './sim/crewConfig';
+import { assign, dutyOf, engineerPlaces, hire, hirePrice, inBarracks, loadRoster, onShip, postsOf, reconcile, refreshCandidates, release, staffShip, storeRoster, unassign, type DutyCrew, type Roster } from './sim/roster';
 import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
@@ -116,6 +118,8 @@ export class Game {
   wallet: Wallet = loadWallet();
   /** What the dock remembers of each ship: its damage and the repair under way. */
   garage: Garage = loadGarage();
+  /** Every astronaut the player has: named people on ships and in the barracks, and the candidates the dock offers. */
+  roster: Roster = loadRoster();
   /** Things the dock should say when it opens (a repair finished while the game was closed). */
   dockNotes: string[] = [];
   private baseDamage = new WeakMap<RepairJob, Damage>();
@@ -127,6 +131,7 @@ export class Game {
 
   constructor(scene: Scene) {
     this.scene = scene;
+    this.ensureCrews();
     this.world = new World(this.seed);
     this.openDock();
   }
@@ -194,6 +199,7 @@ export class Game {
     this.runPhase = 'dock';
     this.shipId = shipId;
     this.bpCache.clear();
+    this.prepareCrew(shipId);
     this.tickRepairs(Date.now());
     this.buildDockWorld();
   }
@@ -204,12 +210,103 @@ export class Game {
     const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
     const st = standing(entryOf(this.garage, shipId), this.blueprint(shipId), Date.now());
-    if (st.diff) this.world.adoptPlayer(restoreShip(shipId, st.diff), 0, 0, 0);
-    else this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    if (st.diff) this.world.adoptPlayer(restoreShip(shipId, st.diff, this.duty(shipId)), 0, 0, 0);
+    else this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty: this.duty(spec.id) });
     this.state = 'playing';
     this.selectedWeapon = null;
     this.scene.reset(this.world);
     this.acc = 0;
+  }
+
+  // ---------------------------------------------------------------- crew
+
+  /** The named people on duty on a ship, for the simulation. */
+  duty(shipId: string): DutyCrew[] {
+    return dutyOf(this.roster, shipId);
+  }
+
+  /** A ship's first crew is given once; the people on a ship are put in order after its layout changed. */
+  private ensureCrews(): void {
+    let changed = false;
+    const rng = mulberry32((Math.random() * 2 ** 31) >>> 0);
+    for (const spec of SHIPS) {
+      const grid = spec.build();
+      if (!this.roster.staffed[spec.id]) {
+        staffShip(this.roster, spec.id, grid, rng);
+        this.roster.staffed[spec.id] = true;
+        changed = true;
+      } else reconcile(this.roster, spec.id, grid);
+    }
+    if (this.roster.candidates.length === 0) {
+      refreshCandidates(this.roster);
+      changed = true;
+    }
+    if (changed) storeRoster(this.roster);
+  }
+
+  /** Puts the people of a ship in order and, on the spare ship, gives trainees to any empty post. */
+  prepareCrew(shipId: string): void {
+    const grid = this.blueprint(shipId);
+    reconcile(this.roster, shipId, grid);
+    if (shipId === SPARE_SHIP) staffShip(this.roster, shipId, grid, mulberry32((Math.random() * 2 ** 31) >>> 0));
+    storeRoster(this.roster);
+  }
+
+  /** Hires a candidate for credits into the barracks. */
+  hireCandidate(id: number): 'ok' | 'credits' | 'full' | 'none' {
+    const m = this.roster.candidates.find((x) => x.id === id);
+    if (!m) return 'none';
+    if (inBarracks(this.roster).length >= CREW.barracksMax) return 'full';
+    if (!this.spendWallet({ credits: hirePrice(m), metal: 0 })) return 'credits';
+    hire(this.roster, id);
+    storeRoster(this.roster);
+    return 'ok';
+  }
+
+  /** A new list of candidates for a few credits. */
+  refreshCandidatesPaid(): boolean {
+    if (!this.spendWallet({ credits: CREW.refreshPrice, metal: 0 })) return false;
+    refreshCandidates(this.roster);
+    storeRoster(this.roster);
+    return true;
+  }
+
+  /** Posts a person on the ship at the berth (post null: an engineer). */
+  postMember(id: number, shipId: string, post: number | null): boolean {
+    const ok = assign(this.roster, id, shipId, post);
+    if (ok) storeRoster(this.roster);
+    return ok;
+  }
+
+  unpostMember(id: number): void {
+    unassign(this.roster, id);
+    storeRoster(this.roster);
+  }
+
+  releaseMember(id: number): void {
+    release(this.roster, id);
+    storeRoster(this.roster);
+  }
+
+  /** Puts the best people from the barracks on the empty posts and places of a ship. */
+  autoPost(shipId: string): number {
+    const grid = this.blueprint(shipId);
+    const r = this.roster;
+    let n = 0;
+    const best = (role: string) => inBarracks(r).filter((m) => m.role === role && m.status === 'ok').sort((a, b) => b.lv - a.lv || b.rar - a.rar)[0];
+    for (const p of postsOf(grid)) {
+      if (p.reserve || r.members.some((m) => m.ship === shipId && m.post === p.key)) continue;
+      const m = best(p.role);
+      if (m && assign(r, m.id, shipId, p.key)) n++;
+    }
+    let have = onShip(r, shipId).filter((m) => m.role === 'engineer').length;
+    for (; have < engineerPlaces(grid); have++) {
+      const m = best('engineer');
+      if (!m) break;
+      if (assign(r, m.id, shipId, null)) n++;
+    }
+    if (n) storeRoster(r);
+    return n;
   }
 
   /** The ship as built (with the player's layout), kept while the dock is open. */
@@ -360,11 +457,11 @@ export class Game {
     let body: GridBody | null = run.ship;
     if (run.job) {
       const st = standing({ damage: null, job: run.job }, this.blueprint(run.shipId), Date.now());
-      body = st.diff ? restoreShip(run.shipId, st.diff) : null;
+      body = st.diff ? restoreShip(run.shipId, st.diff, this.duty(run.shipId)) : null;
     }
     this.world = new World(this.seed++);
     if (body) this.world.adoptPlayer(body, 0, 0, 0);
-    else this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    else this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty: this.duty(spec.id) });
     this.state = 'playing';
     this.scene.reset(this.world);
     this.acc = 0;
@@ -416,12 +513,13 @@ export class Game {
     if (entry.job || entry.damage?.allDead) return false;
     const diff = entry.damage;
     this.bpCache.clear();
+    this.prepareCrew(spec.id);
     this.run = {
       shipId: spec.id,
       road: new Road((Math.random() * 2 ** 31) >>> 0),
       cleared: 0,
       outcome: null,
-      ship: diff ? restoreShip(spec.id, diff) : null,
+      ship: diff ? restoreShip(spec.id, diff, this.duty(spec.id)) : null,
       blueprint: spec.build(),
       battlesWon: 0,
       fighting: null,
@@ -488,7 +586,7 @@ export class Game {
       road,
       cleared: d.cleared,
       outcome: null,
-      ship: d.ship ? restoreShip(spec.id, d.ship) : null,
+      ship: d.ship ? restoreShip(spec.id, d.ship, this.duty(spec.id)) : null,
       blueprint: spec.build(),
       battlesWon: d.battlesWon,
       fighting: null,
@@ -559,7 +657,7 @@ export class Game {
     const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
-    else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty: this.duty(spec.id) });
     this.runPhase = 'roaddock';
     this.state = 'playing';
     this.selectedWeapon = null;
@@ -576,7 +674,7 @@ export class Game {
     if (run.job) {
       const bp = this.blueprint(run.shipId);
       const st = standing({ damage: null, job: run.job }, bp, Date.now());
-      run.ship = st.diff ? restoreShip(run.shipId, st.diff) : null;
+      run.ship = st.diff ? restoreShip(run.shipId, st.diff, this.duty(run.shipId)) : null;
       run.diff = st.diff;
       run.job = null;
     }
@@ -605,7 +703,7 @@ export class Game {
     this.world.sector = enc.sector;
     this.world.skySeed = enc.skySeed;
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
-    else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+    else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty: this.duty(spec.id) });
     enc.enemies.forEach((id, i) => {
       const es = ENEMIES.find((e) => e.id === id)!;
       const spread = enc.enemies.length === 1 ? 0 : (i / (enc.enemies.length - 1) - 0.5) * 1.5;

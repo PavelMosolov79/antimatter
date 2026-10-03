@@ -4,6 +4,7 @@ import { collideGridCircle, collideGridGrid, type DamageSink } from './collision
 import { updateCompartments } from './compartments';
 import { GridBody } from './body';
 import { pilotAvailable, spawnCrew, updateCrew } from './crew';
+import type { DutyCrew } from './roster';
 import { DUST_MIN_COLUMNS, splitBody, type SplitResult } from './fragment';
 import { gravityAt, isSolid, type Celestial } from './gravity';
 import type { Module, ShipGrid } from './grid';
@@ -31,6 +32,8 @@ export interface ShipOptions {
   player?: boolean;
   ai?: AiKind;
   priority?: EnergyPriority;
+  /** For the player's ship: the named people on duty (the roster's); without it the crew is the old anonymous one. */
+  duty?: DutyCrew[];
 }
 
 interface Blast {
@@ -109,7 +112,7 @@ export class World implements DamageSink {
     if (o.player) {
       b.isPlayer = true;
       this.player = b;
-      b.sys.crew = spawnCrew(b.grid);
+      b.sys.crew = spawnCrew(b.grid, o.duty);
     }
     if (o.ai) b.sys.ai = createAi(o.ai, this.rng);
     return b;

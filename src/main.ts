@@ -1,5 +1,6 @@
 import { Application } from 'pixi.js';
 import { DockScreen, prepareDockSprites } from './dock/dockScreen';
+import { CrewScreen } from './dock/crewScreen';
 import { ModulesScreen } from './dock/modulesScreen';
 import { RoadScreen } from './roadScreen';
 import { Game } from './game';
@@ -39,6 +40,9 @@ async function main(): Promise<void> {
   const hud = new Hud(game, document.getElementById('hud')!);
   const dock = new DockScreen(game, document.body);
   dock.setModules(new ModulesScreen((id) => dock.refreshShip(id), document.body, game));
+  dock.setCrew(new CrewScreen(game, document.body, (id, changed) => {
+      if (changed) dock.refreshShip(id);
+    }));
   const road = new RoadScreen(game, document.body);
   hud.update(performance.now());
 

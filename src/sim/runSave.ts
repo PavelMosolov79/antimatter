@@ -4,6 +4,7 @@ import type { RepairJob } from './garage';
 import type { ShipGrid } from './grid';
 import { MATERIALS } from './materials';
 import { QUANTA_START } from './repairConfig';
+import type { DutyCrew } from './roster';
 import { restAfterBattle } from './run';
 import { SHIPS } from './ships';
 import { World } from './world';
@@ -81,10 +82,10 @@ export function captureShip(ship: GridBody, blueprint: ShipGrid): SavedShip {
 }
 
 /** A fresh ship of the class with the saved damage put back on it. */
-export function restoreShip(shipId: string, saved: SavedShip): GridBody {
+export function restoreShip(shipId: string, saved: SavedShip, duty?: DutyCrew[]): GridBody {
   const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
   const world = new World(1);
-  const body = world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
+  const body = world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty });
   const g = body.grid;
   const bytes = fromBase64(saved.gone);
   const total = g.width * g.height * g.depth;

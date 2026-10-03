@@ -52,6 +52,10 @@ export interface Crew {
   wanderCooldown: number;
   /** Seconds a pilot still needs at a reserve helm before the ship can be flown from it (levels.ts: the helm module's level). */
   seat: number;
+  /** The named person (the roster's id, name and level); null for a crew member nobody knows by name. */
+  memberId: number | null;
+  name: string;
+  level: number;
 }
 
 const CREW = {
@@ -321,7 +325,7 @@ function moveAlong(crew: Crew, dt: number, speed: number = CREW.speed): void {
 
 let nextCrewId = 1;
 
-function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x: number; y: number; z: number }): Crew {
+function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x: number; y: number; z: number }, who?: { id: number; name: string; lv: number }): Crew {
   return {
     id: nextCrewId++,
     role,
@@ -341,6 +345,9 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     suited: false,
     wanderCooldown: 0,
     seat: 0,
+    memberId: who ? who.id : null,
+    name: who ? who.name : '',
+    level: who ? who.lv : 1,
   };
 }
 
@@ -354,9 +361,13 @@ export function findPosts(grid: ShipGrid): Array<{ role: CrewRole; moduleId: num
   return posts;
 }
 
-/** Starting roster: one crew per combat post (first bridge is the primary helm, any further
- * bridge modules start empty as reserve posts), plus a handful of mobile engineers. */
-export function spawnCrew(grid: ShipGrid): Crew[] {
+/**
+ * The crew of a ship. With `duty` (the roster's people on this ship) each post gets the person
+ * posted to it and each engineer place a named engineer; a post nobody is posted to stays empty.
+ * Without it (the old anonymous crew, for tests): one crew per combat post (the first bridge is the
+ * primary helm, any further bridge starts empty as a reserve post), plus a handful of engineers.
+ */
+export function spawnCrew(grid: ShipGrid, duty?: Array<{ id: number; name: string; lv: number; role: CrewRole; post: number | null }>): Crew[] {
   const posts = findPosts(grid);
   const crew: Crew[] = [];
   let pilotAssigned = false;
@@ -365,13 +376,19 @@ export function spawnCrew(grid: ShipGrid): Crew[] {
       if (pilotAssigned) continue; // reserve post — starts empty
       pilotAssigned = true;
     }
-    crew.push(makeCrew(post.role, false, post.moduleId, moduleCore(grid, post.moduleId)));
+    const who = duty ? duty.find((d) => d.role === post.role && d.post === grid.modules[post.moduleId].key) : undefined;
+    if (duty && !who) continue;
+    crew.push(makeCrew(post.role, false, post.moduleId, moduleCore(grid, post.moduleId), who));
   }
   // Roaming engineers: one for every three posts, and the quarters' places on top (modules of the pool carry their level).
-  const engineerCount = Math.max(1, Math.round(posts.length / 3)) + crewPlaces(grid.modules);
   const reactorModule = grid.modules.findIndex((m) => m.kind === 'reactor');
   const spawnAt = reactorModule >= 0 ? moduleCore(grid, reactorModule) : { x: grid.width / 2, y: grid.height / 2, z: 1 };
-  for (let i = 0; i < engineerCount; i++) crew.push(makeCrew('engineer', true, -1, spawnAt));
+  if (duty) {
+    for (const d of duty) if (d.role === 'engineer') crew.push(makeCrew('engineer', true, -1, spawnAt, d));
+  } else {
+    const engineerCount = Math.max(1, Math.round(posts.length / 3)) + crewPlaces(grid.modules);
+    for (let i = 0; i < engineerCount; i++) crew.push(makeCrew('engineer', true, -1, spawnAt));
+  }
   return crew;
 }
 
