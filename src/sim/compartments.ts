@@ -22,6 +22,8 @@ export interface Room {
    */
   sealing: boolean;
   firefighting: boolean;
+  /** How hard the engineers put the fire down, × (their level bonus), while they do. */
+  fightPower: number;
   /** How many cells of the room are open to space. */
   holes: number;
   /** An engineer has patched the holes: the air stays in (and slowly comes back) until a new hole is made. */
@@ -122,7 +124,7 @@ export function buildRooms(grid: ShipGrid): RoomGraph {
       if (cells.length < MIN_ROOM_CELLS) continue;
       const id = rooms.length;
       for (const c of cells) cellRoom[c] = id;
-      rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false, sealing: false, firefighting: false, holes: 0, patched: false, patchHoles: 0 });
+      rooms.push({ id, z, cells, pressure: 1, fire: 0, prevHp: sumHp(grid, cells), breached: false, sealing: false, firefighting: false, fightPower: 1, holes: 0, patched: false, patchHoles: 0 });
     }
   }
 
@@ -368,7 +370,7 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
     }
     if (room.fire > 0) {
       if (room.firefighting) {
-        room.fire = Math.max(0, room.fire - COMPARTMENTS.engineerExtinguishRate * dt);
+        room.fire = Math.max(0, room.fire - COMPARTMENTS.engineerExtinguishRate * room.fightPower * dt);
       } else if (room.pressure < COMPARTMENTS.minOxygen) {
         room.fire = Math.max(0, room.fire - COMPARTMENTS.fireVacuumDecay * dt);
       } else {

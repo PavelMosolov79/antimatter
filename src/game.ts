@@ -10,7 +10,7 @@ import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './
 import { QUANTA_PER_BOSS, QUANTA_PER_RUN, QUANTA_START, REPAIR, SPARE_SHIP } from './sim/repairConfig';
 import { clearLayouts, savedLayout } from './sim/layoutStore';
 import { CREW } from './sim/crewConfig';
-import { ROLE_NAMES, abandonShip, emptyRoster, makeMember, applyBattle, assign, autoFill, dutyOf, healPrice, healSpeedUpPrice, hire, hirePrice, inBarracks, loadRoster, postsOf, reconcile, refreshCandidates, release, settleHealing, startHeal, cure, staffShip, storeRoster, unassign, type DutyCrew, type Roster } from './sim/roster';
+import { ROLE_NAMES, abandonShip, emptyRoster, makeMember, applyBattle, assign, autoFill, dutyOf, healPrice, healSpeedUpPrice, hire, hirePrice, inBarracks, loadRoster, postsOf, reconcile, refreshCandidates, release, settleHealing, startHeal, cure, staffShip, storeRoster, unassign, type DutyCrew, type ReportRow, type Roster } from './sim/roster';
 import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
@@ -28,6 +28,12 @@ export type BattleState = 'playing' | 'won' | 'lost';
 export type Mode = 'sandbox' | 'run';
 export type RunPhase = 'dock' | 'roaddock' | 'map' | 'battle' | 'over';
 export type RunOutcome = 'defeat';
+
+/** The result of a won battle for the people: who got what, who was wounded, who died. */
+export interface BattleReport {
+  title: string;
+  rows: ReportRow[];
+}
 
 /** A run in progress: the road, how far along it the player is, and the ship they carry between points. */
 export interface RunSession {
@@ -54,6 +60,8 @@ export interface RunSession {
   fate: string[];
   /** The named people who went into the battle in progress (who can be lost in it). */
   crewIds: number[];
+  /** What the last battle did to the crew, shown once on the map. */
+  report: BattleReport | null;
   /** The repair under way at the dock on the road, and the damage the ship came to it with. */
   job: RepairJob | null;
   diff: SavedShip | null;
@@ -316,21 +324,18 @@ export class Game {
    * a post that lost its man stays empty until the next dock, where the player hires and posts people. The ship's
    * crew is made again from the roster. Returns what to tell the player.
    */
-  private crewAfterBattle(ship: GridBody, shipId: string): string[] {
-    const lines: string[] = [];
+  private crewAfterBattle(ship: GridBody, shipId: string, kind: string): ReportRow[] {
     const crew = ship.sys?.crew ?? [];
-    const { died, hurt } = applyBattle(
+    const { rows } = applyBattle(
       this.roster,
       shipId,
-      crew.map((c) => ({ memberId: c.memberId, dead: c.dead, hurt: c.hurt })),
+      crew.map((c) => ({ memberId: c.memberId, dead: c.dead, hurt: c.hurt, deed: c.deed })),
       new Set(this.run?.crewIds ?? []),
+      CREW.xpBattle[kind] ?? CREW.xpBattle.combat,
     );
-    if (died.length) lines.push(`Погибли: ${died.map((f) => `${f.name} (${ROLE_NAMES[f.role]}, ур. ${f.lv})`).join(', ')}.`);
-    if (hurt.length) lines.push(`Ранены: ${hurt.map((m) => m.name).join(', ')}; лечатся в доке.`);
-    if (died.length || hurt.length) lines.push('Посты опустели до ближайшего дока.');
     storeRoster(this.roster);
     if (ship.sys) ship.sys.crew = spawnCrew(ship.grid, this.duty(shipId));
-    return lines;
+    return rows;
   }
 
   /** The crew of the run's ship at a dock on the road was changed: the ship gets it. */
@@ -682,6 +687,7 @@ export class Game {
       fellBackTo: null,
       fate: [],
       crewIds: [],
+      report: null,
       job: null,
       diff: null,
     };
@@ -751,6 +757,7 @@ export class Game {
       fellBackTo: null,
       fate: [],
       crewIds: [],
+      report: null,
       job: d.job ?? null,
       diff: d.ship ?? null,
     };
@@ -896,7 +903,7 @@ export class Game {
     }
     run.ship = ship;
     restAfterBattle(ship);
-    const crewLines = this.crewAfterBattle(ship, run.shipId);
+    const rows = this.crewAfterBattle(ship, run.shipId, point.kind);
     run.battlesWon++;
     const got = addToHold(run.cargo, shipHoldCap(run.shipId), rewardFor(point));
     run.cleared = point.index;
@@ -909,7 +916,8 @@ export class Game {
       storeWallet(this.wallet);
       run.note += ` +${QUANTA_PER_BOSS} квант за рубеж.`;
     }
-    if (crewLines.length) run.note += ' ' + crewLines.join(' ');
+    if (rows.length) run.report = { title: point.kind === 'boss' ? 'Рубеж взят' : point.kind === 'elite' ? 'Элитный бой выигран' : 'Бой выигран', rows };
+    if (rows.some((r) => r.fate !== 'ok')) run.note += ' Посты опустели до ближайшего дока.';
     const block = this.flightBlock();
     if (block) run.note += ' ' + block;
     this.runPhase = 'map';

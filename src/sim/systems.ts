@@ -1,7 +1,7 @@
 import type { AiState } from './ai';
 import type { GridBody } from './body';
 import type { RoomGraph } from './compartments';
-import type { Crew } from './crew';
+import { mannedBy, type Crew } from './crew';
 import { moduleEfficiency, type TargetRef } from './grid';
 import { MATERIALS, Mat } from './materials';
 import type { World } from './world';
@@ -105,7 +105,8 @@ function gather(body: GridBody): Agg {
   agg.coreDead = false;
   agg.hasReactor = false;
   const g = body.grid;
-  for (const m of g.modules) {
+  for (let mi = 0; mi < g.modules.length; mi++) {
+    const m = g.modules[mi];
     if (m.kind === 'reactor') {
       const eff = moduleEfficiency(m);
       agg.hasReactor = true;
@@ -117,9 +118,11 @@ function gather(body: GridBody): Agg {
         if (g.mat[i] !== 0) agg.reactorHp += g.hp[i];
       }
     } else if (m.kind === 'shield') {
-      const eff = moduleEfficiency(m);
+      // a shield generator nobody stands at does not work; its operator's level speeds the recharge
+      const man = mannedBy(body, mi);
+      const eff = man === null ? 0 : moduleEfficiency(m);
       agg.shieldMax += m.shieldMax * eff;
-      agg.regen += m.regen * eff;
+      agg.regen += m.regen * eff * (man === true || man === null ? 1 : 1 + man.bonus / 100);
     }
   }
   return agg;

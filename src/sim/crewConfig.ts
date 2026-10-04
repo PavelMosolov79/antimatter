@@ -21,6 +21,23 @@ export const CREW = {
   healPerLevel: 20,
   /** A quantum speeds the healing up by this many seconds. */
   healQuantaSeconds: 15,
+  /** Experience: to go from level L to L+1 a person needs this × L. */
+  xpPerLevel: 100,
+  /** The highest level. */
+  levelMax: 10,
+  /** Experience for a battle by the point it was fought at, before the share of the person (see xpShare). */
+  xpBattle: { combat: 40, elite: 80, boss: 120 } as Record<string, number>,
+  /** A person gets this share of it for doing nothing worth noting and this much more for a full share of work (the deed reference below). */
+  xpShareMin: 0.6,
+  xpShareSpan: 0.8,
+  /** A "Veteran" learns this much faster. */
+  vetXp: 1.15,
+  /** What counts as a full share of work in a battle: seconds at the helm, damage dealt by a gunner's turret, damage the shield took, breaches patched plus fires put out. */
+  deedRef: { pilot: 40, gunner: 300, shieldop: 150, engineer: 3 } as Record<string, number>,
+  /** The bonus of a post for every level, in percent (a level counts half a step for the first). */
+  bonusPerLevel: { pilot: 4, gunner: 3, shieldop: 4, engineer: 5 } as Record<string, number>,
+  /** "Keen" and "Nervy" change the bonus by this share. */
+  traitBonusShare: 0.1,
   /** Escape pods (the module): seats at the first level and for every level above it. */
   podSeatsBase: 3,
   podSeatsPerLevel: 2,

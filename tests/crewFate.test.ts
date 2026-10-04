@@ -180,8 +180,9 @@ describe('the run after the battle', () => {
     expect(g.roster.members.some((m) => m.ship === shipId && m.post === post)).toBe(false);
     expect(g.run!.ship!.sys!.crew!.some((c) => c.memberId === reserve.id)).toBe(false);
     expect(g.run!.ship!.sys!.crew!.some((c) => c.memberId === gunner.id)).toBe(false);
-    expect(g.run!.note).toContain('Погибли');
-    expect(g.run!.note).toContain('Ранены');
+    const rep = g.run!.report!;
+    expect(rep.rows.find((r) => r.id === gunner.id)!.fate).toBe('dead');
+    expect(rep.rows.find((r) => r.id === medic.id)!.fate).toBe('hurt');
     expect(g.run!.note).toContain('опустели');
     // and in the next battle the post is still empty: nobody comes out of nowhere to die
     g.travel(2);

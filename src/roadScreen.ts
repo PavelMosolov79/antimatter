@@ -3,6 +3,7 @@ import { KIND_LOOK, Px, SECTOR_LOOK, clamp, fbm, hashInt, makePointIcon, mulberr
 
 import { ROAD, sectorOfLink, type RoadPoint } from './sim/road';
 import { SHIPS, shipHoldCap } from './sim/ships';
+import { ROLE_NAMES } from './sim/roster';
 
 /**
  * The campaign map, as designed in «Карта похода Antimatter»: one endless road that runs
@@ -140,6 +141,12 @@ const CSS = `
 #road .rd-dialog .ln { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: #cdd3ee; }
 #road .rd-dialog .ln b { font-variant-numeric: tabular-nums; }
 #road .rd-dialog .hint { font-size: 11.5px; color: #8c93b4; line-height: 1.5; }
+#road .rd-dialog .rep { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+#road .rd-dialog .rep .ln span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#road .rd-dialog .rep .ln small { color: #8c93b4; font-size: 11px; }
+#road .rd-dialog .rep .up { color: #63e07a; }
+#road .rd-dialog .rep .die { color: #ff6a5a; }
+#road .rd-dialog .rep .hurt { color: #ffd24a; }
 #road .rd-dialog .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) { #road .rd-ring, #road .rd-ret, #road .p-leg, #road .rd-ship.idle canvas { animation: none; } }
 `;
@@ -210,6 +217,7 @@ export class RoadScreen {
   private readonly modal = document.createElement('div');
   private key = '';
   private noteShown = '';
+  private reportShown: object | null = null;
   private sel: number | null = null;
   private busy = false;
   private M!: Metrics;
@@ -306,6 +314,10 @@ export class RoadScreen {
     this.busy = false;
     this.build();
     if (fresh) this.scrollToPoint(run.cleared + 1, false);
+    if (run.report && run.report !== this.reportShown) {
+      this.reportShown = run.report;
+      this.showReport();
+    }
     if (run.note && run.note !== this.noteShown) {
       this.noteShown = run.note;
       this.toast(run.note);
@@ -645,6 +657,44 @@ export class RoadScreen {
       }
     };
     requestAnimationFrame(step);
+  }
+
+  /** What the battle did to the people: who learned what, who is wounded, who died. Shown once, over the map. */
+  private showReport(): void {
+    const g = this.game;
+    const rep = g.run?.report;
+    if (!rep) return;
+    const m = this.modal;
+    m.replaceChildren();
+    const box = div('rd-dialog', '');
+    box.append(h3(`Итоги боя: ${rep.title.toLowerCase()}`));
+    const list = div('rep', '');
+    for (const r of rep.rows) {
+      const d = div('ln', '');
+      const who = document.createElement('span');
+      who.textContent = `${r.name} · ${ROLE_NAMES[r.role]}`;
+      const res = document.createElement('b');
+      if (r.fate === 'dead') {
+        res.className = 'die';
+        res.textContent = 'погиб';
+      } else {
+        const up = r.lvTo > r.lvFrom;
+        res.className = up ? 'up' : r.fate === 'hurt' ? 'hurt' : '';
+        res.textContent = `${r.fate === 'hurt' ? 'ранен · ' : ''}+${r.xp} оп.${up ? ` · ур. ${r.lvFrom} → ${r.lvTo}` : ''}`;
+      }
+      d.append(who, res);
+      list.append(d);
+    }
+    box.append(list);
+    box.append(div('hint', 'Опыт зависит от дела: пилот получает за время у штурвала, артиллерист за урон орудия, оператор щита за принятый щитом урон, инженер за заделанные пробоины и потушенный огонь. Раненые лечатся в доке, пустые посты занимают там же.'));
+    const btns = div('btns', '');
+    btns.append(button('Дальше', () => {
+      m.hidden = true;
+      if (g.run) g.run.report = null;
+    }, 'go'));
+    box.append(btns);
+    m.appendChild(box);
+    m.hidden = false;
   }
 
   private askRetreat(): void {

@@ -1,6 +1,7 @@
 import type { Control } from './autopilot';
 import type { GridBody } from './body';
 import { shipEffects } from './effects';
+import { pilotBonus } from './crew';
 import { moduleEfficiency, type DriveType, type Module, type ModuleKind, type ShipGrid } from './grid';
 import { Mat } from './materials';
 
@@ -156,6 +157,8 @@ export function applyPropulsion(b: GridBody, ctl: Control, dt: number): void {
   let tauEng = 0;
   let legacy = 0;
   const bonus = shipEffects(g);
+  // the pilot's level makes the ship answer the helm better
+  const steerMul = bonus.steer * (1 + pilotBonus(b) / 100);
   nozzles.length = 0;
   for (const m of g.modules) {
     if (m.kind === 'engine') {
@@ -179,7 +182,7 @@ export function applyPropulsion(b: GridBody, ctl: Control, dt: number): void {
     if (!c) continue;
     if (pushesAft(m)) m.out = ctl.back;
     else if (m.kind === 'thruster') m.out = m.dirX > 0.5 ? ctl.right : m.dirX < -0.5 ? ctl.left : 0;
-    const f = m.thrust * eff * (m.kind === 'turn' || m.kind === 'thruster' ? bonus.steer : 1);
+    const f = m.thrust * eff * (m.kind === 'turn' || m.kind === 'thruster' ? steerMul : 1);
     nozzles.push({ m, f, tau: torqueOf(b, c, m, f) });
   }
 

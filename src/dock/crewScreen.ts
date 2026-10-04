@@ -1,7 +1,7 @@
 import type { Game } from '../game';
 import { portraitURL } from '../render/portrait';
 import { CREW, RARITY } from '../sim/crewConfig';
-import { ROLE_NAMES, atPost, engineerPlaces, healLeft, healPrice, healSpeedUpPrice, hirePrice, inBarracks, onShip, postsOf, traitOf, type Fallen, type Member, type Post } from '../sim/roster';
+import { ROLE_NAMES, atPost, bonusPct, xpNeed, engineerPlaces, healLeft, healPrice, healSpeedUpPrice, hirePrice, inBarracks, onShip, postsOf, traitOf, type Fallen, type Member, type Post } from '../sim/roster';
 import { shipEffects } from '../sim/effects';
 import { SHIPS } from '../sim/ships';
 import { makeDockSprite, type DockSprite } from './dockArt';
@@ -16,6 +16,7 @@ import { makeDockSprite, type DockSprite } from './dockArt';
 
 type Tab = 'crew' | 'hire' | 'memory';
 const ROLE_COLOR: Record<string, string> = { pilot: '#59e6ff', gunner: '#ff6a5a', shieldop: '#b43cff', engineer: '#e8c450' };
+const ROLE_EFFECT: Record<string, string> = { pilot: 'манёвренность', gunner: 'скорострельность', shieldop: 'перезарядка щита', engineer: 'скорость латания' };
 const ROLE_GLYPH: Record<string, string> = { pilot: '✈', gunner: '✛', shieldop: '◈', engineer: '⚙' };
 
 const U = (css: string) => css.replace(/U\(([-\d.]+)\)/g, 'calc(var(--u) * $1)');
@@ -66,6 +67,8 @@ const CSS = U(`
 #crew .face.r4 { border-color: #b43cff; box-shadow: 0 0 U(.8) rgba(180,60,255,.5); }
 #crew .face.r5 { border-color: #e8c450; box-shadow: 0 0 U(1) rgba(232,196,80,.6); }
 #crew .face .lv { position: absolute; right: 0; bottom: 0; background: #0a0d18; color: #fff3c8; font-size: U(1.2); font-weight: 700; padding: 0 U(.45); }
+#crew .xp { height: U(.6); background: #10162a; border: 1px solid #1b2440; position: relative; max-width: U(22); }
+#crew .xp i { position: absolute; inset: 0 auto 0 0; background: #e8c450; }
 #crew .face.dead { filter: grayscale(1) brightness(.65); }
 #crew .pods { margin-top: U(.8); }
 #crew .pods.bad { border-color: rgba(255,106,90,.55); }
@@ -268,7 +271,9 @@ export class CrewScreen {
       })
       .join('');
     const hurt = m.status === 'hurt' ? `<span class="tg st">${m.healEnd ? 'лечится ' + clock(healLeft(m, Date.now())) : 'ранен'}</span>` : '';
-    return `<div class="who"><b>${m.name}</b><span class="role">${ROLE_NAMES[m.role]} · ${RARITY[m.rar - 1].name}</span><small>${m.fights} боёв${extra}</small><div class="chips">${chips}${hurt}</div></div>`;
+    const xp = Math.max(0, Math.min(100, (m.xp / xpNeed(m.lv)) * 100));
+    const bonus = `+${bonusPct(m.role, m.lv, m.traits).toFixed(0)}% ${ROLE_EFFECT[m.role]}`;
+    return `<div class="who"><b>${m.name}</b><span class="role">${ROLE_NAMES[m.role]} · ${RARITY[m.rar - 1].name}</span><small>${bonus} · ${m.fights} боёв${extra}</small><div class="xp" title="опыт ${Math.round(m.xp)} из ${xpNeed(m.lv)}"><i style="width:${xp}%"></i></div><div class="chips">${chips}${hurt}</div></div>`;
   }
 
   /** A person's card; `id` makes it draggable and `act` the button on its right. */

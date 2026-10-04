@@ -1,5 +1,6 @@
 import type { GridBody } from './body';
 import { shipEffects } from './effects';
+import { creditGunner, creditShield, mannedBy } from './crew';
 import { moduleEfficiency, type TargetRef, type WeaponType } from './grid';
 import { segmentVsCells, segmentVsShield } from './raycast';
 import { absorbShield, shieldActive, spendEnergy } from './systems';
@@ -87,6 +88,8 @@ export interface Projectile {
   type: WeaponType;
   color: number;
   skip: number[];
+  /** The turret that fired it (to credit its gunner with what it does). */
+  by?: { body: GridBody; module: number };
 }
 
 export interface Beam {
@@ -185,16 +188,19 @@ function castSegment(world: World, x0: number, y0: number, x1: number, y1: numbe
   return best;
 }
 
-function resolveHit(world: World, hit: SegHit, x0: number, y0: number, x1: number, y1: number, damage: number, radius: number, pen: number, skip: number[]): { done: boolean; damage: number } {
+function resolveHit(world: World, hit: SegHit, x0: number, y0: number, x1: number, y1: number, damage: number, radius: number, pen: number, skip: number[], by?: { body: GridBody; module: number }): { done: boolean; damage: number } {
   const hx = x0 + (x1 - x0) * hit.t;
   const hy = y0 + (y1 - y0) * hit.t;
   if (hit.shield) {
     const overflow = absorbShield(hit.body.sys!, damage, world.time);
+    if (by) creditGunner(by.body, by.module, damage - overflow);
+    creditShield(hit.body, damage - overflow);
     world.push({ t: 'shield', x: hx, y: hy, shipId: hit.body.shipId });
     if (overflow <= 0) return { done: true, damage: 0 };
     skip.push(hit.body.id);
     return { done: false, damage: overflow };
   }
+  if (by) creditGunner(by.body, by.module, damage);
   world.damageCrater(hit.body, hx, hy, radius, damage, pen);
   world.impact(hx, hy, damage * 6);
   return { done: true, damage: 0 };
@@ -213,7 +219,7 @@ export function stepProjectiles(world: World, dt: number): void {
     for (let guard = 0; guard < 4; guard++) {
       const hit = castSegment(world, x0, y0, x1, y1, p.team, p.skip);
       if (!hit) break;
-      const r = resolveHit(world, hit, x0, y0, x1, y1, p.damage, p.radius, p.pen, p.skip);
+      const r = resolveHit(world, hit, x0, y0, x1, y1, p.damage, p.radius, p.pen, p.skip, p.by);
       if (r.done) {
         alive = false;
         break;
@@ -228,7 +234,7 @@ export function stepProjectiles(world: World, dt: number): void {
   world.projectiles = out;
 }
 
-function fireBeam(world: World, x0: number, y0: number, dirx: number, diry: number, def: WeaponDef, team: number, dt: number): void {
+function fireBeam(world: World, x0: number, y0: number, dirx: number, diry: number, def: WeaponDef, team: number, dt: number, by?: { body: GridBody; module: number }): void {
   const x1 = x0 + dirx * def.range;
   const y1 = y0 + diry * def.range;
   const skip: number[] = [];
@@ -240,7 +246,7 @@ function fireBeam(world: World, x0: number, y0: number, dirx: number, diry: numb
     if (!hit) break;
     ex = x0 + (x1 - x0) * hit.t;
     ey = y0 + (y1 - y0) * hit.t;
-    const r = resolveHit(world, hit, x0, y0, x1, y1, dmg, def.radius, def.pen, skip);
+    const r = resolveHit(world, hit, x0, y0, x1, y1, dmg, def.radius, def.pen, skip, by);
     if (r.done) break;
     dmg = r.damage;
   }
@@ -257,7 +263,8 @@ export function updateWeapons(world: World, dt: number): void {
     }
     // Upgraded modules speed the guns up and stretch their reach (effects.ts).
     const fx = shipEffects(b.grid);
-    for (const m of b.grid.modules) {
+    for (let mi = 0; mi < b.grid.modules.length; mi++) {
+      const m = b.grid.modules[mi];
       const w = m.weapon;
       if (m.kind !== 'turret' || !w) continue;
       const base = WEAPONS[w.type];
@@ -266,6 +273,10 @@ export function updateWeapons(world: World, dt: number): void {
       w.firing = false;
       w.cooldown = Math.max(0, w.cooldown - dt);
       if (eff <= 0) continue;
+      // a gun nobody stands at does not fire; the gunner's level makes it quicker
+      const man = mannedBy(b, mi);
+      if (man === null) continue;
+      const rate = fx.fireRate * (man === true ? 1 : 1 + man.bonus / 100);
 
       let sx = 0;
       let sy = 0;
@@ -307,10 +318,10 @@ export function updateWeapons(world: World, dt: number): void {
       if (def.type === 'beam') {
         if (spendEnergy(sys, def.energyPerSec * dt)) {
           w.firing = true;
-          fireBeam(world, mx, my, dx, dy, def, sys.team, dt * eff * fx.fireRate);
+          fireBeam(world, mx, my, dx, dy, def, sys.team, dt * eff * rate, { body: b, module: mi });
         }
       } else if (w.cooldown <= 0 && spendEnergy(sys, def.energy)) {
-        w.cooldown = 1 / (def.rof * eff * fx.fireRate);
+        w.cooldown = 1 / (def.rof * eff * rate);
         world.projectiles.push({
           x: mx,
           y: my,
@@ -325,6 +336,7 @@ export function updateWeapons(world: World, dt: number): void {
           type: def.type,
           color: def.color,
           skip: [],
+          by: { body: b, module: mi },
         });
         world.push({ t: 'shot', x: mx, y: my, color: def.color });
       }

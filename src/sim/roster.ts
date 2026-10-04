@@ -274,7 +274,7 @@ export function staffShip(r: Roster, shipId: string, grid: ShipGrid, rng: Rng, w
 export function dutyOf(r: Roster, shipId: string): DutyCrew[] {
   return onShip(r, shipId)
     .filter((m) => m.status === 'ok')
-    .map((m) => ({ id: m.id, name: m.name, lv: m.lv, role: m.role, post: m.post }));
+    .map((m) => ({ id: m.id, name: m.name, lv: m.lv, role: m.role, post: m.post, bonus: bonusPct(m.role, m.lv, m.traits) }));
 }
 export interface DutyCrew {
   id: number;
@@ -282,6 +282,37 @@ export interface DutyCrew {
   lv: number;
   role: CrewRole;
   post: number | null;
+  /** What the level gives the post, in percent (the traits counted). */
+  bonus: number;
+}
+
+// ------------------------------------------------------------------ levels and experience
+
+/** The bonus a person's level gives their post, in percent: the first level counts half a step. */
+export function bonusPct(role: CrewRole, lv: number, traits: string[]): number {
+  const k = CREW.bonusPerLevel[role] ?? 0;
+  let b = (lv - 1) * k + k * 0.5;
+  if (traits.includes('keen')) b *= 1 + CREW.traitBonusShare;
+  if (traits.includes('nervy')) b *= 1 - CREW.traitBonusShare;
+  return b;
+}
+
+/** Experience to go from this level to the next. */
+export const xpNeed = (lv: number): number => CREW.xpPerLevel * lv;
+
+/** The share of a battle's experience a person gets for what they did (a full share of work is the reference of their profession). */
+export const xpShare = (role: CrewRole, deed: number): number => CREW.xpShareMin + CREW.xpShareSpan * Math.max(0, Math.min(1, deed / (CREW.deedRef[role] || 1)));
+
+/** Gives experience; levels come as it fills (up to the top level). Returns the level before and after. */
+export function giveXp(m: Member, amount: number): { from: number; to: number } {
+  const from = m.lv;
+  m.xp += amount * (m.traits.includes('vet') ? CREW.vetXp : 1);
+  while (m.lv < CREW.levelMax && m.xp >= xpNeed(m.lv)) {
+    m.xp -= xpNeed(m.lv);
+    m.lv++;
+  }
+  if (m.lv >= CREW.levelMax) m.xp = Math.min(m.xp, xpNeed(CREW.levelMax) - 1);
+  return { from, to: m.lv };
 }
 
 // ------------------------------------------------------------------ battle, wounds and death
@@ -291,6 +322,19 @@ export interface BattleCrew {
   memberId: number | null;
   dead: boolean;
   hurt: boolean;
+  /** What they did in the battle, in the unit of their profession (see CREW.deedRef). */
+  deed?: number;
+}
+
+/** One line of the report of a battle: what became of a person. */
+export interface ReportRow {
+  id: number;
+  name: string;
+  role: CrewRole;
+  fate: 'ok' | 'hurt' | 'dead';
+  xp: number;
+  lvFrom: number;
+  lvTo: number;
 }
 
 /** A person who died: out of the people, into the memory list. */
@@ -319,23 +363,37 @@ export function wound(r: Roster, id: number): void {
  * went out gets a battle on the record. `went` lists who was in the battle (somebody whose post was already
  * wrecked before it is not lost in it).
  */
-export function applyBattle(r: Roster, shipId: string, crew: BattleCrew[], went?: Set<number>): { died: Fallen[]; hurt: Member[] } {
+export function applyBattle(r: Roster, shipId: string, crew: BattleCrew[], went?: Set<number>, xp = 0): { died: Fallen[]; hurt: Member[]; rows: ReportRow[] } {
   const byId = new Map<number, BattleCrew>();
   for (const c of crew) if (c.memberId !== null) byId.set(c.memberId, c);
   const died: Fallen[] = [];
   const hurt: Member[] = [];
+  const rows: ReportRow[] = [];
   for (const m of onShip(r, shipId).filter((x) => x.status === 'ok' && (!went || went.has(x.id)))) {
     m.fights++;
     const c = byId.get(m.id);
+    const row: ReportRow = { id: m.id, name: m.name, role: m.role, fate: 'ok', xp: 0, lvFrom: m.lv, lvTo: m.lv };
     if (!c || c.dead) {
+      row.fate = 'dead';
       const f = fall(r, m.id, 'battle');
       if (f) died.push(f);
-    } else if (c.hurt) {
-      wound(r, m.id);
-      hurt.push(m);
+    } else {
+      // the living learn from what they did; the wounded too
+      if (xp > 0) {
+        const lv = giveXp(m, xp * xpShare(m.role, c.deed ?? 0));
+        row.lvFrom = lv.from;
+        row.lvTo = lv.to;
+        row.xp = Math.round(xp * xpShare(m.role, c.deed ?? 0) * (m.traits.includes('vet') ? CREW.vetXp : 1));
+      }
+      if (c.hurt) {
+        row.fate = 'hurt';
+        wound(r, m.id);
+        hurt.push(m);
+      }
     }
+    rows.push(row);
   }
-  return { died, hurt };
+  return { died, hurt, rows };
 }
 
 /** Seconds a wounded person needs at the dock. */

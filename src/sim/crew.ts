@@ -62,6 +62,10 @@ export interface Crew {
   memberId: number | null;
   name: string;
   level: number;
+  /** What the person's level gives their post, in percent. */
+  bonus: number;
+  /** What they have done in this battle (seconds at the helm, damage dealt by their turret, damage their shield took, breaches patched and fires put out): their share of the experience. */
+  deed: number;
   /** An engineer sent to a room in trouble (a room id of the current room graph), and how long they have worked there. */
   incident: number | null;
   workTime: number;
@@ -398,7 +402,7 @@ function moveAlong(crew: Crew, dt: number, speed: number = CREW.speed): void {
 
 let nextCrewId = 1;
 
-function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x: number; y: number; z: number }, who?: { id: number; name: string; lv: number }): Crew {
+function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x: number; y: number; z: number }, who?: { id: number; name: string; lv: number; bonus?: number }): Crew {
   return {
     id: nextCrewId++,
     role,
@@ -426,6 +430,8 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     memberId: who ? who.id : null,
     name: who ? who.name : '',
     level: who ? who.lv : 1,
+    bonus: who?.bonus ?? 0,
+    deed: 0,
   };
 }
 
@@ -445,7 +451,7 @@ export function findPosts(grid: ShipGrid): Array<{ role: CrewRole; moduleId: num
  * Without it (the old anonymous crew, for tests): one crew per combat post (the first bridge is the
  * primary helm, any further bridge starts empty as a reserve post), plus a handful of engineers.
  */
-export function spawnCrew(grid: ShipGrid, duty?: Array<{ id: number; name: string; lv: number; role: CrewRole; post: number | null }>): Crew[] {
+export function spawnCrew(grid: ShipGrid, duty?: Array<{ id: number; name: string; lv: number; role: CrewRole; post: number | null; bonus?: number }>): Crew[] {
   const posts = findPosts(grid);
   const crew: Crew[] = [];
   let pilotAssigned = false;
@@ -822,6 +828,7 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
   for (const room of graph.rooms) {
     room.sealing = false;
     room.firefighting = false;
+    room.fightPower = 1;
   }
 
   const rescue = shipEffects(grid).rescue;
@@ -846,6 +853,7 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     // people run when they flee or answer a call
     moveAlong(crew, dt, crew.task === 'flee' || (crew.incident !== null && crew.task === 'toPost') ? CREW.speed * CREW.runBoost : CREW.speed);
     if (crew.task === 'atPost' && crew.seat > 0) crew.seat = Math.max(0, crew.seat - dt);
+    if (crew.role === 'pilot' && crew.task === 'atPost' && crew.seat <= 0) crew.deed += dt;
 
     const roomId = currentRoom(grid, graph, crew);
     const room = roomId >= 0 ? graph.rooms[roomId] : null;
@@ -853,13 +861,16 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     if (crew.waypoints.length === 0 && room && crew.task === 'seal') {
       room.sealing = true;
       // the work done, the patch holds without them (until a new hole is made)
-      crew.workTime += dt;
+      crew.workTime += dt * (1 + crew.bonus / 100);
       if (crew.workTime >= CREW.sealTime) {
+        if (!room.patched) crew.deed += 1;
         room.patched = true;
         room.patchHoles = room.holes;
       }
     } else if (crew.waypoints.length === 0 && room && crew.task === 'extinguish') {
       room.firefighting = true;
+      room.fightPower = Math.max(room.fightPower, 1 + crew.bonus / 100);
+      crew.deed += dt * 0.25; // a fire fought for four seconds counts as a breach patched
       crew.workTime = 0;
     } else crew.workTime = 0;
 
@@ -929,6 +940,34 @@ function rescueTo(crew: Crew, grid: ShipGrid): boolean {
     }
   }
   return false;
+}
+
+/**
+ * The person standing at the post of a module, or null. A ship with no crew list at all (an enemy's) has
+ * every post taken by nobody in particular: it is `true`, there is no one to give a bonus.
+ */
+export function mannedBy(body: GridBody, moduleIndex: number): Crew | null | true {
+  const crew = body.sys?.crew;
+  if (!crew) return true;
+  return crew.find((c) => !c.dead && !c.mobile && c.homeModule === moduleIndex && !c.orphaned && c.task === 'atPost' && c.seat <= 0) ?? null;
+}
+
+/** Writes to the account of the gunner at a turret what its shot did. */
+export function creditGunner(body: GridBody, moduleIndex: number, amount: number): void {
+  const c = body.sys?.crew?.find((x) => !x.dead && x.role === 'gunner' && x.homeModule === moduleIndex);
+  if (c) c.deed += amount;
+}
+
+/** Writes to the account of the shield operator what the shield took. */
+export function creditShield(body: GridBody, amount: number): void {
+  const c = body.sys?.crew?.find((x) => !x.dead && x.role === 'shieldop');
+  if (c) c.deed += amount;
+}
+
+/** The bonus (percent) of the pilot at the helm, 0 if there is none. */
+export function pilotBonus(body: GridBody): number {
+  const c = body.sys?.crew?.find((x) => !x.dead && x.role === 'pilot' && x.task === 'atPost' && x.seat <= 0);
+  return c ? c.bonus : 0;
 }
 
 export function pilotAvailable(body: GridBody): boolean {
