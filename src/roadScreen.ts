@@ -598,11 +598,12 @@ export class RoadScreen {
       const back = g.pointsToDock();
       if (back > 0) chips.append(div('rd-chip', `последний док ${back} ${back === 1 ? 'точка' : back < 5 ? 'точки' : 'точек'} назад`));
     }
+    if (st === 'current' && g.flightBlock()) chips.append(div('rd-chip risk', '⚠ Нет пилота'));
     info.append(meta, div('rd-ttl', text.title), div('rd-desc', text.sub), chips);
     const acts = div('rd-acts', '');
     const phone = this.root.classList.contains('phone');
     const go = button(st === 'current' ? (p.kind === 'dock' ? 'Зайти в док ▸' : p.kind === 'gate' ? 'Через врата ▸' : phone ? 'Начать ▸' : 'Начать миссию ▸') : st === 'done' ? 'Пройдена' : 'Откроется позже', () => this.fly(), 'go');
-    go.disabled = st !== 'current' || this.busy;
+    go.disabled = st !== 'current' || this.busy || !!g.flightBlock();
     const loc = button(phone ? '⌖ Текущая' : '⌖ К текущей', () => this.select(run.cleared + 1, true));
     const back = button(phone ? '↩ В док' : '↩ В последний док', () => this.askRetreat());
     back.disabled = this.busy || g.pointsToDock() === 0;

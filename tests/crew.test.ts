@@ -634,6 +634,27 @@ describe('life aboard: what the crew does when the hull is pierced', () => {
   });
 });
 
+describe('who is hurt in a battle', () => {
+  it('is somebody who stood in a fire, or next to a hole with no air, and lived', () => {
+    const { world, ship } = makePlayer();
+    run(world, 1);
+    const shieldop = ship.sys!.crew!.find((c) => c.role === 'shieldop')!;
+    expect(shieldop.hurt).toBe(false);
+    const graph = ensureRooms(ship);
+    const room = graph.rooms[graph.cellRoom[ship.grid.idx(Math.floor(shieldop.x), Math.floor(shieldop.y), shieldop.z)]];
+    room.fire = 1;
+    world.step(DT);
+    expect(shieldop.hurt).toBe(true);
+    expect(shieldop.dead).toBe(false);
+  });
+
+  it('is not somebody who was never in danger', () => {
+    const { world, ship } = makePlayer();
+    run(world, 5);
+    expect(ship.sys!.crew!.every((c) => !c.hurt)).toBe(true);
+  });
+});
+
 describe('what an engineer can and cannot patch, and where a post-less crew member goes', () => {
   function breach(ship: GridBody, room: ReturnType<typeof ensureRooms>['rooms'][number], holes: number): void {
     const cells = room.cells.filter((i) => ship.grid.mod[i] === 0 && ship.grid.mat[ship.grid.idx(ship.grid.xOf(i), ship.grid.yOf(i), 0)] !== 0).slice(0, holes);

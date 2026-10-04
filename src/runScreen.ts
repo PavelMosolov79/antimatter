@@ -50,7 +50,7 @@ export class RunScreen {
       return;
     }
     const run = g.run;
-    const key = [phase, g.shipId, run?.cleared, run?.outcome, run?.lost?.credits, g.wallet.credits, window.innerWidth > window.innerHeight].join('|');
+    const key = [phase, g.shipId, run?.cleared, run?.outcome, run?.lost?.credits, run?.fate.length, g.wallet.credits, window.innerWidth > window.innerHeight].join('|');
     if (key === this.key) return;
     this.key = key;
     this.root.className = 'dim';
@@ -71,6 +71,7 @@ export class RunScreen {
     const where = !dock ? 'у последнего дока' : dock.kind === 'gate' ? (dock.link === 0 ? 'у старта похода' : `у врат звена ${dock.link + 1}`) : `у дока миссии ${dock.mission}`;
     box.append(h);
     box.appendChild(text('rs-lost', had ? `Груз пропал: ${lost!.credits} кр. · ${lost!.metal} мет.` : 'В трюме ничего не было, терять нечего.'));
+    for (const line of run.fate) box.appendChild(text('rs-lost', line));
     box.appendChild(text('rs-kept', `Ресурсы целы: Кредиты ${g.wallet.credits} · Металл ${g.wallet.metal}`));
     box.appendChild(text('rs-sub', `Вы получили такой же целый корабль ${where}. Участок дороги от дока соберётся заново. Разбитый корабль и ремонт по таймеру появятся позже.`));
     box.appendChild(this.statsRow());

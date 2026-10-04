@@ -2,6 +2,7 @@ import { moduleSprite, paintDeck } from '../sim/interiorArt';
 import { moduleFaceCanvas, moduleSheetCanvas } from '../render/moduleArt';
 import { yardLayout, currentLayout } from '../sim/interior';
 import {
+  inMask,
   MODULE_INFO,
   POOL,
   TILE,
@@ -205,6 +206,8 @@ export class ModulesScreen {
   private drag: Drag | null = null;
   private floater: HTMLElement | null = null;
   private hover: number | null = null;
+  /** The cell under the pointer, for the preview of the brush; null when it is not over the deck. */
+  private cursor: { x: number; y: number } | null = null;
   private painting = false;
   private lastCell: { x: number; y: number } | null = null;
   private flashTimer = 0;
@@ -291,6 +294,7 @@ export class ModulesScreen {
     ] as Array<[Tool, string]>) {
       const bt = button(label, () => {
         this.tool = t;
+        this.cursor = null;
         this.refresh();
       });
       bt.dataset.tool = t;
@@ -333,6 +337,12 @@ export class ModulesScreen {
 
     this.els.canvas.addEventListener('pointerdown', (e) => this.canvasDown(e));
     this.els.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.els.canvas.addEventListener('pointerleave', () => {
+      if (this.cursor && !this.painting) {
+        this.cursor = null;
+        this.draw();
+      }
+    });
     window.addEventListener('pointermove', (e) => this.move(e));
     window.addEventListener('pointerup', (e) => this.up(e));
     window.addEventListener('pointercancel', (e) => this.up(e));
@@ -613,6 +623,18 @@ export class ModulesScreen {
       ctx.lineWidth = 2;
       ctx.strokeRect(r.x0 * Z, r.y0 * Z, (r.x1 - r.x0 + 1) * Z, (r.y1 - r.y0 + 1) * Z);
     }
+    // the brush: which cells the corridor tool will lay or the eraser will take, before the stroke
+    if (!d && this.cursor && (this.tool === 'corr' || this.tool === 'erase')) {
+      const half = Math.floor(this.brush / 2);
+      const x0 = this.cursor.x - half;
+      const y0 = this.cursor.y - half;
+      const erase = this.tool === 'erase';
+      ctx.fillStyle = erase ? 'rgba(255,90,100,0.38)' : 'rgba(80,230,150,0.34)';
+      for (let dy = 0; dy < this.brush; dy++) for (let dx = 0; dx < this.brush; dx++) if (inMask(g, z, x0 + dx, y0 + dy)) ctx.fillRect((x0 + dx) * Z, (y0 + dy) * Z, Z, Z);
+      ctx.strokeStyle = erase ? '#ff5a64' : '#50e696';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x0 * Z, y0 * Z, this.brush * Z, this.brush * Z);
+    }
     for (const e of plan.ents) {
       if (e.kind !== 'mod') continue;
       const m = e.ref as { id: number; lv?: number };
@@ -859,6 +881,12 @@ export class ModulesScreen {
       return;
     }
     const c = this.cellOf(e);
+    const brushTool = this.tool === 'corr' || this.tool === 'erase';
+    if (brushTool && !this.drag) {
+      const was = this.cursor;
+      this.cursor = c.inside ? { x: c.x, y: c.y } : null;
+      if (was?.x !== this.cursor?.x || was?.y !== this.cursor?.y) this.draw();
+    }
     const d = this.drag;
     if (d) {
       if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 4) d.moved = true;
@@ -873,6 +901,13 @@ export class ModulesScreen {
         d.i = t.i;
         d.j = t.j;
         d.valid = t.ok;
+        this.els.status.textContent = d.ladder
+          ? t.ok
+            ? 'Лестница 5×5 клеток: отпустите, чтобы поставить'
+            : 'Сюда лестницу не поставить: шахта 5×5 должна поместиться на двух соседних палубах и не задевать модули'
+          : t.ok
+            ? `Модуль ${TILE * d.tw + 1}×${TILE * d.th + 1} клеток: отпустите, чтобы поставить`
+            : 'Здесь нет свободного места нужного размера';
       } else d.valid = false;
       this.draw();
       return;
@@ -908,6 +943,7 @@ export class ModulesScreen {
     const d = this.drag;
     if (!d) return;
     this.drag = null;
+    this.els.status.textContent = '';
     this.floater?.remove();
     this.floater = null;
     this.els.decks.querySelectorAll('button').forEach((b) => b.classList.remove('drop'));
@@ -988,6 +1024,7 @@ export class ModulesScreen {
     const c = this.cellOf(e);
     paintCorridor(this.geo, this.layout, this.deck, this.lastCell ?? c, c, this.brush, this.tool === 'corr');
     this.lastCell = { x: c.x, y: c.y };
+    this.cursor = { x: c.x, y: c.y };
     this.draw();
   }
 }

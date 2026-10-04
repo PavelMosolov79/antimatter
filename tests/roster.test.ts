@@ -141,9 +141,8 @@ describe('the crew in the game', () => {
     const pilot = atPost(g.roster, spec.id, helm.key)!;
     unassign(g.roster, pilot.id);
     g.openDock(spec.id);
-    // the spare ship gets a trainee for the empty post at once
-    expect(atPost(g.roster, spec.id, helm.key)).toBeDefined();
-    expect(atPost(g.roster, spec.id, helm.key)!.id).not.toBe(pilot.id);
+    // nobody comes out of nowhere, not even on the spare ship: the post stays empty until the player posts someone
+    expect(atPost(g.roster, spec.id, helm.key)).toBeUndefined();
   });
 
   it('leaves a post empty on a ship that is not the spare one until someone is hired', () => {

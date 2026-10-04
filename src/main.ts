@@ -1,5 +1,5 @@
 import { Application } from 'pixi.js';
-import { DockScreen, prepareDockSprites } from './dock/dockScreen';
+import { DockScreen, clearDockSprites, prepareDockSprites } from './dock/dockScreen';
 import { CrewScreen } from './dock/crewScreen';
 import { ModulesScreen } from './dock/modulesScreen';
 import { RoadScreen } from './roadScreen';
@@ -34,6 +34,7 @@ async function main(): Promise<void> {
   await nextFrame();
   const scene = new Scene(app);
   const game = new Game(scene);
+  game.onNewGame.push(() => clearDockSprites());
 
   title.step(0.65, 'Прогрев реактора');
   await nextFrame();
@@ -41,7 +42,10 @@ async function main(): Promise<void> {
   const dock = new DockScreen(game, document.body);
   dock.setModules(new ModulesScreen((id) => dock.refreshShip(id), document.body, game));
   dock.setCrew(new CrewScreen(game, document.body, (id, changed) => {
-      if (changed) dock.refreshShip(id);
+      if (!changed) return;
+      // on a dock on the road the run's ship gets its crew as it is now; at the berth the berth is built again
+      if (game.runPhase === 'roaddock') game.syncRunCrew();
+      else dock.refreshShip(id);
     }));
   const road = new RoadScreen(game, document.body);
   hud.update(performance.now());

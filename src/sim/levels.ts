@@ -1,4 +1,5 @@
 import { holdCap, type Cargo } from './cargo';
+import { CREW } from './crewConfig';
 import type { ModuleId, PlacedModule, ShipLayout } from './layout';
 
 /**
@@ -31,6 +32,7 @@ export const LEVELS: Record<ModuleId, LevelDef> = {
   crew: { title: 'Места для космонавтов', values: [2, 3, 4, 5, 6], unit: 'plus', live: true },
   store: { title: 'Трюм больше на', values: [50, 75, 100, 130, 170], unit: 'pct', live: true },
   helm: { title: 'Пилот пересаживается за', values: [6, 5, 4, 3, 2], unit: 'sec', live: true },
+  pod: { title: 'Мест в капсулах', values: [0, 1, 2, 3, 4].map((i) => CREW.podSeatsBase + CREW.podSeatsPerLevel * i), unit: 'plus', live: true },
   core: { title: 'Мощность реактора', values: [0, 10, 20, 30, 40], unit: 'pct', live: true },
   shield: { title: 'Ёмкость щита', values: [0, 15, 30, 45, 60], unit: 'pct', live: true },
   bridge: { title: 'Дальность орудий', values: [0, 10, 20, 30, 40], unit: 'pct', live: true },
@@ -58,6 +60,7 @@ export function effectText(type: ModuleId, lv: number, shipId: string): string {
   let s = shortEffect(type, lv);
   if (type === 'store') s += ` (${holdCap(shipId)} → ${Math.round(holdCap(shipId) * (1 + effectValue(type, lv) / 100))} мет.)`;
   if (type === 'work') s += ` (${Math.round(FIELD_REPAIR_BASE * effectValue(type, lv) * 100) / 100} ед. прочности в секунду)`;
+  if (type === 'pod') s += `, шанс спастись ${Math.round((CREW.podChanceBase + CREW.podChancePerLevel * (lv - 1)) * 100)}%`;
   if (type === 'core' && effectValue(type, lv) > 0) s += `, радиус взрыва +${Math.round(effectValue(type, lv) * 0.8)}%`;
   if (type === 'shield' && effectValue(type, lv) > 0) s += `, перезарядка +${Math.round(effectValue(type, lv) * 0.7)}%`;
   return `${d.title} ${s}`;

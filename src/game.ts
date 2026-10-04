@@ -1,18 +1,20 @@
 import type { GridBody } from './sim/body';
 import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
-import { crewOnDeck, type Crew } from './sim/crew';
+import { crewOnDeck, spawnCrew, type Crew } from './sim/crew';
+import { shipEffects } from './sim/effects';
 import type { EnergyPriority } from './sim/systems';
 import { ENEMIES, SHIPS, buildFreighter, shipHoldCap } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
 import { restAfterBattle } from './sim/run';
 import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './sim/repair';
-import { QUANTA_PER_BOSS, QUANTA_PER_RUN, REPAIR, SPARE_SHIP } from './sim/repairConfig';
+import { QUANTA_PER_BOSS, QUANTA_PER_RUN, QUANTA_START, REPAIR, SPARE_SHIP } from './sim/repairConfig';
+import { clearLayouts, savedLayout } from './sim/layoutStore';
 import { CREW } from './sim/crewConfig';
-import { assign, dutyOf, engineerPlaces, hire, hirePrice, inBarracks, loadRoster, onShip, postsOf, reconcile, refreshCandidates, release, staffShip, storeRoster, unassign, type DutyCrew, type Roster } from './sim/roster';
+import { ROLE_NAMES, abandonShip, emptyRoster, makeMember, applyBattle, assign, autoFill, dutyOf, healPrice, healSpeedUpPrice, hire, hirePrice, inBarracks, loadRoster, postsOf, reconcile, refreshCandidates, release, settleHealing, startHeal, cure, staffShip, storeRoster, unassign, type DutyCrew, type Roster } from './sim/roster';
 import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
-import { captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun, type SavedShip, type Wallet } from './sim/runSave';
+import { brokenModules, captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun, type SavedShip, type Wallet } from './sim/runSave';
 import { mulberry32 } from './sim/rng';
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
@@ -48,6 +50,10 @@ export interface RunSession {
   lost: Cargo | null;
   /** The dock the player fell back to after losing the ship, for the result screen. */
   fellBackTo: number | null;
+  /** What became of the crew when the ship was lost, for the result screen. */
+  fate: string[];
+  /** The named people who went into the battle in progress (who can be lost in it). */
+  crewIds: number[];
   /** The repair under way at the dock on the road, and the damage the ship came to it with. */
   job: RepairJob | null;
   diff: SavedShip | null;
@@ -128,6 +134,8 @@ export class Game {
   stepMs = 0;
   private acc = 0;
   private seed = 1;
+  /** Called when a new game wipes everything (the screens forget the pictures they kept). */
+  readonly onNewGame: Array<() => void> = [];
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -244,12 +252,115 @@ export class Game {
     if (changed) storeRoster(this.roster);
   }
 
-  /** Puts the people of a ship in order and, on the spare ship, gives trainees to any empty post. */
+  /** The damage a ship has right now (at the berth, or the run's ship at a dock on the road), repairs under way counted. */
+  private shipDiff(shipId: string, now = Date.now()): SavedShip | null {
+    const bp = this.blueprint(shipId);
+    const run = this.run;
+    if (run && run.shipId === shipId && (this.runPhase === 'roaddock' || this.runPhase === 'map' || this.runPhase === 'battle')) {
+      if (run.job) return standing({ damage: null, job: run.job }, bp, now).diff;
+      if (this.runPhase === 'roaddock') return run.diff;
+      return run.ship ? captureShip(run.ship, run.blueprint) : run.diff;
+    }
+    return standing(entryOf(this.garage, shipId), bp, now).diff;
+  }
+
+  /** The keys of the modules of a ship that are wrecked: nobody can be put on a post in one until the ship is mended. */
+  brokenPosts(shipId: string): Set<number> {
+    const diff = this.shipDiff(shipId);
+    return diff ? brokenModules(this.blueprint(shipId), diff) : new Set();
+  }
+
+  /** Puts the people of a ship in order (nobody is added: the people are those the player has). */
   prepareCrew(shipId: string): void {
-    const grid = this.blueprint(shipId);
-    reconcile(this.roster, shipId, grid);
-    if (shipId === SPARE_SHIP) staffShip(this.roster, shipId, grid, mulberry32((Math.random() * 2 ** 31) >>> 0));
+    reconcile(this.roster, shipId, this.blueprint(shipId));
     storeRoster(this.roster);
+  }
+
+  /**
+   * The one exception to "no people from nowhere": a ship with nobody to fly it, no healthy pilot in the barracks and
+   * almost no credits to hire one would never leave the dock, so the dock lends a trainee pilot. Returns his name.
+   */
+  private emergencyPilot(shipId: string): string | null {
+    if (!this.noPilot(shipId)) return null;
+    const r = this.roster;
+    if (inBarracks(r).some((m) => m.role === 'pilot' && m.status === 'ok')) return null;
+    if (this.wallet.credits >= CREW.emergencyCredits) return null;
+    const broken = this.brokenPosts(shipId);
+    const post = postsOf(this.blueprint(shipId)).find((p) => p.role === 'pilot' && !p.reserve && !broken.has(p.key));
+    if (!post) return null;
+    const m = makeMember(r, mulberry32((Math.random() * 2 ** 31) >>> 0), 'pilot', CREW.starterLevel, 1);
+    m.ship = shipId;
+    m.post = post.key;
+    r.members.push(m);
+    storeRoster(r);
+    return m.name;
+  }
+
+  /** Is there somebody to fly the ship? Without a pilot on a post that stands (or a whole reserve helm) it cannot fly. */
+  noPilot(shipId: string): boolean {
+    const broken = this.brokenPosts(shipId);
+    const grid = this.blueprint(shipId);
+    const spareHelm = grid.modules.some((m) => m.kind === 'bridge' && !broken.has(m.key) && postsOf(grid).some((p) => p.key === m.key && p.reserve));
+    return !this.duty(shipId).some((d) => d.role === 'pilot' && d.post !== null && (!broken.has(d.post) || spareHelm));
+  }
+
+  /** What stops the run's ship from setting off, in words; null when nothing does. */
+  flightBlock(): string | null {
+    const run = this.run;
+    if (!run) return null;
+    return this.noPilot(run.shipId) ? 'Нет пилота: без него корабль не взлетит. Поставьте пилота на пост в комнате «Экипаж» на доке (разрушенный мостик сначала чинят).' : null;
+  }
+
+  /**
+   * After a won battle: the dead go to the memory and the wounded to the barracks. Nobody is replaced on the way:
+   * a post that lost its man stays empty until the next dock, where the player hires and posts people. The ship's
+   * crew is made again from the roster. Returns what to tell the player.
+   */
+  private crewAfterBattle(ship: GridBody, shipId: string): string[] {
+    const lines: string[] = [];
+    const crew = ship.sys?.crew ?? [];
+    const { died, hurt } = applyBattle(
+      this.roster,
+      shipId,
+      crew.map((c) => ({ memberId: c.memberId, dead: c.dead, hurt: c.hurt })),
+      new Set(this.run?.crewIds ?? []),
+    );
+    if (died.length) lines.push(`Погибли: ${died.map((f) => `${f.name} (${ROLE_NAMES[f.role]}, ур. ${f.lv})`).join(', ')}.`);
+    if (hurt.length) lines.push(`Ранены: ${hurt.map((m) => m.name).join(', ')}; лечатся в доке.`);
+    if (died.length || hurt.length) lines.push('Посты опустели до ближайшего дока.');
+    storeRoster(this.roster);
+    if (ship.sys) ship.sys.crew = spawnCrew(ship.grid, this.duty(shipId));
+    return lines;
+  }
+
+  /** The crew of the run's ship at a dock on the road was changed: the ship gets it. */
+  syncRunCrew(): void {
+    const run = this.run;
+    if (!run?.ship?.sys) return;
+    run.ship.sys.crew = spawnCrew(run.ship.grid, this.duty(run.shipId));
+  }
+
+  /** Pays for a wounded person's healing and starts the clock. */
+  healMember(id: number): 'ok' | 'credits' | 'none' {
+    const m = this.roster.members.find((x) => x.id === id);
+    if (!m || m.status !== 'hurt' || m.healEnd) return 'none';
+    if (!this.spendWallet({ credits: healPrice(m), metal: 0 })) return 'credits';
+    startHeal(this.roster, id, Date.now());
+    storeRoster(this.roster);
+    return 'ok';
+  }
+
+  /** Finishes a healing at once for quanta. */
+  speedUpHealing(id: number): 'ok' | 'quanta' | 'none' {
+    const m = this.roster.members.find((x) => x.id === id);
+    if (!m || m.status !== 'hurt' || !m.healEnd) return 'none';
+    const price = healSpeedUpPrice(m, Date.now());
+    if (this.wallet.quanta < price) return 'quanta';
+    this.wallet.quanta -= price;
+    storeWallet(this.wallet);
+    cure(this.roster, id);
+    storeRoster(this.roster);
+    return 'ok';
   }
 
   /** Hires a candidate for credits into the barracks. */
@@ -273,6 +384,7 @@ export class Game {
 
   /** Posts a person on the ship at the berth (post null: an engineer). */
   postMember(id: number, shipId: string, post: number | null): boolean {
+    if (post !== null && this.brokenPosts(shipId).has(post)) return false;
     const ok = assign(this.roster, id, shipId, post);
     if (ok) storeRoster(this.roster);
     return ok;
@@ -290,22 +402,8 @@ export class Game {
 
   /** Puts the best people from the barracks on the empty posts and places of a ship. */
   autoPost(shipId: string): number {
-    const grid = this.blueprint(shipId);
-    const r = this.roster;
-    let n = 0;
-    const best = (role: string) => inBarracks(r).filter((m) => m.role === role && m.status === 'ok').sort((a, b) => b.lv - a.lv || b.rar - a.rar)[0];
-    for (const p of postsOf(grid)) {
-      if (p.reserve || r.members.some((m) => m.ship === shipId && m.post === p.key)) continue;
-      const m = best(p.role);
-      if (m && assign(r, m.id, shipId, p.key)) n++;
-    }
-    let have = onShip(r, shipId).filter((m) => m.role === 'engineer').length;
-    for (; have < engineerPlaces(grid); have++) {
-      const m = best('engineer');
-      if (!m) break;
-      if (assign(r, m.id, shipId, null)) n++;
-    }
-    if (n) storeRoster(r);
+    const n = autoFill(this.roster, shipId, this.blueprint(shipId), this.brokenPosts(shipId)).length;
+    if (n) storeRoster(this.roster);
     return n;
   }
 
@@ -436,6 +534,11 @@ export class Game {
       this.saveRun();
       finished = true;
     }
+    const healed = settleHealing(this.roster, now);
+    if (healed > 0) {
+      storeRoster(this.roster);
+      this.dockNotes.push(healed === 1 ? 'Раненый выздоровел.' : `Выздоровели: ${healed}.`);
+    }
     if (finished) storeGarage(this.garage);
     // while a repair runs the dock repaints the ship itself, cell by cell (the drones work); the berth is rebuilt only when it ends
     if (finished) {
@@ -476,6 +579,49 @@ export class Game {
     return true;
   }
 
+  /** What a new game would wipe, for the question that asks before it does. */
+  newGameSummary(): { credits: number; metal: number; quanta: number; run: { mission: number; credits: number; metal: number } | null; people: number; fallen: number; damaged: number; upgraded: number } {
+    const run = this.run;
+    const d = run ? null : this.savedRun();
+    const w = this.wallet;
+    let upgraded = 0;
+    for (const spec of SHIPS) for (const m of savedLayout(spec.id)?.mods ?? []) if ((m.lv ?? 1) > 1) upgraded++;
+    const damaged = Object.values(this.garage).filter((e) => e.damage || e.job).length;
+    const cargo = run ? run.cargo : d?.cargo;
+    const mission = run ? run.road.missionsDone(run.cleared) + 1 : d ? new Road(d.seed, d.links, d.regens).missionsDone(d.cleared) + 1 : 0;
+    return {
+      credits: w.credits,
+      metal: w.metal,
+      quanta: w.quanta,
+      run: cargo ? { mission, credits: cargo.credits, metal: cargo.metal } : null,
+      people: this.roster.members.length,
+      fallen: this.roster.memory.length,
+      damaged,
+      upgraded,
+    };
+  }
+
+  /**
+   * A new game from nothing: the run, the hold, the resources, the damage and repairs of every ship, all the people
+   * (the living, the wounded, the dead in the memory) and the module layouts with their levels are gone; every ship
+   * gets its first crew again. It ends at the dock of the first ship.
+   */
+  newGame(): void {
+    this.run = null;
+    storeRun(null);
+    this.wallet = { credits: 0, metal: 0, quanta: QUANTA_START };
+    storeWallet(this.wallet);
+    this.garage = {};
+    storeGarage(this.garage);
+    clearLayouts();
+    this.bpCache.clear();
+    this.roster = emptyRoster();
+    this.ensureCrews();
+    this.dockNotes = [];
+    for (const f of this.onNewGame) f();
+    this.openDock(SHIPS[0].id);
+  }
+
   /** Throws away the run in progress, in memory or saved in the browser: the hold goes with it. */
   abandonRun(): void {
     this.bankRunDamage();
@@ -511,9 +657,15 @@ export class Game {
     const entry = entryOf(this.garage, spec.id);
     // no flight while a repair runs, and a wreck is not a ship that can fly
     if (entry.job || entry.damage?.allDead) return false;
+    this.prepareCrew(spec.id);
+    const lent = this.emergencyPilot(spec.id);
+    if (lent) this.dockNotes.push(`Нет пилота и нечем платить за найм: док одолжил курсанта-пилота, ${lent}.`);
+    if (this.noPilot(spec.id)) {
+      this.dockNotes.push('Нет пилота: без него корабль не взлетит. Поставьте пилота на пост в комнате «Экипаж».');
+      return false;
+    }
     const diff = entry.damage;
     this.bpCache.clear();
-    this.prepareCrew(spec.id);
     this.run = {
       shipId: spec.id,
       road: new Road((Math.random() * 2 ** 31) >>> 0),
@@ -528,6 +680,8 @@ export class Game {
       deposited: null,
       lost: null,
       fellBackTo: null,
+      fate: [],
+      crewIds: [],
       job: null,
       diff: null,
     };
@@ -595,6 +749,8 @@ export class Game {
       deposited: null,
       lost: null,
       fellBackTo: null,
+      fate: [],
+      crewIds: [],
       job: d.job ?? null,
       diff: d.ship ?? null,
     };
@@ -611,6 +767,7 @@ export class Game {
   canTravel(index: number): boolean {
     const run = this.run;
     if (!run || this.runPhase !== 'map') return false;
+    if (this.flightBlock()) return false;
     return index === run.cleared + 1 && !!run.road.points[index];
   }
 
@@ -654,11 +811,16 @@ export class Game {
       run.job = null;
       run.road.ensure(run.cleared);
     } else run.deposited = null;
+    if (arriving) {
+      const lent = this.emergencyPilot(run.shipId);
+      if (lent) this.dockNotes.push(`Нет пилота и нечем платить за найм: док одолжил курсанта-пилота, ${lent}.`);
+    }
     const spec = SHIPS.find((s) => s.id === run.shipId) ?? SHIPS[0];
     this.world = new World(this.seed++);
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
     else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty: this.duty(spec.id) });
     this.runPhase = 'roaddock';
+    if (arriving && run.ship?.sys) run.ship.sys.crew = spawnCrew(run.ship.grid, this.duty(run.shipId));
     this.state = 'playing';
     this.selectedWeapon = null;
     this.scene.reset(this.world);
@@ -713,6 +875,7 @@ export class Game {
       const ey = Math.sin(a) * dist;
       this.world.spawnShip(es.build(), ex, ey, Math.atan2(-ex, ey), { name: es.label, team: 1, ai: es.ai });
     });
+    run.crewIds = (run.ship?.sys?.crew ?? []).flatMap((c) => (c.memberId === null ? [] : [c.memberId]));
     run.fighting = point;
     this.runPhase = 'battle';
     this.state = 'playing';
@@ -728,11 +891,12 @@ export class Game {
     const point = run.fighting!;
     const ship = this.world.player;
     if (this.state === 'lost' || !ship) {
-      this.loseShip();
+      this.loseShip(ship);
       return;
     }
     run.ship = ship;
     restAfterBattle(ship);
+    const crewLines = this.crewAfterBattle(ship, run.shipId);
     run.battlesWon++;
     const got = addToHold(run.cargo, shipHoldCap(run.shipId), rewardFor(point));
     run.cleared = point.index;
@@ -745,13 +909,23 @@ export class Game {
       storeWallet(this.wallet);
       run.note += ` +${QUANTA_PER_BOSS} квант за рубеж.`;
     }
+    if (crewLines.length) run.note += ' ' + crewLines.join(' ');
+    const block = this.flightBlock();
+    if (block) run.note += ' ' + block;
     this.runPhase = 'map';
     this.saveRun();
   }
 
   /** The ship is gone: what it carried goes with it, and the run falls back to the last dock on a whole ship of the same class. */
-  private loseShip(): void {
+  private loseShip(ship: GridBody | null): void {
     const run = this.run!;
+    // the crew takes to the escape pods that are still whole; without them nobody gets away
+    const fx = ship ? shipEffects(ship.grid) : null;
+    const out = abandonShip(this.roster, run.shipId, { seats: fx?.podSeats ?? 0, chance: fx?.podChance ?? 0, med: fx?.rescue ?? 0 }, Math.random);
+    run.fate = [];
+    if (out.saved.length) run.fate.push(`Капсулы: спаслись ${out.saved.map((m) => m.name).join(', ')} (ранены).`);
+    if (out.lost.length) run.fate.push(`Погибли с кораблём: ${out.lost.map((f) => `${f.name} (${ROLE_NAMES[f.role]}, ур. ${f.lv})`).join(', ')}.`);
+    if (!fx || fx.podSeats === 0) run.fate.push('Спасательных капсул на корабле не было.');
     const dock = run.road.lastDock(run.cleared);
     run.lost = { ...run.cargo };
     run.cargo = emptyCargo();

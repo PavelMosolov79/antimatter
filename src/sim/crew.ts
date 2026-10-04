@@ -43,6 +43,8 @@ export interface Crew {
   task: CrewTask;
   orphaned: boolean;
   dead: boolean;
+  /** Hurt in this battle (pulled out of a wrecked module by the medical bay, or caught in fire or vacuum and lived): off duty until healed. */
+  hurt: boolean;
   dangerTime: number;
   /** Always false for now — no spacesuit mechanic exists yet, so nobody is protected
    * from being pulled out through a breach. Kept as a field so that feature can hook in
@@ -412,6 +414,7 @@ function makeCrew(role: CrewRole, mobile: boolean, homeModule: number, pos: { x:
     task: mobile ? 'idle' : 'atPost',
     orphaned: false,
     dead: false,
+    hurt: false,
     dangerTime: 0,
     suited: false,
     wanderCooldown: 0,
@@ -453,7 +456,16 @@ export function spawnCrew(grid: ShipGrid, duty?: Array<{ id: number; name: strin
     }
     const who = duty ? duty.find((d) => d.role === post.role && d.post === grid.modules[post.moduleId].key) : undefined;
     if (duty && !who) continue;
-    crew.push(makeCrew(post.role, false, post.moduleId, moduleCore(grid, post.moduleId), who));
+    let moduleId = post.moduleId;
+    if (duty && moduleEfficiency(grid.modules[moduleId]) <= 0) {
+      // a wrecked post is not manned until it is mended; a pilot sits at a whole reserve helm instead if there is one
+      const alt = post.role === 'pilot' ? posts.find((p) => p.role === 'pilot' && p.moduleId !== moduleId && moduleEfficiency(grid.modules[p.moduleId]) > 0) : undefined;
+      if (!alt) continue;
+      moduleId = alt.moduleId;
+    }
+    const c = makeCrew(post.role, false, moduleId, moduleCore(grid, moduleId), who);
+    if (moduleId !== post.moduleId) c.seat = grid.modules[moduleId].pool === 'helm' ? effectValue('helm', levelOf(grid.modules[moduleId])) : 0;
+    crew.push(c);
   }
   // Roaming engineers: one for every three posts, and the quarters' places on top (modules of the pool carry their level).
   const reactorModule = grid.modules.findIndex((m) => m.kind === 'reactor');
@@ -857,7 +869,10 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
     const yi = Math.floor(crew.y);
     if (xi < 0 || yi < 0 || xi >= grid.width || yi >= grid.height || grid.mat[grid.idx(xi, yi, crew.z)] === 0) {
       // A medical bay may get them out: the survivor lands on the nearest cell of the deck still standing.
-      if (world.rng() < rescue && rescueTo(crew, grid)) continue;
+      if (world.rng() < rescue && rescueTo(crew, grid)) {
+        crew.hurt = true;
+        continue;
+      }
       crew.dead = true;
       continue;
     }
@@ -877,7 +892,10 @@ export function updateCrew(world: World, body: GridBody, dt: number): void {
       continue;
     }
 
+    // breathing next to a hole, or standing in the fire, and living through it, leaves a mark
+    if (room && room.holes > 0 && !room.patched && room.pressure < CREW.dangerPressure) crew.hurt = true;
     if (isDangerousFire(room)) {
+      crew.hurt = true;
       crew.dangerTime += dt;
       if (crew.dangerTime > CREW.deathTime) crew.dead = true;
     } else {

@@ -48,6 +48,21 @@ export interface Member {
   ship: string | null;
   post: number | null;
   fights: number;
+  /** While wounded: when the healing is done (ms), or nothing until it has been paid for. */
+  healEnd?: number | null;
+}
+
+/** Somebody who is gone for good: what the «Память» list shows. */
+export interface Fallen {
+  name: string;
+  role: CrewRole;
+  lv: number;
+  rar: number;
+  fights: number;
+  /** The ship they served on. */
+  ship: string | null;
+  /** How: in battle, or lost with the ship. */
+  how: 'battle' | 'ship';
 }
 
 export interface Roster {
@@ -55,12 +70,14 @@ export interface Roster {
   nextId: number;
   members: Member[];
   candidates: Member[];
+  /** Those who died, newest last. */
+  memory: Fallen[];
   /** Ships whose first crew has been given (a ship is staffed once; after that people are hired). */
   staffed: Record<string, boolean>;
   seed: number;
 }
 
-export const emptyRoster = (): Roster => ({ v: 1, nextId: 1, members: [], candidates: [], staffed: {}, seed: (Math.random() * 2 ** 31) >>> 0 });
+export const emptyRoster = (): Roster => ({ v: 1, nextId: 1, members: [], candidates: [], memory: [], staffed: {}, seed: (Math.random() * 2 ** 31) >>> 0 });
 
 // ------------------------------------------------------------------ storage
 
@@ -238,7 +255,7 @@ export function reconcile(r: Roster, shipId: string, grid: ShipGrid): void {
  * Gives a ship people for every empty post and place from nothing: its first crew, and the
  * spare ship's trainees whenever it needs them. They are first-level and ordinary.
  */
-export function staffShip(r: Roster, shipId: string, grid: ShipGrid, rng: Rng): number {
+export function staffShip(r: Roster, shipId: string, grid: ShipGrid, rng: Rng, wrecked?: Set<number>): number {
   let added = 0;
   const fill = (role: CrewRole, post: number | null) => {
     const m = makeMember(r, rng, role, CREW.starterLevel, 1);
@@ -247,7 +264,7 @@ export function staffShip(r: Roster, shipId: string, grid: ShipGrid, rng: Rng): 
     r.members.push(m);
     added++;
   };
-  for (const p of postsOf(grid)) if (!p.reserve && !atPost(r, shipId, p.key)) fill(p.role, p.key);
+  for (const p of postsOf(grid)) if (!p.reserve && !atPost(r, shipId, p.key) && !wrecked?.has(p.key)) fill(p.role, p.key);
   const have = onShip(r, shipId).filter((m) => m.role === 'engineer').length;
   for (let i = have; i < engineerPlaces(grid); i++) fill('engineer', null);
   return added;
@@ -265,4 +282,151 @@ export interface DutyCrew {
   lv: number;
   role: CrewRole;
   post: number | null;
+}
+
+// ------------------------------------------------------------------ battle, wounds and death
+
+/** What the battle says about one person of the crew. */
+export interface BattleCrew {
+  memberId: number | null;
+  dead: boolean;
+  hurt: boolean;
+}
+
+/** A person who died: out of the people, into the memory list. */
+export function fall(r: Roster, id: number, how: Fallen['how']): Fallen | null {
+  const m = r.members.find((x) => x.id === id);
+  if (!m) return null;
+  r.members = r.members.filter((x) => x !== m);
+  const f: Fallen = { name: m.name, role: m.role, lv: m.lv, rar: m.rar, fights: m.fights, ship: m.ship, how };
+  r.memory.push(f);
+  return f;
+}
+
+/** A wounded person leaves the post and waits in the barracks to be healed. */
+export function wound(r: Roster, id: number): void {
+  const m = r.members.find((x) => x.id === id);
+  if (!m) return;
+  m.status = 'hurt';
+  m.healEnd = null;
+  m.ship = null;
+  m.post = null;
+}
+
+/**
+ * After a battle: whoever of the ship's crew is dead, or was lost with a piece of the hull (no longer in the
+ * crew), goes to the memory; whoever lived through fire, vacuum or a wrecked module is wounded. Everybody who
+ * went out gets a battle on the record. `went` lists who was in the battle (somebody whose post was already
+ * wrecked before it is not lost in it).
+ */
+export function applyBattle(r: Roster, shipId: string, crew: BattleCrew[], went?: Set<number>): { died: Fallen[]; hurt: Member[] } {
+  const byId = new Map<number, BattleCrew>();
+  for (const c of crew) if (c.memberId !== null) byId.set(c.memberId, c);
+  const died: Fallen[] = [];
+  const hurt: Member[] = [];
+  for (const m of onShip(r, shipId).filter((x) => x.status === 'ok' && (!went || went.has(x.id)))) {
+    m.fights++;
+    const c = byId.get(m.id);
+    if (!c || c.dead) {
+      const f = fall(r, m.id, 'battle');
+      if (f) died.push(f);
+    } else if (c.hurt) {
+      wound(r, m.id);
+      hurt.push(m);
+    }
+  }
+  return { died, hurt };
+}
+
+/** Seconds a wounded person needs at the dock. */
+export const healSeconds = (m: Member): number => Math.round(CREW.healSeconds * (1 + 0.1 * (m.lv - 1)) * (m.traits.includes('tough') ? 2 / 3 : 1));
+export const healPrice = (m: Member): number => Math.round(CREW.healPerLevel * m.lv * RARITY[m.rar - 1].price);
+export const hurtOf = (r: Roster): Member[] => r.members.filter((m) => m.status === 'hurt');
+
+/** Seconds of healing left (the full time while it has not been started). */
+export function healLeft(m: Member, now: number): number {
+  if (m.status !== 'hurt') return 0;
+  return m.healEnd ? Math.max(0, Math.ceil((m.healEnd - now) / 1000)) : healSeconds(m);
+}
+
+/** Quanta to finish the healing at once. */
+export const healSpeedUpPrice = (m: Member, now: number): number => Math.max(1, Math.ceil(healLeft(m, now) / CREW.healQuantaSeconds));
+
+/** Starts the healing of a wounded person (the caller takes the credits). */
+export function startHeal(r: Roster, id: number, now: number): boolean {
+  const m = r.members.find((x) => x.id === id);
+  if (!m || m.status !== 'hurt' || m.healEnd) return false;
+  m.healEnd = now + healSeconds(m) * 1000;
+  return true;
+}
+
+/** Makes a person well at once. */
+export function cure(r: Roster, id: number): boolean {
+  const m = r.members.find((x) => x.id === id);
+  if (!m || m.status !== 'hurt') return false;
+  m.status = 'ok';
+  m.healEnd = undefined;
+  return true;
+}
+
+/** The people whose healing has run out are well again; how many. */
+export function settleHealing(r: Roster, now: number): number {
+  let n = 0;
+  for (const m of r.members) if (m.status === 'hurt' && m.healEnd && m.healEnd <= now) n += cure(r, m.id) ? 1 : 0;
+  return n;
+}
+
+/**
+ * Puts the best healthy people of the barracks on the empty posts of a ship (and engineers' places), the most
+ * experienced first, never on a post in a wrecked module (`wrecked`: the keys of those modules). Only at a dock.
+ */
+export function autoFill(r: Roster, shipId: string, grid: ShipGrid, wrecked?: Set<number>): Member[] {
+  const placed: Member[] = [];
+  const spare = (role: CrewRole): Member | undefined =>
+    inBarracks(r)
+      .filter((m) => m.status === 'ok' && m.role === role)
+      .sort((a, b) => b.lv - a.lv || b.rar - a.rar)[0];
+  for (const p of postsOf(grid).filter((x) => !x.reserve)) {
+    if (atPost(r, shipId, p.key) || wrecked?.has(p.key)) continue;
+    const m = spare(p.role);
+    if (m && assign(r, m.id, shipId, p.key)) placed.push(m);
+  }
+  for (let have = onShip(r, shipId).filter((m) => m.role === 'engineer').length; have < engineerPlaces(grid); have++) {
+    const m = spare('engineer');
+    if (!m || !assign(r, m.id, shipId, null)) break;
+    placed.push(m);
+  }
+  return placed;
+}
+
+/** What the escape pods of a ship are worth: the seats they have, and each one's chance to get away. */
+export interface PodStats {
+  seats: number;
+  chance: number;
+  /** The medical bay's rescue chance (0…0.95) for the bonus. */
+  med: number;
+}
+
+/**
+ * The ship is lost: with escape pods some of the crew get away (the most experienced take the seats), each
+ * with a chance, wounded; the rest die. Without pods nobody does. `random` gives numbers in 0…1.
+ */
+export function abandonShip(r: Roster, shipId: string, pods: PodStats, random: () => number): { saved: Member[]; lost: Fallen[] } {
+  const crew = onShip(r, shipId)
+    .filter((m) => m.status === 'ok')
+    .sort((a, b) => b.lv - a.lv || b.rar - a.rar);
+  const saved: Member[] = [];
+  const lost: Fallen[] = [];
+  crew.forEach((m, i) => {
+    m.fights++;
+    const p = Math.min(0.95, pods.chance + (m.traits.includes('lucky') ? CREW.podLuckyBonus : 0) + pods.med * CREW.podMedShare);
+    if (i < pods.seats && random() < p) {
+      wound(r, m.id);
+      saved.push(m);
+    } else {
+      const f = fall(r, m.id, 'ship');
+      if (f) lost.push(f);
+    }
+  });
+  return { saved, lost };
 }

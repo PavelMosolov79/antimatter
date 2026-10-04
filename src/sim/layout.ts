@@ -13,7 +13,7 @@ export const TILE = 9; // grid pitch: neighbours overlap by one wall cell
 export const FOOT = 10; // a module is 10×10 cells including its wall
 
 export type BaseModuleId = 'core' | 'bridge' | 'shield';
-export type PoolModuleId = 'gun' | 'eng' | 'rcs' | 'work' | 'med' | 'crew' | 'store' | 'helm';
+export type PoolModuleId = 'gun' | 'eng' | 'rcs' | 'work' | 'med' | 'crew' | 'store' | 'helm' | 'pod';
 export type ModuleId = BaseModuleId | PoolModuleId;
 
 export interface ModuleInfo {
@@ -34,11 +34,12 @@ export const MODULE_INFO: Record<ModuleId | 'ladder', ModuleInfo> = {
   crew: { name: 'Кубрик', kind: 'служба', desc: 'Жильё экипажа: даёт места для космонавтов и отдых.' },
   store: { name: 'Склад', kind: 'служба', desc: 'Трюм для добычи и запасных деталей.' },
   helm: { name: 'Резервный пост пилота', kind: 'пост', desc: 'Запасной мостик: если капитанский разрушен, пилот пересаживается сюда.' },
+  pod: { name: 'Спасательные капсулы', kind: 'служба', desc: 'Если корабль погибнет, экипаж уходит в капсулах: сколько мест и какой шанс спастись, зависит от уровня. Без капсул гибнут все.' },
   ladder: { name: 'Лестница', kind: 'проход', desc: 'Шахта 5×5 клеток между двумя соседними палубами. Космонавты ходят между палубами только по ней.' },
 };
 
 /** The modules the player can take from the pool, in the order the dock shows them. */
-export const POOL: PoolModuleId[] = ['gun', 'eng', 'rcs', 'work', 'med', 'crew', 'store', 'helm'];
+export const POOL: PoolModuleId[] = ['gun', 'eng', 'rcs', 'work', 'med', 'crew', 'store', 'helm', 'pod'];
 
 export interface PlacedModule {
   id: number;
@@ -130,7 +131,7 @@ export interface Rect {
   y1: number;
 }
 
-function inMask(g: DeckGeo, z: number, x: number, y: number): boolean {
+export function inMask(g: DeckGeo, z: number, x: number, y: number): boolean {
   return x >= 0 && y >= 0 && x < g.w && y < g.h && g.masks[z][y * g.w + x] !== 0;
 }
 

@@ -205,6 +205,17 @@ function artCrew(a: Art): void {
   a.set(3, 7, mul(C.wall, 0.5));
   a.set(4, 7, mul(C.wall, 0.5));
 }
+function artPod(a: Art): void {
+  a.floor();
+  // three capsules side by side: white body, orange band, a window at the top
+  [1, 3, 5].forEach((x) => {
+    a.rect(x, 1, x, 6, mul(C.sheet, 1.0));
+    a.rect(x, 3, x, 3, mul(C.amber, 1.0));
+    a.set(x, 1, mul(C.thruster, 1.2));
+    a.set(x, 7, mul(C.stripe, 0.9));
+  });
+  a.set(7, 7, mul(C.stripe, 1.1));
+}
 function artStore(a: Art): void {
   a.floor();
   [
@@ -335,6 +346,7 @@ const ARTS: Record<ModuleId | 'ladder', (a: Art) => void> = {
   crew: artCrew,
   store: artStore,
   helm: artHelm,
+  pod: artPod,
   core: artCore,
   bridge: artBridge,
   shield: artShield,

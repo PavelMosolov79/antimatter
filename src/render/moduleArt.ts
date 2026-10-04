@@ -313,6 +313,26 @@ function helm(): Pen {
   return P;
 }
 
+/** Escape pods: three capsules ready to launch, a launch lever, hazard stripes. */
+function pod(): Pen {
+  const P = new Pen();
+  room(P, '#6a3a1c', '#b8612a');
+  for (const x of [5, 25, 45]) {
+    // a capsule from above: white hull with an orange band, a window at the nose, the nozzle behind
+    P.shadow(x, 8, 14, 34);
+    P.r(x, 8, 14, 34, OUT).r(x + 1, 9, 12, 32, '#f2efe6');
+    P.r(x + 1, 9, 3, 32, '#ffffff').r(x + 10, 9, 3, 32, '#c9c4b6');
+    P.r(x + 1, 22, 12, 5, '#f0801c').r(x + 1, 22, 12, 1, '#ffb15c').r(x + 1, 26, 12, 1, '#a8520a');
+    P.disc(x + 7, 15, 4, '#58d4ff').disc(x + 6, 14, 1.4, '#d6fbff', false, true);
+    P.r(x + 3, 41, 8, 3, OUT).r(x + 4, 42, 6, 1, '#ff9a2e');
+    P.r(x + 5, 31, 4, 6, '#d8403e').r(x + 6, 32, 2, 4, '#ff8a80');
+  }
+  desk(P, 12, 48, 40, 8, 4);
+  P.disc(32, 52, 2, '#e23b3b', false, true);
+  hazard(P, 6, 58, 52, 2);
+  return P;
+}
+
 /** The core: a glowing reactor ringed with a yellow line, coils at the corners. */
 function core(): Pen {
   const P = new Pen();
@@ -383,7 +403,7 @@ function ladder(): Pen {
   return P;
 }
 
-const DRAW: Record<string, () => Pen> = { gun, eng, rcs, work, med, crew, store, helm, core, bridge, shield, ladder };
+const DRAW: Record<string, () => Pen> = { gun, eng, rcs, work, med, crew, store, helm, pod, core, bridge, shield, ladder };
 
 /** The kinds of module there is a picture for. */
 export const MODULE_ART_TYPES = Object.keys(DRAW);

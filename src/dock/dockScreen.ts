@@ -64,6 +64,10 @@ export function prepareDockSprites(): void {
     sprites.set(s.id, { cells: grid.cells, sprite: makeDockSprite(grid) });
   }
 }
+/** Forgets the pictures kept (a new game changes the ships). */
+export function clearDockSprites(): void {
+  sprites.clear();
+}
 /** The picture of the ship actually at the berth: the prepared one while it's pristine, else painted fresh. */
 function spriteFor(shipId: string, grid: ShipGrid): DockSprite {
   const cached = sprites.get(shipId);

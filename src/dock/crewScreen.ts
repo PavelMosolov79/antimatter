@@ -1,7 +1,8 @@
 import type { Game } from '../game';
 import { portraitURL } from '../render/portrait';
 import { CREW, RARITY } from '../sim/crewConfig';
-import { ROLE_NAMES, atPost, engineerPlaces, hirePrice, inBarracks, onShip, postsOf, traitOf, type Member, type Post } from '../sim/roster';
+import { ROLE_NAMES, atPost, engineerPlaces, healLeft, healPrice, healSpeedUpPrice, hirePrice, inBarracks, onShip, postsOf, traitOf, type Fallen, type Member, type Post } from '../sim/roster';
+import { shipEffects } from '../sim/effects';
 import { SHIPS } from '../sim/ships';
 import { makeDockSprite, type DockSprite } from './dockArt';
 
@@ -13,7 +14,7 @@ import { makeDockSprite, type DockSprite } from './dockArt';
  * on the road the screen is only for looking.
  */
 
-type Tab = 'crew' | 'hire';
+type Tab = 'crew' | 'hire' | 'memory';
 const ROLE_COLOR: Record<string, string> = { pilot: '#59e6ff', gunner: '#ff6a5a', shieldop: '#b43cff', engineer: '#e8c450' };
 const ROLE_GLYPH: Record<string, string> = { pilot: '✈', gunner: '✛', shieldop: '◈', engineer: '⚙' };
 
@@ -65,6 +66,10 @@ const CSS = U(`
 #crew .face.r4 { border-color: #b43cff; box-shadow: 0 0 U(.8) rgba(180,60,255,.5); }
 #crew .face.r5 { border-color: #e8c450; box-shadow: 0 0 U(1) rgba(232,196,80,.6); }
 #crew .face .lv { position: absolute; right: 0; bottom: 0; background: #0a0d18; color: #fff3c8; font-size: U(1.2); font-weight: 700; padding: 0 U(.45); }
+#crew .face.dead { filter: grayscale(1) brightness(.65); }
+#crew .pods { margin-top: U(.8); }
+#crew .pods.bad { border-color: rgba(255,106,90,.55); }
+#crew .row.hurtrow { opacity: .92; }
 #crew .face.hurt::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(45deg, rgba(255,106,90,.25) 0 3px, transparent 3px 6px); }
 #crew .who { display: flex; flex-direction: column; gap: U(.35); min-width: 0; }
 #crew .who b { font-size: U(1.45); font-weight: 700; color: #e9eeff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -92,6 +97,8 @@ const CSS = U(`
 #crew .mk img { width: 100%; height: 100%; image-rendering: pixelated; display: block; pointer-events: none; }
 #crew .mk.empty { border-style: dashed; color: var(--rc); font-size: U(2.2); background: rgba(5,8,18,.7); animation: crew-pulse 1.6s ease-in-out infinite; }
 #crew .mk .lv { position: absolute; right: -2px; bottom: -2px; background: #0a0d18; color: #fff3c8; font-size: U(1); font-weight: 700; padding: 0 U(.35); }
+#crew .mk.wrecked { border-color: #ff6a5a; border-style: solid; background: rgba(60,10,10,.85); filter: grayscale(.8); animation: none; }
+#crew .mk.wrecked.empty { color: #ff6a5a; }
 #crew .mk.sel { box-shadow: 0 0 0 U(.35) #fff, 0 0 U(1.6) var(--rc); z-index: 3; }
 #crew .mk.want { box-shadow: 0 0 0 U(.3) #63e07a, 0 0 U(1.6) #63e07a; animation: crew-pulse 1s ease-in-out infinite; }
 #crew .mk.over { box-shadow: 0 0 0 U(.4) #63e07a, 0 0 U(2) #63e07a; transform: scale(1.12); }
@@ -140,6 +147,7 @@ const CSS = U(`
 `);
 
 const num = (v: number): string => Math.round(v).toLocaleString('ru-RU');
+const clock = (sec: number): string => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 
 interface Drag {
   id: number;
@@ -161,6 +169,9 @@ export class CrewScreen {
   private posts: Post[] = [];
   private places = 0;
   private readOnly = false;
+  private road = false;
+  /** Keys of the wrecked modules of the ship, looked up when the screen is drawn. */
+  private broken = new Set<number>();
   private open_ = false;
   private changed = false;
   private toastText = '';
@@ -186,6 +197,10 @@ export class CrewScreen {
     window.addEventListener('keydown', (e) => {
       if (this.open_ && e.key === 'Escape') this.close();
     });
+    // the healing clocks run: look again every second while anybody is being healed
+    window.setInterval(() => {
+      if (this.open_ && !this.drag && this.game.roster.members.some((m) => m.status === 'hurt' && m.healEnd)) this.render();
+    }, 1000);
     window.addEventListener('resize', () => {
       if (this.open_) this.fit();
     });
@@ -195,10 +210,11 @@ export class CrewScreen {
     return this.open_;
   }
 
-  /** Opens the crew of a ship; on a dock on the road it is only for looking. */
-  open(shipId: string, readOnly = false): void {
+  /** Opens the crew of a ship. On a dock on the road people can be hired, healed and put on posts too (`road` only changes the title). */
+  open(shipId: string, road = false): void {
     this.shipId = SHIPS.some((s) => s.id === shipId) ? shipId : SHIPS[0].id;
-    this.readOnly = readOnly;
+    this.readOnly = false;
+    this.road = road;
     this.changed = false;
     this.open_ = true;
     this.selPost = null;
@@ -251,7 +267,7 @@ export class CrewScreen {
         return t ? `<span class="tg${t.bad ? ' bad' : ''}" title="${t.desc}">${t.title}</span>` : '';
       })
       .join('');
-    const hurt = m.status === 'hurt' ? '<span class="tg st">ранен</span>' : '';
+    const hurt = m.status === 'hurt' ? `<span class="tg st">${m.healEnd ? 'лечится ' + clock(healLeft(m, Date.now())) : 'ранен'}</span>` : '';
     return `<div class="who"><b>${m.name}</b><span class="role">${ROLE_NAMES[m.role]} · ${RARITY[m.rar - 1].name}</span><small>${m.fights} боёв${extra}</small><div class="chips">${chips}${hurt}</div></div>`;
   }
 
@@ -264,10 +280,11 @@ export class CrewScreen {
   private marker(key: number, role: string, label: string, m: Member | undefined, at?: { x: number; y: number }): string {
     const sprite = this.sprite!;
     const eligible = this.selPerson !== null && this.personRole(this.selPerson) === role;
-    const cls = `mk${m ? '' : ' empty'}${this.selPost === key ? ' sel' : ''}${eligible ? ' want' : ''}`;
+    const wrecked = key >= 0 && this.broken.has(key);
+    const cls = `mk${m ? '' : ' empty'}${wrecked ? ' wrecked' : ''}${this.selPost === key ? ' sel' : ''}${eligible && !wrecked ? ' want' : ''}`;
     const pos = at ? ` style="--rc:${ROLE_COLOR[role]};left:${((at.x + 0.5) / sprite.w) * 100}%;top:${((at.y + 0.5) / sprite.h) * 100}%"` : ` style="--rc:${ROLE_COLOR[role]}"`;
-    const inner = m ? `<img alt="" src="${portraitURL(m.name, m.role, m.rar)}"><span class="lv">${m.lv}</span>` : ROLE_GLYPH[role];
-    const tip = m ? `${label}: ${m.name}` : `${label}: пост пуст`;
+    const inner = m ? `<img alt="" src="${portraitURL(m.name, m.role, m.rar)}"><span class="lv">${m.lv}</span>` : wrecked ? '✕' : ROLE_GLYPH[role];
+    const tip = wrecked ? `${label}: модуль разрушен, пост займут после ремонта` : m ? `${label}: ${m.name}` : `${label}: пост пуст`;
     return `<div class="${cls}"${pos} data-mark="${key}" data-drop="${key}" data-role="${role}" title="${tip}"${m && !this.readOnly ? ` data-drag="${m.id}"` : ''}>${inner}</div>`;
   }
 
@@ -283,6 +300,37 @@ export class CrewScreen {
 
   // ---------------------------------------------------------------- the tabs
 
+  /** The button on a wounded person's card: pay to start the healing, or finish it at once for quanta. */
+  private healButton(m: Member): string {
+    const g = this.game;
+    if (!m.healEnd) return `<button type="button" class="btn pri" data-act="heal" data-id="${m.id}"${g.wallet.credits < healPrice(m) ? ' disabled' : ''}>Лечить<small>${num(healPrice(m))} кр.</small></button>`;
+    const q = healSpeedUpPrice(m, Date.now());
+    return `<button type="button" class="btn prem" data-act="speed" data-id="${m.id}"${g.wallet.quanta < q ? ' disabled' : ''}>Ускорить<small>${q} кв.</small></button>`;
+  }
+
+  /** What the escape pods of the ship are worth: the figure the crew's fate in a lost ship hangs on. */
+  private podsNote(): string {
+    const fx = shipEffects(this.game.blueprint(this.shipId));
+    if (fx.podSeats === 0) return '<div class="note pods bad"><b>Капсул нет.</b> Если корабль погибнет, погибнет весь экипаж. Модуль «Спасательные капсулы» ставится в меню «Модули».</div>';
+    const crew = onShip(this.game.roster, this.shipId).length;
+    return `<div class="note pods"><b>Капсулы:</b> ${fx.podSeats} мест, шанс спастись ${Math.round(fx.podChance * 100)}%${crew > fx.podSeats ? `. Людей на корабле ${crew}: места займут самые опытные, остальные погибнут.` : '.'}</div>`;
+  }
+
+  private memoryCols(): [string, string] {
+    const fallen: Fallen[] = [...this.game.roster.memory].reverse();
+    let left = `<h5>Память<small>${fallen.length}</small></h5>`;
+    left += fallen.length
+      ? fallen
+          .map(
+            (f) =>
+              `<div class="row" style="--rc:${ROLE_COLOR[f.role]}"><div class="face dead r${f.rar}"><img alt="" src="${portraitURL(f.name, f.role, f.rar)}"><span class="lv">${f.lv}</span></div><div class="who"><b>${f.name}</b><span class="role">${ROLE_NAMES[f.role]} · ур. ${f.lv}</span><small>${f.fights} боёв · ${f.how === 'battle' ? 'погиб в бою' : 'погиб вместе с кораблём'}</small></div></div>`,
+          )
+          .join('')
+      : '<div class="note">Пока никто не погиб.</div>';
+    const right = '<h5>О чём это</h5><div class="note"><b>Погибших не вернуть.</b> Кто погиб в бою или вместе с кораблём, остаётся здесь: имя, уровень, сколько боёв прошёл. Раненые не здесь, они лечатся в казарме на вкладке «Экипаж».</div>';
+    return [left, right];
+  }
+
   private crewCols(): [string, string] {
     const g = this.game;
     const sprite = this.sprite!;
@@ -293,6 +341,7 @@ export class CrewScreen {
     left += `</div></div><div class="shipcol"><div class="shipwrap"><div class="shipbox" style="aspect-ratio:${sprite.w} / ${sprite.h}"><canvas width="${sprite.w}" height="${sprite.h}"></canvas>`;
     for (const p of this.posts) if (this.layer === 0 || p.z === this.layer - 1) left += this.marker(p.key, p.role, p.label, atPost(g.roster, this.shipId, p.key), p);
     left += '</div></div></div>';
+    left += this.podsNote();
 
     // the right side: the post chosen, then the barracks
     const barracks = inBarracks(g.roster);
@@ -307,19 +356,22 @@ export class CrewScreen {
         ? this.card(m, { cls: 'sel', btn: this.readOnly ? '' : `<button type="button" data-act="unpost" data-id="${m.id}">В казарму</button>` })
         : '<div class="note"><b>Пост пуст: модуль не работает.</b> Выберите человека из казармы ниже или перетащите его карточку на пост.</div>';
     } else {
-      right += `<h5>Экипаж<small>${this.readOnly ? 'на доке на пути только просмотр' : 'выберите пост на корабле'}</small></h5>`;
+      right += `<h5>Экипаж<small>выберите пост на корабле</small></h5>`;
       right += '<div class="note"><b>Пост без человека не работает.</b> Нажмите на пост на корабле или на человека в казарме, потом на второе. Карточку можно перетащить мышью на пост, а человека с поста обратно в казарму.</div>';
     }
     right += `<div class="eng"><span class="lbl">Инженеры</span>`;
     for (let i = 0; i < this.places; i++) right += this.marker(-1 - i, 'engineer', 'Инженер', this.personAt(-1 - i));
     right += '</div>';
     if (!this.readOnly) right += '<button type="button" data-act="auto">Лучшие на посты<small>из казармы</small></button>';
+    const unpaid = barracks.filter((m) => m.status === 'hurt' && !m.healEnd);
+    if (unpaid.length > 1) right += `<button type="button" data-act="healall">Лечить всех<small>${num(unpaid.reduce((n, m) => n + healPrice(m), 0))} кр.</small></button>`;
     right += `<h5>Казарма<small>${barracks.length} из ${CREW.barracksMax}</small></h5><div class="barracks" data-drop="barracks">`;
     right += barracks.length
       ? barracks
           .map((m) => {
             const fit = selRole !== null && selRole !== undefined && m.role === selRole && m.status === 'ok';
             const dim = selRole !== null && selRole !== undefined && !fit;
+            if (m.status === 'hurt') return this.card(m, { cls: 'hurtrow', btn: this.healButton(m) });
             return this.card(m, { cls: `${fit ? 'ok ' : ''}${dim ? 'dim ' : ''}${this.selPerson === m.id ? 'sel' : ''}`, drag: true, btn: this.selPerson === m.id && !this.readOnly ? `<button type="button" data-act="release" data-id="${m.id}">Отпустить<small>навсегда</small></button>` : '' });
           })
           .join('')
@@ -348,20 +400,22 @@ export class CrewScreen {
 
   private render(): void {
     const g = this.game;
-    const cols = this.tab === 'crew' ? this.crewCols() : this.hireCols();
+    this.broken = g.brokenPosts(this.shipId);
+    const cols = this.tab === 'crew' ? this.crewCols() : this.tab === 'hire' ? this.hireCols() : this.memoryCols();
     const r = g.roster;
-    const n = { crew: onShip(r, this.shipId).length, hire: r.candidates.length };
+    const n = { crew: onShip(r, this.shipId).length, hire: r.candidates.length, memory: r.memory.length };
     const tabs = (
       [
         ['crew', 'Экипаж'],
         ['hire', 'Найм'],
+        ['memory', 'Память'],
       ] as Array<[Tab, string]>
     )
       .map(([id, label]) => `<button type="button" data-tab="${id}" aria-pressed="${this.tab === id}">${label} <span class="n">${n[id]}</span></button>`)
       .join('');
     const keep = Array.from(this.root.querySelectorAll('.col')).map((c) => c.scrollTop);
     const spec = SHIPS.find((s) => s.id === this.shipId);
-    this.root.innerHTML = `<div class="top"><div class="ttl"><b>ЭКИПАЖ</b><span>${spec?.label ?? ''}${this.readOnly ? ' · док на пути' : ' · причал 1'}</span></div>
+    this.root.innerHTML = `<div class="top"><div class="ttl"><b>ЭКИПАЖ</b><span>${spec?.label ?? ''}${this.road ? ' · док на пути' : ' · причал 1'}</span></div>
       <div class="res"><div class="chip-res"><i style="background:#e8c450"></i><small>Кредиты</small>${num(g.wallet.credits)}</div><div class="chip-res"><i style="background:#ff4fd8;transform:rotate(45deg)"></i><small>Кванты</small>${num(g.wallet.quanta)}</div><button type="button" class="go" data-act="done">Готово ▸</button></div></div>
       <div class="tabs">${tabs}</div>
       <div class="body"><div class="col">${cols[0]}</div><div class="col">${cols[1]}</div></div><div class="toast${Date.now() < this.toastUntil ? ' on' : ''}">${this.toastText}</div>`;
@@ -432,6 +486,10 @@ export class CrewScreen {
       this.toast(`${m.name}: это пост другой профессии`);
       return false;
     }
+    if (key >= 0 && g.brokenPosts(this.shipId).has(key)) {
+      this.toast('Модуль разрушен: пост займут после ремонта');
+      return false;
+    }
     if (key < 0) {
       // an engineer's place: no post, but a free one is needed
       const have = onShip(g.roster, this.shipId).filter((x) => x.role === 'engineer' && x.id !== id);
@@ -486,7 +544,7 @@ export class CrewScreen {
     if (card && this.tab === 'crew') {
       const id = Number(card.dataset.card);
       const m = this.game.roster.members.find((x) => x.id === id);
-      if (m && !m.ship) {
+      if (m && !m.ship && m.status === 'ok') {
         if (this.selPost !== null && !this.readOnly) {
           if (this.seat(id, this.selPost)) {
             this.selPost = null;
@@ -524,6 +582,17 @@ export class CrewScreen {
       const r = g.hireCandidate(id);
       if (r === 'ok') this.changed = true;
       this.toast(r === 'ok' ? `${n} нанят, ждёт в казарме` : r === 'credits' ? 'Не хватает кредитов' : r === 'full' ? 'Казарма полна' : '');
+    } else if (act === 'heal') {
+      const r = g.healMember(id);
+      this.toast(r === 'ok' ? `${name(id)} лечится` : r === 'credits' ? 'Не хватает кредитов' : '');
+    } else if (act === 'healall') {
+      let n = 0;
+      for (const m of g.roster.members.filter((x) => x.status === 'hurt' && !x.healEnd)) if (g.healMember(m.id) === 'ok') n++;
+      this.toast(n ? `Лечатся: ${n}` : 'Не хватает кредитов');
+    } else if (act === 'speed') {
+      const r = g.speedUpHealing(id);
+      if (r === 'ok') this.changed = true;
+      this.toast(r === 'ok' ? `${name(id)} здоров` : r === 'quanta' ? 'Не хватает квантов' : '');
     } else if (act === 'refresh') {
       if (g.refreshCandidatesPaid()) this.toast('Новые кандидаты');
     } else if (act === 'auto') {

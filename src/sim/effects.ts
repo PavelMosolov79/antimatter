@@ -1,6 +1,7 @@
 import { moduleEfficiency, type ShipGrid } from './grid';
 import { FIELD_REPAIR_BASE, LEVELS, effectValue, levelOf } from './levels';
 import type { ModuleId } from './layout';
+import { CREW } from './crewConfig';
 
 /**
  * What the player's upgraded modules do for the ship, read from the ship itself so a
@@ -24,9 +25,12 @@ export interface ShipEffects {
   rescue: number;
   /** Seconds a pilot needs to take over a reserve helm, or null if the ship has no upgraded one. */
   helmSeconds: number | null;
+  /** Places in the escape pods that still stand, and the chance of a person in one to get away. */
+  podSeats: number;
+  podChance: number;
 }
 
-const NONE: ShipEffects = { fireRate: 1, range: 1, spoolCut: 0, steer: 1, fieldRepair: 0, rescue: 0, helmSeconds: null };
+const NONE: ShipEffects = { fireRate: 1, range: 1, spoolCut: 0, steer: 1, fieldRepair: 0, rescue: 0, helmSeconds: null, podSeats: 0, podChance: 0 };
 
 export function shipEffects(grid: ShipGrid): ShipEffects {
   let any = false;
@@ -47,6 +51,10 @@ export function shipEffects(grid: ShipGrid): ShipEffects {
     else if (type === 'med') out.rescue = Math.min(0.95, out.rescue + (v / 100) * eff);
     else if (type === 'work') workshop += v * eff;
     else if (type === 'helm' && eff > 0) helm = helm === null ? v : Math.min(helm, v);
+    else if (type === 'pod' && eff > 0) {
+      out.podSeats += Math.floor(v * eff);
+      out.podChance = Math.max(out.podChance, CREW.podChanceBase + CREW.podChancePerLevel * (lv - 1));
+    }
   }
   if (!any) return NONE;
   out.fieldRepair = FIELD_REPAIR_BASE * workshop;

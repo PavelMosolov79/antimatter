@@ -45,3 +45,14 @@ export function saveLayout(shipId: string, layout: ShipLayout | null): void {
     /* no storage: the layout lives until the page closes */
   }
 }
+
+/** Forgets every saved layout: all ships go back to the yard's own (a new game). */
+export function clearLayouts(): void {
+  load();
+  saved.clear();
+  try {
+    storage()?.removeItem(KEY);
+  } catch {
+    /* nothing to forget */
+  }
+}

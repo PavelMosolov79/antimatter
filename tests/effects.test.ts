@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { shipEffects } from '../src/sim/effects';
 import { updateCompartments, ensureRooms } from '../src/sim/compartments';
-import { updateCrew, pilotAvailable } from '../src/sim/crew';
+import { updateCrew, pilotAvailable, spawnCrew } from '../src/sim/crew';
 import { buildPlayerShip, yardLayout } from '../src/sim/interior';
 import { canPlaceModule, cloneLayout, putModule, type DeckGeo, type ShipLayout } from '../src/sim/layout';
 import { applyPropulsion } from '../src/sim/propulsion';
@@ -139,6 +139,8 @@ describe('module effects', () => {
     const saved = tryIt([['med', 5], ['med', 5]]);
     expect(saved.crew.dead).toBe(false);
     expect(saved.moved).toBe(true);
+    // and the one who got out is hurt, off duty until healed
+    expect(saved.crew.hurt).toBe(true);
   });
 
   it('takes a reserve helm\'s level in seconds before the pilot can fly from it', () => {
@@ -251,6 +253,22 @@ describe('module effects', () => {
     expect(pilot.dead).toBe(false);
     expect(pilot.task).toBe('atPost');
     expect(grid.modules[pilot.homeModule].pool).toBe('helm');
+  });
+
+  it('does not man a wrecked post, but seats the pilot at a whole reserve helm', () => {
+    const s = ship([['helm', 2]]);
+    const primary = s.grid.modules.find((m) => m.kind === 'bridge' && m.pool === 'bridge')!;
+    const reserve = s.grid.modules.findIndex((m) => m.kind === 'bridge' && m.pool === 'helm');
+    const duty = [{ id: 7, name: 'Тест', lv: 1, role: 'pilot' as const, post: primary.key }];
+    expect(spawnCrew(s.grid, duty).some((c) => c.role === 'pilot' && c.homeModule === s.grid.modules.indexOf(primary))).toBe(true);
+    for (const c of [...primary.cells]) s.grid.removeCell(c);
+    const crew = spawnCrew(s.grid, duty).filter((c) => c.role === 'pilot');
+    expect(crew.length).toBe(1);
+    expect(crew[0].homeModule).toBe(reserve);
+    expect(crew[0].seat).toBeGreaterThan(0);
+    // with the reserve gone too there is nobody to man a post
+    for (const c of [...s.grid.modules[reserve].cells]) s.grid.removeCell(c);
+    expect(spawnCrew(s.grid, duty).filter((c) => c.role === 'pilot').length).toBe(0);
   });
 
   it('lets engineers put the damaged cells of the room they work back in order, if there is a workshop', () => {

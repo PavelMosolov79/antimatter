@@ -1,5 +1,6 @@
 import type { GridBody } from './body';
 import type { Cargo } from './cargo';
+import { spawnCrew } from './crew';
 import type { RepairJob } from './garage';
 import type { ShipGrid } from './grid';
 import { MATERIALS } from './materials';
@@ -81,6 +82,20 @@ export function captureShip(ship: GridBody, blueprint: ShipGrid): SavedShip {
   return { gone: toBase64(bytes), hp, dead };
 }
 
+/**
+ * The modules of the blueprint the saved damage has wrecked (the core gone, or no cell left): their keys.
+ * A post in one of them cannot be manned until the ship is mended.
+ */
+export function brokenModules(blueprint: ShipGrid, saved: SavedShip): Set<number> {
+  const bytes = fromBase64(saved.gone);
+  const gone = (bi: number): boolean => !!(bytes[bi >> 3] & (1 << (bi & 7)));
+  const out = new Set<number>();
+  for (const m of blueprint.modules) {
+    if (gone(m.core) || m.cells.every((c) => gone(c))) out.add(m.key);
+  }
+  return out;
+}
+
 /** A fresh ship of the class with the saved damage put back on it. */
 export function restoreShip(shipId: string, saved: SavedShip, duty?: DutyCrew[]): GridBody {
   const spec = SHIPS.find((s) => s.id === shipId) ?? SHIPS[0];
@@ -92,12 +107,18 @@ export function restoreShip(shipId: string, saved: SavedShip, duty?: DutyCrew[])
   for (let bi = 0; bi < total; bi++) if (bytes[bi >> 3] & (1 << (bi & 7)) && g.mat[bi] !== 0) g.removeCell(bi);
   for (const [bi, hp] of saved.hp) if (g.mat[bi] !== 0) g.hp[bi] = hp;
   g.version++;
-  // Crew ids are handed out afresh with every ship, so the dead are found again by role and post.
-  const crew = body.sys?.crew ?? [];
-  if (saved.allDead) for (const c of crew) c.dead = true;
-  for (const [role, key] of saved.dead) {
-    const c = crew.find((x) => !x.dead && x.role === role && (x.homeModule >= 0 ? (g.modules[x.homeModule]?.key ?? -2) : -1) === key);
-    if (c) c.dead = true;
+  if (duty && body.sys) {
+    // The named crew is the roster's business (who died is written there after every battle), so nobody is marked
+    // dead here; they are put on the ship again now that the damage is on it, and a wrecked post stays empty.
+    body.sys.crew = saved.allDead ? [] : spawnCrew(g, duty);
+  } else {
+    // Crew ids are handed out afresh with every ship, so the dead are found again by role and post.
+    const crew = body.sys?.crew ?? [];
+    if (saved.allDead) for (const c of crew) c.dead = true;
+    for (const [role, key] of saved.dead) {
+      const c = crew.find((x) => !x.dead && x.role === role && (x.homeModule >= 0 ? (g.modules[x.homeModule]?.key ?? -2) : -1) === key);
+      if (c) c.dead = true;
+    }
   }
   body.syncMassProps();
   restAfterBattle(body);

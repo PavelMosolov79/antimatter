@@ -130,6 +130,21 @@ const CSS = `
 #title .t-item.on::after { width: 70%; }
 #title .t-item:focus-visible { outline: none; }
 #title .t-item:disabled { cursor: default; color: #5d6688; }
+#title .t-modal { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: rgba(3,4,10,.86); }
+#title .t-modal[hidden] { display: none; }
+#title .t-box { width: calc(var(--u) * 96); max-width: 92%; box-sizing: border-box; padding: calc(var(--u) * 4.4) calc(var(--u) * 5); background: rgba(8,11,22,.97);
+  border: 1px solid rgba(255,106,90,.55); border-left: calc(var(--u) * .9) solid #ff6a5a; box-shadow: 0 0 calc(var(--u) * 6) rgba(255,79,216,.25); display: flex; flex-direction: column; gap: calc(var(--u) * 2.2); }
+#title .t-box h3 { margin: 0; font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 700; font-size: calc(var(--u) * 4.4); letter-spacing: .12em; text-transform: uppercase; color: #fbf2ff; }
+#title .t-box p, #title .t-box li { margin: 0; font-size: calc(var(--u) * 2.9); line-height: 1.5; color: #b9c2e4; }
+#title .t-box ul { margin: 0; padding-left: calc(var(--u) * 3.4); display: flex; flex-direction: column; gap: calc(var(--u) * .8); }
+#title .t-box b { color: #fff3c8; font-weight: 500; }
+#title .t-box .t-risk { color: #ffb0a0; }
+#title .t-btns { display: flex; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 1); }
+#title .t-btns button { flex: 1; font-family: 'Unbounded', 'Arial Black', system-ui, sans-serif; font-weight: 500; font-size: calc(var(--u) * 3); letter-spacing: .14em; text-transform: uppercase; cursor: pointer;
+  padding: calc(var(--u) * 2) calc(var(--u) * 2.4); color: #dde2f2; background: rgba(10,14,28,.9); border: 1px solid rgba(89,230,255,.4); }
+#title .t-btns button:hover, #title .t-btns button:focus-visible { outline: none; border-color: #59e6ff; color: #fff; }
+#title .t-btns button.danger { color: #ffd9d2; border-color: #ff6a5a; background: rgba(70,12,12,.85); }
+#title .t-btns button.danger:hover, #title .t-btns button.danger:focus-visible { background: rgba(110,18,18,.95); color: #fff; }
 #title .t-item .t-sub { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; font-weight: 400; font-size: calc(var(--u) * 2.9);
   letter-spacing: .06em; text-transform: none; color: #7f89ad; }
 #title .t-item.on .t-sub { color: #c8b2e6; }
@@ -197,6 +212,8 @@ export class TitleScreen {
   private anim: { t: number; dur: number; from: { x: number; y: number } } | null = null;
   private active = -1;
   private confirmNew = false;
+  /** The question before a new game wipes everything. */
+  private dialog = document.createElement('div');
   private running = false;
   private last = 0;
   private readonly reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -225,10 +242,17 @@ export class TitleScreen {
     readout.append(this.label, pctWrap);
     const foot = div('t-foot', VERSION);
     r.append(this.px, this.glowCv, this.logo, tag, nav, ready, readout, foot);
+    r.append(this.dialog);
+    this.dialog.className = 't-modal';
+    this.dialog.hidden = true;
+    this.dialog.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target === this.dialog) this.closeDialog();
+    });
     parent.appendChild(r);
 
     this.item(nav, 'Продолжить', () => this.resume());
-    this.item(nav, 'Новый забег', () => this.newRun());
+    this.item(nav, 'Новый забег', () => this.askNewGame());
     this.item(nav, 'Док', () => this.leaveRun(2, () => this.game!.openDock()));
     this.item(nav, 'Песочница', () => this.go(() => this.game!.reset(this.game!.shipId, 'sandbox')));
     this.item(nav, 'Настройки', () => {});
@@ -241,6 +265,10 @@ export class TitleScreen {
     });
     window.addEventListener('keydown', (e) => {
       if (r.hidden) return;
+      if (!this.dialog.hidden) {
+        if (e.key === 'Escape') this.closeDialog();
+        return;
+      }
       if (r.dataset.phase === 'ready' && (e.key === 'Enter' || e.key === ' ')) {
         e.preventDefault();
         this.openMenu();
@@ -425,9 +453,53 @@ export class TitleScreen {
     });
   }
 
-  /** A run in progress isn't thrown away on one tap: the first one asks, and says what the hold would lose. */
-  private newRun(): void {
-    this.leaveRun(1, () => this.game!.openDock());
+  /** «Новый забег» starts from nothing, so it asks first, in a window of its own that says what goes. */
+  private askNewGame(): void {
+    const g = this.game;
+    if (!g) return;
+    const s = g.newGameSummary();
+    const box = div('t-box', '');
+    const h = document.createElement('h3');
+    h.textContent = 'Начать с нуля?';
+    const lead = document.createElement('p');
+    lead.textContent = 'Новый забег стирает весь прогресс:';
+    const ul = document.createElement('ul');
+    const li = (html: string): void => {
+      const e = document.createElement('li');
+      e.innerHTML = html;
+      ul.appendChild(e);
+    };
+    li(`Ресурсы: <b>${s.credits}</b> кр. · <b>${s.metal}</b> мет. · <b>${s.quanta}</b> кв.`);
+    if (s.run) li(`Забег в пути: миссия <b>${s.run.mission}</b>, груз в трюме <b>${s.run.credits}</b> кр. · <b>${s.run.metal}</b> мет.`);
+    li(`Экипаж: <b>${s.people}</b> чел., в «Памяти» <b>${s.fallen}</b>`);
+    li(`Корабли: поломки и ремонты (<b>${s.damaged}</b>), расстановка модулей и их уровни (улучшенных <b>${s.upgraded}</b>)`);
+    const btns = div('t-btns', '');
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'danger';
+    ok.textContent = 'Начать заново';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.textContent = 'Отмена';
+    btns.append(ok, no);
+    box.append(h, lead, ul, div('t-risk', 'Это нельзя отменить. Все корабли получат стандартную расстановку и первый экипаж.'), btns);
+    this.dialog.replaceChildren(box);
+    this.dialog.hidden = false;
+    ok.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeDialog();
+      this.go(() => g.newGame());
+    });
+    no.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeDialog();
+    });
+    no.focus();
+  }
+
+  private closeDialog(): void {
+    this.dialog.hidden = true;
+    this.dialog.replaceChildren();
   }
 
   private leaveRun(item: number, action: () => void): void {
