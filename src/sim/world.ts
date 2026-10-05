@@ -27,6 +27,8 @@ export type SimEvent =
   | { t: 'warning'; x: number; y: number }
   | { t: 'detonate'; x: number; y: number; r: number }
   | { t: 'bolt'; x: number; y: number }
+  /** Air going out through a hole in the hull: where, which way (a unit vector away from the room) and how strongly (0…1). */
+  | { t: 'vent'; x: number; y: number; dx: number; dy: number; k: number }
   | { t: 'dead'; x: number; y: number; shipId: number }
   | { t: 'crewLost'; x: number; y: number };
 
@@ -167,6 +169,12 @@ export class World implements DamageSink {
 
   private wreckKey(c: Celestial): string {
     return `${Math.round(c.x)},${Math.round(c.y)}`;
+  }
+
+  /** Whether a wreck still lies there to be looked over (not shot to pieces, not already looked over). */
+  wreckLive(c: Celestial): boolean {
+    const body = this.wrecksOf.get(c);
+    return !!body && !body.removed && !this.spent.has(this.wreckKey(c));
   }
 
   private spawnWreck(c: Celestial): void {

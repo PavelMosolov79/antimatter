@@ -108,9 +108,10 @@ export function paintGrid(grid: ShipGrid, buf: Uint8Array, layer: number, tint: 
           const room = rooms.rooms[rid];
           const vac = 1 - room.pressure;
           const dark = 1 - 0.5 * vac;
-          r *= dark;
-          g *= dark;
-          bl *= 0.85 * dark + 0.15 * dark * (1 - vac);
+          // losing air: darker, and warmer the less there is (amber, then red)
+          r = r * dark + 70 * vac;
+          g *= dark * (1 - 0.35 * vac);
+          bl *= (0.85 * dark + 0.15 * dark * (1 - vac)) * (1 - 0.4 * vac);
           if (room.fire > 0) {
             const flick = 0.7 + 0.3 * Math.sin(time * 22 + x * 1.7 + y * 2.3);
             const k = room.fire * flick;

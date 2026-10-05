@@ -1,6 +1,7 @@
 import { Game, SCENARIOS, type Tool } from './game';
 import { OUTER_VIEW } from './render/shipView';
 import { RunScreen } from './runScreen';
+import { BattleHud } from './hud/battleHud';
 
 import { SHIPS, shipHoldCap } from './sim/ships';
 import { SECTOR_IDS, SECTORS } from './sim/space';
@@ -75,6 +76,8 @@ const CSS = `
 #hint { left: 8px; bottom: 8px; color: #7f95bf; font-size: 9.5px; max-width: 340px; pointer-events: none; }
 #panelToggle { position: fixed; right: 8px; bottom: 8px; pointer-events: auto; background: rgba(10,14,24,.85); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 10px; cursor: pointer; z-index: 5; }
 .collapsed #left, .collapsed #controls, .collapsed #hint { display: none; }
+/* the new battle screen (hud/battleHud.ts) replaces the developer panels in a run */
+#hud.newhud #left, #hud.newhud #controls, #hud.newhud #hint, #hud.newhud #panelToggle, #hud.newhud #mstatus, #hud.newhud #mbar, #hud.newhud #sheet, #hud.newhud #toasts { display: none !important; }
 
 /* ---- phone / touch layout: status strip on top, tabbed toolbar at the bottom, details in a sheet ---- */
 #hud.mobile { font-size: 12px; }
@@ -222,6 +225,8 @@ const ROLE_DOT: Record<string, string> = { pilot: '#ffffff', gunner: '#ffb347', 
 
 export class Hud {
   private game: Game;
+  private root: HTMLElement;
+  private battle: BattleHud;
   private stats: HTMLDivElement;
   private toolBtns = new Map<Tool, HTMLButtonElement>();
   private layerBtns: HTMLButtonElement[] = [];
@@ -261,6 +266,7 @@ export class Hud {
 
   constructor(game: Game, root: HTMLElement) {
     this.game = game;
+    this.root = root;
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
@@ -380,6 +386,7 @@ export class Hud {
 
     const scen = subsection(controls, 'Сценарий');
     button(scen, 'Главное меню', () => (this.game.screen = 'title'));
+    button(scen, 'Новый интерфейс', () => (this.game.hudNew = true));
     button(scen, 'Забег (док)', () => this.game.openDock());
     for (const sc of SCENARIOS) this.scenarioBtns.set(sc.id, button(scen, sc.label, () => this.game.reset(undefined, sc.id)));
 
@@ -439,6 +446,7 @@ export class Hud {
 
     if (isTouchLayout()) this.buildPhoneLayout(root, { left, toggle, combat, ship, controls, hint, button });
 
+    this.battle = new BattleHud(game, root);
     this.setTool('fly');
   }
 
@@ -541,6 +549,7 @@ export class Hud {
     const scen = row(env, 'mrow scroll', 'Сцена');
     for (const sc of SCENARIOS) on(button(scen, sc.label, () => g.reset(undefined, sc.id)), () => g.mode === 'sandbox' && g.scenarioId === sc.id);
     button(scen, 'Меню', () => (g.screen = 'title'));
+    button(scen, 'Новый интерфейс', () => (g.hudNew = true));
     button(scen, 'Заново', () => g.reset());
     button(scen, 'Док', () => g.openDock());
     const sectors = row(env, 'mrow scroll', 'Сектор');
@@ -753,6 +762,8 @@ export class Hud {
 
   update(now: number): void {
     const g = this.game;
+    this.root.classList.toggle('newhud', g.useNewHud);
+    this.battle.update(now);
     this.updateToasts();
     g.scene.craterPreview = g.tool === 'crater' ? g.crater.radius : 0;
     for (const [t, b] of this.toolBtns) b.classList.toggle('on', g.tool === t);

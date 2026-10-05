@@ -58,6 +58,10 @@ export const COMPARTMENTS = {
   fireSpreadChance: 0.3,
   fireDamagePerSec: 26,
   fireDamageCells: 3,
+  /** Air going out of a hole is shown while the room still has this much, as this many puffs per second for each hole (at most `ventMaxPerTick` a tick for a room). */
+  ventMinPressure: 0.03,
+  ventPuffsPerHole: 16,
+  ventMaxPerTick: 4,
   ignitionDivisor: 55,
   ignitionFeed: 220,
   minOxygen: 0.12,
@@ -304,6 +308,34 @@ function applyFireDamage(world: World, body: GridBody, room: Room, budget: numbe
   world.burnCells(body, chosen, budget);
 }
 
+/** The air of a room with a hole in its wall streams out through the hole: puffs, now and then, away from the room. */
+function ventAir(world: World, body: GridBody, room: Room, dt: number): void {
+  const grid = body.grid;
+  const holes: number[] = [];
+  let cx = 0;
+  let cy = 0;
+  for (const i of room.cells) {
+    cx += grid.xOf(i) + 0.5;
+    cy += grid.yOf(i) + 0.5;
+    const top = grid.topLayer(grid.xOf(i), grid.yOf(i));
+    if (top === -1 || top >= room.z) holes.push(i);
+  }
+  if (holes.length === 0) return;
+  cx /= room.cells.length;
+  cy /= room.cells.length;
+  const centre = body.localToWorld(cx, cy, { x: 0, y: 0 });
+  const expect = Math.min(COMPARTMENTS.ventMaxPerTick, holes.length * COMPARTMENTS.ventPuffsPerHole * dt) * (0.35 + 0.65 * room.pressure);
+  let n = Math.floor(expect) + (world.rng() < expect % 1 ? 1 : 0);
+  while (n-- > 0) {
+    const i = holes[Math.floor(world.rng() * holes.length)];
+    const p = body.localToWorld(grid.xOf(i) + 0.5, grid.yOf(i) + 0.5, { x: 0, y: 0 });
+    const dx = p.x - centre.x;
+    const dy = p.y - centre.y;
+    const d = Math.hypot(dx, dy) || 1;
+    world.push({ t: 'vent', x: p.x, y: p.y, dx: dx / d, dy: dy / d, k: room.pressure });
+  }
+}
+
 export function updateCompartments(world: World, body: GridBody, dt: number): void {
   const sys = body.sys;
   if (!sys) return;
@@ -333,6 +365,7 @@ export function updateCompartments(world: World, body: GridBody, dt: number): vo
     const wasBreached = room.breached;
     room.breached = breachedCells > 0;
     room.holes = breachedCells;
+    if (breachedCells > 0 && !room.sealing && !room.patched && room.pressure > COMPARTMENTS.ventMinPressure) ventAir(world, body, room, dt);
     // A patch (put on by an engineer, see crew.ts) holds until another hole is made.
     if (room.patched && breachedCells > room.patchHoles) room.patched = false;
     if (breachedCells === 0) room.patched = false;

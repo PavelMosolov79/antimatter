@@ -21,6 +21,7 @@ import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
 import type { Module, TargetRef, WeaponState } from './sim/grid';
 import { World, type WorldNote } from './sim/world';
+import { Dispatcher, type DispatchIcon, type Severity } from './sim/dispatch';
 import { Scene } from './render/scene';
 import { OUTER_VIEW } from './render/shipView';
 
@@ -1152,6 +1153,20 @@ export class Game {
     if (!enemyAlive && (this.world.player.sys?.countdown ?? -1) < 0) this.state = 'won';
   }
 
+  /** What the dispatcher says to the player (see sim/dispatch.ts); watches the world, and the game adds what only it knows (finds, traps). */
+  dispatcher = new Dispatcher();
+  /** The sandbox shows the old developer panels unless this is on; a run always shows the new battle screen. */
+  hudNew = false;
+  get useNewHud(): boolean {
+    return this.mode === 'run' || this.hudNew;
+  }
+
+  /** A message from the game itself: the same text goes to the dispatcher, and (for the old screen) to the toasts. */
+  say(sev: Severity, icon: DispatchIcon, title: string, sub: string, key?: string): void {
+    this.dispatcher.say(sev, icon, title, sub, this.world.time);
+    this.toast(sub ? `${title}: ${sub}` : title, key);
+  }
+
   toast(text: string, key?: string): void {
     const now = performance.now();
     const old = key ? this.toasts.find((t) => t.key === key) : undefined;
@@ -1180,9 +1195,9 @@ export class Game {
       if (n.type === 'salvage') {
         const got = hold(0, n.metal);
         this.salvaged += got.metal;
-        this.toast(got.lostMetal > 0 && got.metal === 0 ? 'Обломки: трюм полон, металл уплывает.' : `Добыча с обломков: +${this.salvaged} мет.`, 'salvage');
+        this.say(got.lostMetal > 0 && got.metal === 0 ? 'warn' : 'good', 'ok', 'Добыча с обломков', got.lostMetal > 0 && got.metal === 0 ? 'трюм полон, металл уплывает' : `+${this.salvaged} мет.`, 'salvage');
       } else if (n.type === 'trap') {
-        this.toast(n.text);
+        this.say('crit', n.trap === 'reactor' ? 'reactor' : n.trap === 'ambush' ? 'foe' : 'breach', n.text.split(': ')[0], n.text.split(': ').slice(1).join(': '));
       } else if (n.type === 'ambush') {
         for (let i = 0; i < n.n; i++) {
           const id = this.world.rng() < 0.5 ? 'scout' : 'raider';
@@ -1196,17 +1211,26 @@ export class Game {
         const f = n.find;
         if (f.type === 'metal') {
           const got = hold(0, f.amount);
-          this.toast(got.lostMetal > 0 ? `${f.text} Не влезло: ${got.lostMetal}.` : f.text);
+          this.say('good', 'wreck', ...this.findText(f.text, got.lostMetal > 0 ? ` Не влезло: ${got.lostMetal}.` : ''));
         } else if (f.type === 'credits') {
           hold(f.amount, 0);
-          this.toast(f.text);
+          this.say('good', 'wreck', ...this.findText(f.text, ''));
         } else if (f.type === 'survivor') {
-          this.toast(this.takeSurvivor() ? f.text : 'Осмотр остова: в капсуле живой космонавт, но в казарме нет места. Он остался в космосе.');
+          if (this.takeSurvivor()) {
+            const [title, sub] = this.findText(f.text, '');
+            this.say('good', 'hurt', title, sub);
+          } else this.say('warn', 'hurt', 'Осмотр остова', 'в капсуле живой космонавт, но в казарме нет места, он остался в космосе');
         } else {
-          this.toast(f.text);
+          this.say('info', 'wreck', ...this.findText(f.text, ''));
         }
       }
     }
+  }
+
+  /** A find's text as a title and a detail: «Осмотр остова: в трюмах металл» → the part before the colon and the rest. */
+  private findText(text: string, extra: string): [string, string] {
+    const i = text.indexOf(': ');
+    return i < 0 ? [text, extra.trim()] : [text.slice(0, i), text.slice(i + 2) + extra];
   }
 
   /** A rescued astronaut: wounded, in the barracks, waiting to be healed. */
@@ -1231,6 +1255,7 @@ export class Game {
       this.lastWorld = this.world;
       this.salvaged = 0;
       this.toasts = [];
+      this.dispatcher = new Dispatcher();
     }
     let simDt = 0;
     const halted = this.mode === 'run' && this.runPhase !== 'battle';
@@ -1248,6 +1273,7 @@ export class Game {
       if (steps > 0) this.stepMs = this.stepMs * 0.9 + ((performance.now() - t0) / steps) * 0.1;
       if (steps === 6) this.acc = 0;
       if (this.world.notes.length > 0) this.handleNotes();
+      if (steps > 0) this.dispatcher.observe(this.world);
       this.evaluate();
     }
     this.scene.render(this.world, dt, simDt);

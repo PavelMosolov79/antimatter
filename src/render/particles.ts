@@ -87,6 +87,12 @@ export class Particles {
         const a = Math.random() * Math.PI * 2;
         const sp = 6 + Math.random() * 20;
         this.emit(e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.25 + Math.random() * 0.25, 0.9, 0xffc060, true, 2);
+      } else if (e.t === 'vent') {
+        // air rushing out: pale puffs that fly off away from the room and thin out as they go
+        const a = Math.atan2(e.dy, e.dx) + (Math.random() - 0.5) * 0.9;
+        const sp = (12 + Math.random() * 26) * (0.5 + 0.5 * e.k);
+        const c = Math.random() < 0.35 ? 0xffffff : 0xcfe6ff;
+        this.emit(e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.6 + Math.random() * 0.7, 1.3 + Math.random() * 1.8, c, false, 1.0);
       } else if (e.t === 'impact') {
         const n = Math.min(40, 6 + Math.floor(Math.sqrt(e.energy) * 0.15));
         for (let i = 0; i < n; i++) {

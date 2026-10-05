@@ -31,6 +31,8 @@ export class Scene {
   camY = 0;
   zoom = 1.2;
   follow = true;
+  /** Pixels the middle of the view is moved down (negative: up), so the ship sits in the free part of the screen over the panels. */
+  viewOffY = 0;
   layerView = OUTER_VIEW;
   showDebug = false;
   cursor: { x: number; y: number } | null = null;
@@ -49,7 +51,12 @@ export class Scene {
 
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const s = this.scale;
-    return { x: (sx - this.app.screen.width / 2) / s + this.camX, y: (sy - this.app.screen.height / 2) / s + this.camY };
+    return { x: (sx - this.app.screen.width / 2) / s + this.camX, y: (sy - this.app.screen.height / 2 - this.viewOffY) / s + this.camY };
+  }
+
+  worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    const s = this.scale;
+    return { x: this.app.screen.width / 2 + (wx - this.camX) * s, y: this.app.screen.height / 2 + this.viewOffY + (wy - this.camY) * s };
   }
 
   reset(world: World): void {
@@ -101,7 +108,7 @@ export class Scene {
     const sw = this.app.screen.width;
     const sh = this.app.screen.height;
     this.worldLayer.scale.set(s);
-    this.worldLayer.position.set(sw / 2 - this.camX * s, sh / 2 - this.camY * s);
+    this.worldLayer.position.set(sw / 2 - this.camX * s, sh / 2 + this.viewOffY - this.camY * s);
     this.starfield.update(this.camX, this.camY, s, sw, sh);
     const now = performance.now() / 1000;
     this.syncCelestials(world);
@@ -130,7 +137,7 @@ export class Scene {
       for (const b of world.bodies) if (b.isPlayer || (b.sys && !b.sys.dead)) this.emitFlames(b);
     }
     this.particles.handleEvents(world.events);
-    this.combat.handleEvents(world.events, this.particles);
+    this.combat.handleEvents(world.events, this.particles, world);
     world.events.length = 0;
     this.particles.update(simDt);
     this.combat.update(world, simDt, s, this.layerView);

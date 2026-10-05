@@ -82,9 +82,10 @@ export class DecorView {
           }
         }
       }
+      const vac = 1 - Math.max(0, Math.min(1, (dark - 0.5) / 0.5));
       const r = Math.round(255 * dark);
-      const g = Math.round(255 * dark * (1 - 0.35 * fire));
-      const b = Math.round(255 * dark * (1 - 0.6 * fire));
+      const g = Math.round(255 * dark * (1 - 0.35 * fire) * (1 - 0.3 * vac));
+      const b = Math.round(255 * dark * (1 - 0.6 * fire) * (1 - 0.45 * vac));
       const tint = (r << 16) | (g << 8) | b;
       if (tint !== m.tint) {
         m.tint = tint;

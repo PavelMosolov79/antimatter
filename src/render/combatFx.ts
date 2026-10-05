@@ -18,6 +18,15 @@ interface Wave {
   maxLife: number;
 }
 
+/** A shot on a shield: where on the bubble (relative to the ship) and how long the band still shines. */
+interface ShieldArc {
+  shipId: number;
+  ox: number;
+  oy: number;
+  life: number;
+}
+const ARC_LIFE = 0.5;
+
 interface ShieldHit {
   x: number;
   y: number;
@@ -110,6 +119,7 @@ export class CombatFx {
   private texts = new Map<number, Text>();
   private waves: Wave[] = [];
   private hits: ShieldHit[] = [];
+  private arcs: ShieldArc[] = [];
   private barrelDraws: BarrelDraw[] = [];
 
   constructor() {
@@ -119,12 +129,13 @@ export class CombatFx {
   reset(): void {
     this.waves.length = 0;
     this.hits.length = 0;
+    this.arcs.length = 0;
     for (const t of this.texts.values()) t.destroy();
     this.texts.clear();
     this.gfx.clear();
   }
 
-  handleEvents(events: SimEvent[], particles: Particles): void {
+  handleEvents(events: SimEvent[], particles: Particles, world: World): void {
     for (const e of events) {
       if (e.t === 'shot') {
         for (let i = 0; i < 2; i++) {
@@ -132,6 +143,8 @@ export class CombatFx {
           particles.emit(e.x, e.y, Math.cos(a) * 10, Math.sin(a) * 10, 0.1, 1.1, e.color, true, 3);
         }
       } else if (e.t === 'shield') {
+        const body = world.findShip(e.shipId);
+        if (body) this.arcs.push({ shipId: e.shipId, ox: e.x - body.x, oy: e.y - body.y, life: ARC_LIFE });
         this.hits.push({ x: e.x, y: e.y, life: 0.35 });
         for (let i = 0; i < 4; i++) {
           const a = Math.random() * Math.PI * 2;
@@ -239,6 +252,32 @@ export class CombatFx {
         this.texts.delete(id);
       }
     }
+
+    // where a shot struck the shield: a bright band along the bubble round the point, fading from its middle out
+    for (const a of this.arcs) {
+      const b = world.findShip(a.shipId);
+      if (!b || !b.sys || b.sys.dead) {
+        a.life = 0;
+        continue;
+      }
+      const R = shieldRadius(b);
+      const ang = Math.atan2(a.oy, a.ox);
+      const k = Math.max(0, a.life / ARC_LIFE);
+      const col = b.sys.team === 0 ? 0x5ce6ff : teamColor(b.sys.team);
+      for (const [half, alpha, width] of [[1.0, 0.35, 2.4], [0.66, 0.7, 3.2], [0.3, 1, 4.4]] as const) {
+        g.moveTo(b.x + Math.cos(ang - half) * R, b.y + Math.sin(ang - half) * R);
+        g.arc(b.x, b.y, R, ang - half, ang + half);
+        g.stroke({ width: px * width, color: 0xdff8ff, alpha: Math.min(1, alpha * k * 0.95) });
+        g.moveTo(b.x + Math.cos(ang - half) * R, b.y + Math.sin(ang - half) * R);
+        g.arc(b.x, b.y, R, ang - half, ang + half);
+        g.stroke({ width: px * width * 3.4, color: col, alpha: alpha * k * 0.38 });
+      }
+      const sx = b.x + Math.cos(ang) * R;
+      const sy = b.y + Math.sin(ang) * R;
+      g.circle(sx, sy, px * (3 + 11 * (1 - k))).fill({ color: col, alpha: 0.6 * k });
+      a.life -= dt;
+    }
+    this.arcs = this.arcs.filter((a) => a.life > 0);
 
     for (const h of this.hits) g.circle(h.x, h.y, 1.4 + (0.35 - h.life) * 6).fill({ color: 0xcfeaff, alpha: Math.max(0, h.life / 0.35) * 0.8 });
     this.hits = this.hits.filter((h) => (h.life -= dt) > 0);

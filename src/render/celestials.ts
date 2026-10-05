@@ -162,6 +162,8 @@ interface Animated {
   /** Called every frame; repaints the picture when it is time. */
   tick(now: number, visible: boolean): void;
   spec?: PlanetSpec;
+  /** How many views show it now; a picture in use is never let go of. */
+  refs?: number;
 }
 
 // Planets and holes are expensive to paint and the same ones come back (the dock, the next
@@ -172,10 +174,12 @@ function cached(key: string, make: () => Animated): Animated {
   if (!v) {
     v = make();
     pictures.set(key, v);
-    if (pictures.size > 8) {
-      const oldest = pictures.keys().next().value as string;
-      pictures.get(oldest)!.tex.destroy(true);
-      pictures.delete(oldest);
+    // the oldest ones that nothing shows any more are let go of
+    for (const [k, old] of pictures) {
+      if (pictures.size <= 8) break;
+      if ((old.refs ?? 0) > 0 || old === v) continue;
+      old.tex.destroy(true);
+      pictures.delete(k);
     }
   }
   return v;
@@ -356,8 +360,13 @@ function createBodyView(c: Celestial): CelestialView {
   }
   // Anything of it in view? A planet's rings and atmosphere reach a little past its radius; a hole's glow far past.
   const reach = c.kind === 'blackhole' ? c.radius * 7 : c.radius * 2.4;
+  const shown = anim;
+  if (shown) shown.refs = (shown.refs ?? 0) + 1;
   return {
     root,
+    dispose: () => {
+      if (shown) shown.refs = Math.max(0, (shown.refs ?? 1) - 1);
+    },
     update(now, left, top, right, bottom) {
       if (!anim) return;
       anim.tick(now, c.x + reach > left && c.x - reach < right && c.y + reach > top && c.y - reach < bottom);
