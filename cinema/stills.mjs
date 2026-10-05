@@ -1,0 +1,37 @@
+// Screenshots of the real dock screens at phone size, for the film (node cinema/stills.mjs).
+import { launch } from './cdp.mjs';
+const b = await launch({ width: 1080, height: 1920 });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+await b.equip();
+await b.goto('http://localhost:5173/');
+await wait(4500);
+const click = (txt, sel = 'button') => b.eval(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(sel)})].find(e=>e.offsetParent&&e.textContent.trim().toLowerCase().startsWith(${JSON.stringify(txt.toLowerCase())}));if(!e)return 'none:${txt}';e.click();return 'ok'})()`);
+const out = 'cinema/assets/';
+const open = async (ship) => {
+  await b.eval(`window.__antimatter.game.openDock(${JSON.stringify(ship)})`);
+  await wait(1200);
+};
+await b.eval(`(()=>{const t=document.getElementById('title');for(const e of t.querySelectorAll('*')){const x=(e.children.length===0?e.textContent:'').trim();if(/Коснитесь|Загрузка|ядро|^\\d+%$|Стабилизация|Прогрев|Расчёт|Запуск/i.test(x)||e.className==='pct')e.style.visibility='hidden';}})()`);
+await b.shot(out + 'title.png');
+console.log(await click('Док'));
+await wait(1500);
+await open('battleship');
+await click('Ангар');
+await wait(800);
+await b.shot(out + 'hangar.png');
+await click('Экипаж');
+await wait(1200);
+await b.shot(out + 'crew.png');
+await click('Готово');
+await wait(500);
+await open('cruiser');
+await click('Модули');
+await wait(1200);
+await b.shot(out + 'modules.png');
+await click('Готово');
+await wait(500);
+await open('fighter');
+await click('Ремонт');
+await wait(1200);
+await b.shot(out + 'repair.png');
+b.close();

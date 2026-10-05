@@ -132,6 +132,7 @@ function extractComponent(src: ShipGrid, labels: Int32Array, label: number): { g
       regen: m.regen,
       pool: m.pool,
       lv: m.lv,
+      stun: m.stun,
     };
     grid.modules.push(nm);
     const id = grid.modules.length;

@@ -66,10 +66,10 @@ function resolveContact(
   aCols: number[],
   bCols: number[],
 ): void {
-  const invA = a.invMass;
-  const invB = b ? b.invMass : 0;
-  const invIA = a.invInertia;
-  const invIB = b ? b.invInertia : 0;
+  const invA = a.anchored ? 0 : a.invMass;
+  const invB = b && !b.anchored ? b.invMass : 0;
+  const invIA = a.anchored ? 0 : a.invInertia;
+  const invIB = b && !b.anchored ? b.invInertia : 0;
   const invSum = invA + invB;
   if (invSum <= 0) return;
 

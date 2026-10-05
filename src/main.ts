@@ -48,6 +48,8 @@ async function main(): Promise<void> {
       else dock.refreshShip(id);
     }));
   const road = new RoadScreen(game, document.body);
+  // for the promo film tools in cinema/ (they drive the real screens); not in the build
+  if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) (window as unknown as { __antimatter: unknown }).__antimatter = { game, hud, dock, road, title, scene };
   hud.update(performance.now());
 
   title.step(0.9, 'Стабилизация ядра');

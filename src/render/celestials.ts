@@ -3,6 +3,7 @@ import type { Celestial } from '../sim/gravity';
 import { hash2 } from '../sim/rng';
 import { genHole, genPlanet, type PlanetSpec, type PlanetTypeId } from '../sim/space';
 import { renderHole } from './space/holeGen';
+import { renderComet, renderGate, renderPulsar, renderStorm } from './space/hazardGen';
 import { ATMOSPHERE, PlanetPainter, type Picture } from './space/planetGen';
 
 function smooth(t: number): number {
@@ -149,7 +150,10 @@ function pictureTexture(p: Picture): { tex: Texture; upload: () => void } {
 /** Something on the screen that moves: given the clock and the part of the world in view, it redraws itself if it is in view. */
 export interface CelestialView {
   root: Container;
-  update(now: number, left: number, top: number, right: number, bottom: number): void;
+  /** `sim` is the time of the world (what the beams and the lightning follow), `now` the clock of the screen. */
+  update(now: number, left: number, top: number, right: number, bottom: number, sim?: number): void;
+  /** Lets go of what the view made for itself (its pictures). */
+  dispose?(): void;
 }
 
 interface Animated {
@@ -244,7 +248,72 @@ function holePicture(c: Celestial): Animated {
   });
 }
 
+/** A picture that is painted again as the world's time goes on (a pulsar's beams, a storm, the gate's portal), a few times a second and only when in view. */
+function liveView(c: Celestial, reach: number, fps: number, paint: (t: number, into?: Picture) => Picture, glow?: { inner: number; outer: number; size: number }): CelestialView {
+  const root = new Container();
+  root.position.set(c.x, c.y);
+  if (glow) {
+    const g = new Sprite(glowTexture(glow.inner, glow.outer));
+    g.anchor.set(0.5);
+    g.scale.set(glow.size / 256);
+    g.blendMode = 'add';
+    g.alpha = 0.5;
+    root.addChild(g);
+  }
+  const pic = paint(0);
+  const { tex, upload } = pictureTexture(pic);
+  const sprite = new Sprite(tex);
+  sprite.anchor.set(0.5);
+  sprite.scale.set(pic.texel);
+  root.addChild(sprite);
+  let last = -1e9;
+  return {
+    root,
+    dispose: () => tex.destroy(true),
+    update(now, left, top, right, bottom, sim = 0) {
+      if (c.x + reach < left || c.x - reach > right || c.y + reach < top || c.y - reach > bottom) return;
+      if (now - last < 1 / fps) return;
+      last = now;
+      paint(sim, pic);
+      upload();
+    },
+  };
+}
+
 export function createCelestialView(c: Celestial): CelestialView {
+  switch (c.kind) {
+    case 'pulsar':
+      return liveView(c, 1450, 12, (t, into) => renderPulsar(c, t, into), { inner: 0xcfeaff, outer: 0x59e6ff, size: 420 });
+    case 'storm':
+      return liveView(c, Math.max(c.radius, c.ry ?? 0) * 1.1, 8, (t, into) => renderStorm(c, t, into));
+    case 'gate':
+      return liveView(c, 300, 12, (t, into) => renderGate(c, t, into), { inner: 0x59e6ff, outer: 0x1d3f8a, size: 520 });
+    case 'comet': {
+      const root = new Container();
+      const pic = renderComet(c);
+      const { tex } = pictureTexture(pic);
+      const sprite = new Sprite(tex);
+      sprite.anchor.set(0.5);
+      sprite.scale.set(pic.texel);
+      root.addChild(sprite);
+      root.position.set(c.x, c.y);
+      return {
+        root,
+        dispose: () => tex.destroy(true),
+        update() {
+          root.position.set(c.x, c.y);
+        },
+      };
+    }
+    case 'wreck':
+    case 'asteroids':
+      return { root: new Container(), update() {} };
+    default:
+      return createBodyView(c);
+  }
+}
+
+function createBodyView(c: Celestial): CelestialView {
   const root = new Container();
   root.position.set(c.x, c.y);
   const add = (tex: Texture, scale = 1, blend: 'normal' | 'add' = 'normal', alpha = 1) => {

@@ -1,0 +1,854 @@
+<title>Экран игрока Antimatter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Unbounded:wght@500;700;900&display=swap">
+<style>
+/* Layout: one live battle screen (phone or computer, switchable) with its rules in cards beside/below it. Dark only, the game's own night.
+   Every size on the screen is N × --u, so the same CSS draws both layouts. */
+:root {
+  --bg: #05070d;
+  --panel: rgba(8, 12, 22, .86);
+  --panel-solid: #0a0f1c;
+  --line: #2c3d63;
+  --line-soft: #1c2742;
+  --fg: #cfe0ff;
+  --dim: #7f95bf;
+  --faint: #4d5f86;
+  --cyan: #59e6ff;
+  --violet: #b06bff;
+  --magenta: #ff5fd8;
+  --amber: #ffd24a;
+  --red: #ff6a5a;
+  --green: #63e07a;
+  --hull: #4fd16a;
+  --shield: #3f8bf0;
+  --energy: #e0a030;
+  --display: 'Unbounded', 'Arial Black', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { margin: 0; padding-inline: 16px; padding-block: 22px 40px; color: var(--fg); font: 400 13px/1.55 var(--mono); }
+button { font-family: inherit; }
+.page { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.top { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; justify-content: space-between; }
+.top h1 { margin: 0; font: 900 clamp(24px, 4vw, 38px)/1.05 var(--display); letter-spacing: .04em; color: #fff; text-wrap: balance; }
+.top h1 span { color: var(--cyan); }
+.top p { margin: 8px 0 0; color: var(--dim); max-width: 62ch; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { background: var(--panel-solid); color: var(--dim); border: 0; padding: 10px 16px; font: 700 12px/1 var(--mono); letter-spacing: .08em; cursor: pointer; }
+.seg button.on { background: var(--cyan); color: #04202a; }
+.seg button:focus-visible { outline: 2px solid var(--violet); outline-offset: -2px; }
+.stage { display: grid; gap: 28px; align-items: start; grid-template-columns: minmax(0, 405px) minmax(0, 1fr); }
+.stage.desk { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 860px) { .stage { grid-template-columns: minmax(0, 1fr); justify-items: center; } .notes { width: 100%; } }
+
+/* ---------------------------------------------------------------- the screen */
+.layer { --u: 1cqw; }
+.screen.desk .layer { --u: .4cqw; }
+.screen { position: relative; width: 100%; max-width: 405px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: #000; container-type: inline-size; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.screen.desk { max-width: 1120px; border-radius: 12px; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+.layer { position: absolute; inset: 0; pointer-events: none; }
+.layer > * { pointer-events: auto; }
+.screen button:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+
+/* status plates */
+.left { position: absolute; left: calc(3 * var(--u)); top: calc(3 * var(--u)); right: calc(3 * var(--u)); display: flex; flex-direction: column; gap: calc(2 * var(--u)); }
+.desk .left { right: auto; left: calc(3 * var(--u)); top: calc(3 * var(--u)); width: calc(66 * var(--u)); }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: calc(1.6 * var(--u)); }
+.desk .bars { grid-template-columns: 1fr; gap: calc(1.2 * var(--u)); padding: calc(2 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-radius: calc(2.4 * var(--u)); }
+.bar { position: relative; height: calc(8.4 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-radius: calc(2 * var(--u)); overflow: hidden; }
+.desk .bar { height: calc(6.2 * var(--u)); background: rgba(5, 8, 16, .7); border-radius: calc(1.4 * var(--u)); }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 100%; transition: width .35s ease; opacity: .9; }
+.bar::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(5, 7, 13, .55) calc(10% - 1px) 10%); }
+.bar span { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 calc(2.2 * var(--u)); font: 700 calc(2.9 * var(--u))/1 var(--mono); text-shadow: 0 1px 3px #000; }
+.desk .bar span { font-size: calc(3.1 * var(--u)); }
+.bar span b { font: 600 calc(2.1 * var(--u))/1 var(--mono); letter-spacing: .14em; color: #dff3ff; opacity: .85; }
+.desk .bar span b { font-size: calc(2.4 * var(--u)); }
+.bar.hull i { background: linear-gradient(90deg, #2f9b4a, var(--hull)); }
+.bar.shield i { background: linear-gradient(90deg, #2a63c4, var(--shield)); }
+.bar.energy i { background: linear-gradient(90deg, #b5791a, var(--energy)); }
+.bar.low { border-color: var(--red); animation: pulse .8s infinite alternate; }
+@keyframes pulse { to { box-shadow: 0 0 calc(2.4 * var(--u)) rgba(255, 106, 90, .7); } }
+
+/* compartments: a panel on the computer, a strip on the phone */
+.rooms { display: none; }
+.rooms.show { display: flex; }
+.rooms { flex-direction: column; gap: calc(1.4 * var(--u)); padding: calc(2 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-radius: calc(2.4 * var(--u)); }
+.rooms h4 { margin: 0; display: flex; flex-wrap: wrap; gap: calc(1 * var(--u)) calc(2 * var(--u)); justify-content: space-between; font: 700 calc(2.5 * var(--u))/1 var(--mono); letter-spacing: .16em; color: var(--cyan); }
+.rooms h4 em { font-style: normal; color: var(--dim); letter-spacing: .04em; }
+.rrow { display: grid; grid-template-columns: 1fr calc(14 * var(--u)) calc(7.5 * var(--u)); gap: calc(1.6 * var(--u)); align-items: center; padding: calc(1 * var(--u)) calc(1.4 * var(--u)); border-radius: calc(1.2 * var(--u)); font: 600 calc(2.7 * var(--u))/1.2 var(--mono); cursor: pointer; border: 1px solid transparent; }
+.rrow:hover, .rrow.hi { border-color: var(--cyan); background: rgba(89, 230, 255, .06); }
+.rrow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: calc(1 * var(--u)); align-items: center; }
+.rrow .pb { height: calc(1.6 * var(--u)); background: rgba(255, 255, 255, .08); border-radius: calc(1 * var(--u)); overflow: hidden; }
+.rrow .pb i { display: block; height: 100%; background: var(--c); }
+.rrow .pc { text-align: right; color: var(--c); font-variant-numeric: tabular-nums; }
+.rrow svg { width: calc(3.2 * var(--u)); height: calc(3.2 * var(--u)); stroke: currentColor; fill: none; stroke-width: 2; flex: none; }
+.rrow .fi { color: var(--amber); } .rrow .bi { color: var(--red); }
+.rleg { display: flex; gap: calc(2.4 * var(--u)); font: 400 calc(2.2 * var(--u))/1 var(--mono); color: var(--dim); flex-wrap: wrap; }
+.rleg i { display: inline-block; width: calc(2.2 * var(--u)); height: calc(2.2 * var(--u)); border-radius: calc(.6 * var(--u)); margin-right: calc(.8 * var(--u)); vertical-align: calc(-.2 * var(--u)); }
+.rnote { font: 400 calc(2.5 * var(--u))/1.3 var(--mono); color: var(--dim); }
+.mob .rooms { position: absolute; left: calc(3 * var(--u)); right: calc(3 * var(--u)); bottom: 0; }
+.mob .rrow { grid-template-columns: 1fr calc(12 * var(--u)) calc(7 * var(--u)); }
+
+/* the dispatcher */
+.disp { position: absolute; left: calc(3 * var(--u)); top: calc(14.6 * var(--u)); width: calc(78 * var(--u)); display: flex; flex-direction: column; gap: calc(1.4 * var(--u)); z-index: 5; }
+.desk .disp { left: auto; right: calc(3 * var(--u)); top: calc(3 * var(--u)); width: calc(92 * var(--u)); align-items: stretch; }
+.disp-head { display: flex; align-items: center; gap: calc(2 * var(--u)); align-self: flex-start; padding: calc(1.4 * var(--u)) calc(2.6 * var(--u)) calc(1.4 * var(--u)) calc(2 * var(--u)); font: 700 calc(2.3 * var(--u))/1 var(--mono); letter-spacing: .2em; color: var(--cyan); background: var(--panel); border: 1px solid var(--line); border-radius: calc(1.6 * var(--u)); cursor: pointer; }
+.desk .disp-head { align-self: flex-end; font-size: calc(2.5 * var(--u)); }
+.disp-head .dot { width: calc(1.8 * var(--u)); height: calc(1.8 * var(--u)); border-radius: 50%; background: var(--cyan); box-shadow: 0 0 calc(1.6 * var(--u)) var(--cyan); }
+.disp-head em { font-style: normal; color: var(--dim); letter-spacing: .06em; }
+.msg { position: relative; display: grid; grid-template-columns: calc(7.4 * var(--u)) 1fr auto; gap: calc(2.4 * var(--u)); align-items: center; padding: calc(2.1 * var(--u)) calc(2.6 * var(--u)) calc(2.1 * var(--u)) calc(2.2 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-left: calc(1.1 * var(--u)) solid var(--sev); border-radius: calc(1.8 * var(--u)); backdrop-filter: blur(3px); animation: msgin .32s cubic-bezier(.2, .9, .3, 1.2); transition: opacity .6s, transform .6s; }
+.desk .msg { grid-template-columns: calc(6.4 * var(--u)) 1fr auto; padding: calc(1.8 * var(--u)) calc(2.4 * var(--u)) calc(1.8 * var(--u)) calc(2 * var(--u)); }
+.msg.out { opacity: 0; transform: translateX(calc(-4 * var(--u))); }
+.desk .msg.out { transform: translateX(calc(4 * var(--u))); }
+.msg .ic { width: calc(7.4 * var(--u)); height: calc(7.4 * var(--u)); display: grid; place-items: center; border-radius: calc(1.6 * var(--u)); background: color-mix(in srgb, var(--sev) 18%, transparent); color: var(--sev); }
+.desk .msg .ic { width: calc(6.4 * var(--u)); height: calc(6.4 * var(--u)); }
+.msg .ic svg { width: calc(4.6 * var(--u)); height: calc(4.6 * var(--u)); stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.msg .t { font: 700 calc(3.2 * var(--u))/1.2 var(--mono); color: #eef5ff; }
+.desk .msg .t { font-size: calc(3.1 * var(--u)); }
+.msg .s { margin-top: calc(.5 * var(--u)); font: 400 calc(2.6 * var(--u))/1.3 var(--mono); color: var(--dim); }
+.desk .msg .s { font-size: calc(2.6 * var(--u)); }
+.msg .tm { font: 600 calc(2.2 * var(--u))/1 var(--mono); color: var(--faint); align-self: start; font-variant-numeric: tabular-nums; }
+.msg .x { color: var(--sev); font-weight: 700; }
+.msg.crit { box-shadow: 0 0 calc(3 * var(--u)) calc(-1 * var(--u)) var(--red); }
+@keyframes msgin { from { opacity: 0; transform: translateX(calc(-6 * var(--u))) scale(.96); } }
+.sev-info { --sev: var(--cyan); } .sev-good { --sev: var(--green); } .sev-warn { --sev: var(--amber); } .sev-crit { --sev: var(--red); }
+
+/* the log */
+.log { position: absolute; left: calc(3 * var(--u)); right: calc(3 * var(--u)); top: calc(14.6 * var(--u)); bottom: calc(3 * var(--u)); z-index: 8; display: flex; flex-direction: column; background: rgba(5, 8, 16, .96); border: 1px solid var(--line); border-radius: calc(2.4 * var(--u)); padding: calc(3 * var(--u)); gap: calc(2 * var(--u)); backdrop-filter: blur(6px); }
+.desk .log { left: auto; width: calc(100 * var(--u)); top: calc(3 * var(--u)); }
+.log[hidden] { display: none; }
+.log h3 { margin: 0; display: flex; justify-content: space-between; align-items: center; font: 700 calc(2.8 * var(--u))/1 var(--display); letter-spacing: .12em; text-transform: uppercase; color: #fff; }
+.log h3 button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: calc(1.2 * var(--u)); font: 600 calc(2.4 * var(--u))/1 var(--mono); padding: calc(1.4 * var(--u)) calc(2.2 * var(--u)); cursor: pointer; }
+.log-list { overflow-y: auto; display: flex; flex-direction: column; gap: calc(1.2 * var(--u)); scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.log-list .msg { animation: none; backdrop-filter: none; background: rgba(12, 18, 32, .9); }
+.log-chips { display: flex; gap: calc(1.4 * var(--u)); flex-wrap: wrap; }
+.chip { background: transparent; border: 1px solid var(--line); color: var(--dim); font: 600 calc(2.3 * var(--u))/1 var(--mono); letter-spacing: .08em; padding: calc(1.4 * var(--u)) calc(2.2 * var(--u)); border-radius: calc(1.2 * var(--u)); cursor: pointer; }
+.chip.on { color: #04202a; background: var(--cyan); border-color: var(--cyan); }
+
+/* edge markers */
+.mk { position: absolute; left: 0; top: 0; width: 0; height: 0; transition: opacity .25s; }
+.mk .core { position: absolute; left: calc(-4.6 * var(--u)); top: calc(-4.6 * var(--u)); width: calc(9.2 * var(--u)); height: calc(9.2 * var(--u)); display: grid; place-items: center; border-radius: 50%; background: rgba(5, 8, 16, .82); border: 1.5px solid var(--c); color: var(--c); box-shadow: 0 0 calc(2.4 * var(--u)) calc(-.4 * var(--u)) var(--c); cursor: pointer; }
+.desk .mk .core { left: calc(-4 * var(--u)); top: calc(-4 * var(--u)); width: calc(8 * var(--u)); height: calc(8 * var(--u)); }
+.mk .core svg { width: calc(5.4 * var(--u)); height: calc(5.4 * var(--u)); stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.desk .mk .core svg { width: calc(4.6 * var(--u)); height: calc(4.6 * var(--u)); }
+.mk .arr { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.mk .arr i { position: absolute; left: calc(5.2 * var(--u)); top: calc(-1.9 * var(--u)); width: calc(2.6 * var(--u)); height: calc(3.8 * var(--u)); background: var(--c); clip-path: polygon(0 0, 100% 50%, 0 100%, 25% 50%); filter: drop-shadow(0 0 calc(.8 * var(--u)) var(--c)); }
+.desk .mk .arr i { left: calc(4.6 * var(--u)); }
+.mk .d { position: absolute; left: 0; width: calc(18 * var(--u)); margin-left: calc(-9 * var(--u)); text-align: center; font: 700 calc(2.4 * var(--u))/1 var(--mono); color: var(--c); text-shadow: 0 1px 3px #000, 0 0 calc(2 * var(--u)) #000; font-variant-numeric: tabular-nums; pointer-events: none; }
+.mk.foe { --c: var(--red); } .mk.foe .core { animation: foe 1s infinite alternate; }
+@keyframes foe { to { box-shadow: 0 0 calc(3.4 * var(--u)) calc(.2 * var(--u)) var(--red); } }
+.mk.big { --c: var(--violet); } .mk.hole { --c: #ff9a2a; } .mk.wreck { --c: var(--amber); } .mk.gate { --c: var(--cyan); } .mk.rocks { --c: #b9ad9e; } .mk.comet { --c: #8af0ff; }
+
+/* the compartments' pressure labels on the ship */
+.pill { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); padding: calc(.7 * var(--u)) calc(1.4 * var(--u)); font: 700 calc(2.3 * var(--u))/1 var(--mono); border-radius: calc(1 * var(--u)); background: rgba(5, 8, 16, .88); border: 1px solid var(--c); color: var(--c); white-space: nowrap; display: none; pointer-events: none !important; font-variant-numeric: tabular-nums; }
+.pill svg { width: calc(2.6 * var(--u)); height: calc(2.6 * var(--u)); stroke: currentColor; fill: none; stroke-width: 2; vertical-align: calc(-.5 * var(--u)); margin-right: calc(.5 * var(--u)); }
+
+/* the control panel: four labelled groups */
+.dock { position: absolute; left: calc(2.4 * var(--u)); right: calc(2.4 * var(--u)); bottom: calc(2.4 * var(--u)); display: flex; flex-wrap: wrap; gap: calc(2 * var(--u)) calc(2.4 * var(--u)); padding: calc(2.2 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-radius: calc(3 * var(--u)); backdrop-filter: blur(4px); }
+.desk .dock { left: 50%; right: auto; transform: translateX(-50%); width: calc(168 * var(--u)); bottom: calc(3 * var(--u)); gap: calc(2.2 * var(--u)) calc(3 * var(--u)); border-radius: calc(2.6 * var(--u)); }
+.grp { display: flex; flex-direction: column; gap: calc(1.2 * var(--u)); min-width: 0; }
+.gh { display: flex; align-items: center; gap: calc(1.4 * var(--u)); font: 700 calc(2.1 * var(--u))/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--faint); }
+.gh::after { content: ''; flex: 1; height: 1px; background: var(--line-soft); }
+.gh b { color: var(--cyan); font-weight: 700; }
+.grow { display: flex; gap: calc(1.4 * var(--u)); }
+.g-fly { flex: 4 1 calc(58 * var(--u)); } .g-time { flex: 2 1 calc(28 * var(--u)); } .g-deck { flex: 1 1 100%; } .g-mod { flex: 1 1 100%; }
+.desk .g-fly { flex: 4 1 calc(70 * var(--u)); } .desk .g-time { flex: 2 1 calc(34 * var(--u)); } .desk .g-deck { flex: 1 1 calc(60 * var(--u)); } .desk .g-mod { flex: 1 1 100%; }
+.btn { flex: 1; min-width: 0; height: calc(14.4 * var(--u)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(1 * var(--u)); background: rgba(12, 18, 34, .9); border: 1px solid var(--line); border-radius: calc(2.2 * var(--u)); color: var(--fg); cursor: pointer; padding: 0 calc(.4 * var(--u)); }
+.desk .btn { height: calc(12.4 * var(--u)); }
+.btn svg { width: calc(5.2 * var(--u)); height: calc(5.2 * var(--u)); stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.btn span { font: 600 calc(2.05 * var(--u))/1 var(--mono); color: var(--dim); white-space: nowrap; letter-spacing: .02em; }
+.desk .btn span { font-size: calc(2.2 * var(--u)); }
+.btn.on { color: var(--cyan); border-color: var(--cyan); background: rgba(89, 230, 255, .1); box-shadow: inset 0 0 calc(2 * var(--u)) rgba(89, 230, 255, .12); }
+.btn.on span { color: var(--cyan); }
+.btn.act { color: var(--amber); border-color: var(--amber); background: rgba(255, 210, 74, .1); } .btn.act span { color: var(--amber); }
+.deck { flex: 1; position: relative; height: calc(10.4 * var(--u)); background: rgba(12, 18, 34, .9); border: 1px solid var(--line-soft); border-radius: calc(1.8 * var(--u)); color: var(--dim); font: 700 calc(2.7 * var(--u))/1 var(--mono); cursor: pointer; padding: 0; }
+.desk .deck { height: calc(10.4 * var(--u)); }
+.deck.on { color: #04202a; background: var(--cyan); border-color: var(--cyan); }
+.deck .al { position: absolute; right: calc(1 * var(--u)); top: calc(1 * var(--u)); width: calc(2.2 * var(--u)); height: calc(2.2 * var(--u)); border-radius: 50%; background: var(--c); box-shadow: 0 0 calc(1.4 * var(--u)) var(--c); display: none; }
+.deck.warn .al { --c: var(--amber); display: block; } .deck.crit .al { --c: var(--red); display: block; animation: pulse2 .7s infinite alternate; }
+@keyframes pulse2 { to { transform: scale(1.5); } }
+.mods { display: flex; gap: calc(1.4 * var(--u)); overflow-x: auto; scrollbar-width: none; }
+.mods::-webkit-scrollbar { display: none; }
+.mod { flex: 0 0 auto; min-width: calc(21 * var(--u)); display: flex; flex-direction: column; gap: calc(.9 * var(--u)); padding: calc(1.4 * var(--u)) calc(1.8 * var(--u)); background: rgba(12, 18, 34, .9); border: 1px solid var(--line); border-radius: calc(1.8 * var(--u)); color: var(--fg); cursor: default; text-align: left; }
+.desk .mod { min-width: calc(19 * var(--u)); }
+.mod .mt { display: flex; align-items: center; gap: calc(1.2 * var(--u)); font: 700 calc(2.3 * var(--u))/1 var(--mono); }
+.mod .mt svg { width: calc(3.6 * var(--u)); height: calc(3.6 * var(--u)); stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--c); }
+.mod .mn { font: 600 calc(2.05 * var(--u))/1 var(--mono); color: var(--dim); display: flex; justify-content: space-between; gap: calc(1.6 * var(--u)); }
+.mod .mb { height: calc(1.2 * var(--u)); background: rgba(255, 255, 255, .08); border-radius: calc(1 * var(--u)); overflow: hidden; }
+.mod .mb i { display: block; height: 100%; background: var(--c); transition: width .4s; }
+.mod { --c: var(--green); } .mod.dmg { --c: var(--amber); } .mod.dead { --c: var(--red); } .mod.dead .mt span { text-decoration: line-through; }
+.mod.tog { cursor: pointer; } .mod.off { opacity: .55; }
+
+.course { position: absolute; left: 50%; transform: translateX(-50%); padding: calc(1.6 * var(--u)) calc(3.2 * var(--u)); font: 600 calc(2.5 * var(--u))/1.3 var(--mono); letter-spacing: .06em; color: var(--dim); background: var(--panel); border: 1px solid var(--line-soft); border-radius: 99px; max-width: calc(90 * var(--u)); text-align: center; transition: opacity .6s; pointer-events: none !important; }
+
+/* ---------------------------------------------------------------- notes */
+.notes { display: grid; gap: 18px; min-width: 0; grid-template-columns: minmax(0, 1fr); align-content: start; }
+.desk-notes { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.notes h2 { margin: 0 0 10px; font: 700 12px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--cyan); }
+.demo { display: flex; flex-wrap: wrap; gap: 8px; }
+.demo button, .toggle { background: var(--panel-solid); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 9px 12px; font: 600 12px/1 var(--mono); cursor: pointer; }
+.demo button:hover { border-color: var(--cyan); }
+.toggle { display: inline-flex; gap: 8px; align-items: center; }
+.toggle input { accent-color: var(--cyan); }
+.card { border: 1px solid var(--line-soft); border-radius: 12px; padding: 16px; background: rgba(10, 15, 28, .6); min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+.card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.card li::marker { color: var(--faint); }
+.sev { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; margin-top: 14px; }
+.sev .sw { width: 14px; height: 14px; border-radius: 4px; background: var(--c); }
+.pal { display: flex; flex-wrap: wrap; gap: 8px; }
+.pal div { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 11.5px; }
+.pal i { width: 20px; height: 20px; border-radius: 5px; background: var(--c); }
+.leg { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
+.leg div { display: flex; align-items: center; gap: 10px; }
+.leg .core { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 1.5px solid var(--c); color: var(--c); background: rgba(5, 8, 16, .82); }
+.leg svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.press { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; margin-top: 12px; }
+.press i { width: 54px; height: 16px; border-radius: 4px; background: var(--c); border: 1px solid var(--line); }
+.fine { color: var(--faint); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .msg, .mk .core, .bar.low, .deck .al { animation: none !important; } }
+</style>
+
+<div class="page">
+  <div class="top">
+    <div>
+      <h1>Экран <span>игрока</span></h1>
+      <p>Живой макет боя. Нажмите в космосе или на метку, и корабль полетит. Выберите палубу, чтобы увидеть отсеки и давление в них. События идут сами, а кнопками ниже их можно вызвать. Имена и числа в сообщениях примеры.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Вид экрана"><button type="button" id="mMob">Телефон</button><button type="button" id="mDesk">Компьютер</button></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="screen mob" id="screen">
+      <canvas id="cv" width="135" height="281" aria-label="Боевой экран: корабль игрока в космосе"></canvas>
+      <div class="layer" id="markers" aria-hidden="true"></div>
+      <div class="layer" id="pills" aria-hidden="true"></div>
+
+      <div class="layer" id="ui">
+        <div class="left" id="left">
+          <div class="bars">
+            <div class="bar hull" id="bHull"><i></i><span><b>КОРП</b><em id="tHull" style="font-style:normal">100%</em></span></div>
+            <div class="bar shield" id="bShield"><i></i><span><b>ЩИТ</b><em id="tShield" style="font-style:normal">420</em></span></div>
+            <div class="bar energy" id="bEnergy"><i></i><span><b>ЭН</b><em id="tEnergy" style="font-style:normal">260</em></span></div>
+          </div>
+          <div class="rooms" id="rooms"></div>
+        </div>
+
+        <div class="disp" id="disp">
+          <button class="disp-head" id="dispHead" type="button" aria-label="Открыть журнал диспетчера"><span class="dot"></span>ДИСПЕТЧЕР <em id="dispN">0</em></button>
+          <div id="feed" style="display:flex;flex-direction:column;gap:calc(1.4 * var(--u))" aria-live="polite"></div>
+        </div>
+
+        <div class="log" id="log" hidden>
+          <h3>Журнал диспетчера <button type="button" id="logClose">Закрыть</button></h3>
+          <div class="log-chips" id="logChips"></div>
+          <div class="log-list" id="logList"></div>
+        </div>
+
+        <div class="course" id="course">Нажмите в космосе или на метку — корабль полетит</div>
+
+        <div class="dock" id="dock">
+          <div class="grp g-fly"><div class="gh">Полёт</div><div class="grow" id="gFly"></div></div>
+          <div class="grp g-time"><div class="gh">Время</div><div class="grow" id="gTime"></div></div>
+          <div class="grp g-deck"><div class="gh">Палубы <b id="deckNote"></b></div><div class="grow" id="gDeck"></div></div>
+          <div class="grp g-mod"><div class="gh">Модули</div><div class="mods" id="gMod"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes" id="notes">
+      <section class="card wide">
+        <h2>Вызвать событие</h2>
+        <div class="demo" id="demo"></div>
+        <p style="margin:12px 0 0"><label class="toggle"><input type="checkbox" id="auto" checked> События идут сами</label></p>
+      </section>
+
+      <section class="card">
+        <h2>Нижняя панель</h2>
+        <ul>
+          <li><b>Полёт:</b> автопилот, нос к цели, снять цель, следить камерой.</li>
+          <li><b>Время:</b> пауза и замедление.</li>
+          <li><b>Палубы:</b> внешний вид или отсеки палубы. Красная точка на кнопке палубы: там сейчас теряется воздух или горит.</li>
+          <li><b>Модули:</b> состояние главных систем корабля. Орудия включаются нажатием; разрушенный модуль красный и зачёркнут.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Давление в отсеках</h2>
+        <ul>
+          <li>На карте палубы цвет отсека показывает воздух, а подпись с процентами видна только там, где что-то не так.</li>
+          <li>Пробоина показана трещиной на стене и струйкой воздуха в космос. Закрытые двери красные, открытые жёлтые.</li>
+          <li>Инженеры (голубые точки) идут к пробоине и закрывают её; когда давление вернулось, диспетчер сообщает об этом.</li>
+          <li>Нажатие на отсек в списке подсвечивает его на корабле.</li>
+        </ul>
+        <div class="press" id="pressLegend"></div>
+      </section>
+
+      <section class="card">
+        <h2>Метки объектов</h2>
+        <ul>
+          <li>Стоят на краю экрана в сторону объекта, пока он за кадром, и гаснут, когда он вошёл в кадр. Не двигаются от сообщений диспетчера: сообщения лежат поверх меток.</li>
+          <li>Под значком расстояние в клетках, чем дальше, тем бледнее. Показаны 7 ближайших, враги первыми.</li>
+        </ul>
+        <div class="leg" id="legend" style="margin-top:12px"></div>
+      </section>
+
+      <section class="card">
+        <h2>Диспетчер</h2>
+        <ul>
+          <li>Карточка живёт 7 секунд, одинаковые подряд склеиваются в «×2». На экране не больше двух на телефоне и трёх на компьютере.</li>
+          <li>Нажатие на «Диспетчер» открывает журнал со временем боя и фильтром.</li>
+        </ul>
+        <div class="sev">
+          <span class="sw" style="--c:var(--red)"></span><span>Критично: модуль разрушен, гибель, пробоина</span>
+          <span class="sw" style="--c:var(--amber)"></span><span>Внимание: ранение, пожар, щит упал</span>
+          <span class="sw" style="--c:var(--green)"></span><span>Успех: враг уничтожен, герметизация</span>
+          <span class="sw" style="--c:var(--cyan)"></span><span>Сведения: остов, новая цель</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Цвета и шрифты</h2>
+        <div class="pal">
+          <div style="--c:#05070d"><i style="border:1px solid var(--line)"></i>фон</div>
+          <div style="--c:#59e6ff"><i></i>циан</div>
+          <div style="--c:#b06bff"><i></i>фиолет</div>
+          <div style="--c:#ff5fd8"><i></i>маджента</div>
+          <div style="--c:#ffd24a"><i></i>янтарь</div>
+          <div style="--c:#ff6a5a"><i></i>тревога</div>
+          <div style="--c:#63e07a"><i></i>успех</div>
+        </div>
+        <p class="fine" style="margin:12px 0 0">Unbounded для заголовков, JetBrains Mono для цифр и подписей, как в доке. Панели из тёмного стекла с тонкой рамкой.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var P = {
+    foe: '<path d="M12 3l8 5v8l-8 5-8-5V8z"/><path d="M8.5 10.5L12 8l3.5 2.5M9 14l3-2 3 2"/>',
+    planet: '<circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="10" ry="3.4" transform="rotate(-18 12 12)"/>',
+    hole: '<circle cx="12" cy="12" r="3.4"/><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/>',
+    wreck: '<path d="M4 15l5-8 3 3 3-6 5 11z"/><path d="M4 19h16"/>',
+    gate: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+    rocks: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="8" r="2"/><circle cx="14" cy="16" r="3.4"/><circle cx="6" cy="17" r="1.6"/>',
+    comet: '<circle cx="17" cy="7" r="3"/><path d="M14.6 9.4L4 20M16 11L8 21M12.6 7L3 14"/>',
+    module: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/>',
+    killed: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/><path d="M3 3l4 4M21 3l-4 4"/>',
+    hurt: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/><path d="M17 3v5M14.5 5.5h5"/>',
+    fire: '<path d="M12 3c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 .2 1.6 1 2.4 2 2.4C11 9 10.6 6 12 3z"/>',
+    breach: '<path d="M4 8l5 2-2 4 5 1-1 5"/><path d="M14 4h6v6"/><path d="M20 4l-6 6"/>',
+    shield: '<path d="M12 3l8 3v6c0 5-3.6 8-8 9-4.4-1-8-4-8-9V6z"/><path d="M9 9l6 6"/>',
+    ok: '<path d="M4 12.5l5 5L20 6.5"/>',
+    energy: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
+    nav: '<circle cx="12" cy="12" r="9"/><path d="M12 6l4 11-4-2.4L8 17z"/>',
+    pause: '<path d="M9 5v14M15 5v14"/>',
+    slow: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    lock: '<circle cx="12" cy="12" r="6"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/><circle cx="12" cy="12" r="1.6"/>',
+    untarget: '<circle cx="12" cy="12" r="6"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M9.5 9.5l5 5M14.5 9.5l-5 5"/>',
+    follow: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="12" cy="12" r="2.4"/>',
+    gun: '<path d="M3 14h12l3-3h3v4h-3l-3 3H9l-2 3H5v-3"/><path d="M8 14V10h5"/>',
+    reactor: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
+    engine: '<path d="M7 4h10l-2 8H9z"/><path d="M9 12l-1 4M15 12l1 4M12 12v8"/>',
+    work: '<path d="M14 4a4 4 0 0 0-3.5 5.5L4 16l4 4 6.5-6.5A4 4 0 0 0 20 10l-3 1-2-2z"/>',
+    med: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/>',
+    pod: '<path d="M12 3c4 2 6 6 6 10l-3 4H9l-3-4c0-4 2-8 6-10z"/><circle cx="12" cy="11" r="2"/><path d="M9 17l-1 4M15 17l1 4"/>'
+  };
+  function svg(n) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + P[n] + '</svg>'; }
+  var el = { screen: $('screen'), stage: $('stage'), cv: $('cv'), markers: $('markers'), feed: $('feed'), disp: $('disp'), dock: $('dock'), left: $('left') };
+  function rng(s) { var a = s >>> 0; return function () { a = (a + 0x6D2B79F5) >>> 0; var t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  var pick = function (a) { return a[Math.floor(Math.random() * a.length)]; };
+
+  // ------------------------------------------------------------------ mode: phone / computer
+  var desk = false, VW = 135, VH = 281, uPx = 4;
+  var ctx = el.cv.getContext('2d');
+  function setMode(d) {
+    desk = d;
+    VW = d ? 347 : 135; VH = d ? 195 : 281;
+    el.cv.width = VW; el.cv.height = VH; ctx = el.cv.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    el.screen.classList.toggle('desk', d); el.screen.classList.toggle('mob', !d);
+    el.stage.classList.toggle('desk', d); $('notes').classList.toggle('desk-notes', d);
+    el.screen.style.aspectRatio = VW + ' / ' + VH;
+    $('mMob').classList.toggle('on', !d); $('mDesk').classList.toggle('on', d);
+    $('mMob').setAttribute('aria-pressed', String(!d)); $('mDesk').setAttribute('aria-pressed', String(d));
+    placeRooms();
+  }
+  $('mMob').addEventListener('click', function () { setMode(false); });
+  $('mDesk').addEventListener('click', function () { setMode(true); });
+
+  // ------------------------------------------------------------------ the control panel
+  var paused = false, slowmo = false, follow = true, autop = true, noseLock = true, target = null;
+  function mkBtn(parent, icon, label, on, fn) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn' + (on ? ' on' : ''); b.innerHTML = svg(icon) + '<span>' + label + '</span>'; b.setAttribute('aria-label', label);
+    b.addEventListener('click', function () { fn(b); }); parent.appendChild(b); return b;
+  }
+  mkBtn($('gFly'), 'nav', 'Автопилот', true, function (b) { autop = !autop; b.classList.toggle('on', autop); });
+  mkBtn($('gFly'), 'lock', 'Нос→цель', true, function (b) { noseLock = !noseLock; b.classList.toggle('on', noseLock); });
+  mkBtn($('gFly'), 'untarget', 'Сброс цели', false, function (b) { target = null; b.classList.add('act'); setTimeout(function () { b.classList.remove('act'); }, 250); });
+  mkBtn($('gFly'), 'follow', 'Следить', true, function (b) { follow = !follow; b.classList.toggle('on', follow); });
+  mkBtn($('gTime'), 'pause', 'Пауза', false, function (b) { paused = !paused; b.classList.toggle('on', paused); });
+  mkBtn($('gTime'), 'slow', 'Замедл.', false, function (b) { slowmo = !slowmo; b.classList.toggle('on', slowmo); });
+
+  // ------------------------------------------------------------------ the ship and its decks
+  // ship coordinates: 48 wide, 70 tall, the nose at the top; (24, 35) is the middle
+  var HULL = [[24, 0], [31, 16], [40, 32], [46, 46], [46, 62], [30, 62], [30, 70], [18, 70], [18, 62], [2, 62], [2, 46], [8, 32], [17, 16]];
+  var LAYOUT = [[20, 12, 8, 10], [16, 22, 8, 9], [24, 22, 8, 9], [10, 31, 8, 10], [18, 31, 8, 10], [26, 31, 8, 10], [34, 31, 8, 10], [6, 41, 9, 10], [15, 41, 9, 10], [24, 41, 9, 10], [33, 41, 9, 10], [3, 51, 10, 10], [13, 51, 10, 10], [23, 51, 10, 10], [33, 51, 10, 10], [18, 61, 12, 9]];
+  var NAMES = [
+    ['Мостик', 'Щит', 'Орудийный пост 1', 'Манёвровый пост', 'Орудийный пост 2', 'Инженерный пост', 'Резервный пост', 'Кубрик', 'Склад', 'Медотсек', 'Капсулы', 'Мастерская', 'Орудийный пост 3', 'Коридор', 'Кубрик 2', 'Двигатели'],
+    ['Навигация', 'Орудийный пост 4', 'Щит 2', 'Кубрик', 'Мастерская', 'Медотсек', 'Склад 2', 'Инженерный пост 2', 'Коридор', 'Склад', 'Кубрик 3', 'Орудийный пост 5', 'Капсулы 2', 'Реактор', 'Мастерская 2', 'Топливо'],
+    ['Шлюз', 'Склад 3', 'Склад 4', 'Кубрик 4', 'Мастерская 3', 'Медотсек 2', 'Коридор 2', 'Лазарет', 'Реактор 2', 'Инженерный пост 3', 'Склад 5', 'Капсулы 3', 'Трюм 1', 'Трюм 2', 'Трюм 3', 'Двигатели 2']
+  ];
+  var decks = [1, 2, 3].map(function (d, di) {
+    var rooms = LAYOUT.map(function (r, i) { return { i: i, x: r[0], y: r[1], w: r[2], h: r[3], name: NAMES[di][i], p: 1, fire: 0, breach: null, adj: [], deck: di }; });
+    for (var i = 0; i < rooms.length; i++) for (var j = i + 1; j < rooms.length; j++) {
+      var a = rooms[i], b = rooms[j];
+      var ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y), door = null;
+      if ((Math.abs(a.x + a.w - b.x) < .01 || Math.abs(b.x + b.w - a.x) < .01) && oy >= 3) door = { vertical: true, x: Math.abs(a.x + a.w - b.x) < .01 ? b.x : a.x, y: Math.max(a.y, b.y) + oy / 2 };
+      else if ((Math.abs(a.y + a.h - b.y) < .01 || Math.abs(b.y + b.h - a.y) < .01) && ox >= 3) door = { vertical: false, x: Math.max(a.x, b.x) + ox / 2, y: Math.abs(a.y + a.h - b.y) < .01 ? b.y : a.y };
+      if (door) { door.a = a; door.b = b; door.closed = false; a.adj.push(door); b.adj.push(door); }
+    }
+    return { n: d, rooms: rooms };
+  });
+
+  var deckSel = 2; // 0 = outside, 1..3 = deck
+  var shipK = 0.62, hiRoom = null;
+  var crew = []; (function () {
+    var r = rng(21);
+    decks.forEach(function (dk) { dk.rooms.forEach(function (room) { if (r() < .5) crew.push({ deck: dk.n - 1, room: room, x: room.x + room.w / 2, y: room.y + room.h / 2, eng: false, hurt: false }); }); });
+    for (var i = 0; i < 3; i++) { var dk = decks[i % 3], room = dk.rooms[3 + i]; crew.push({ deck: i % 3, room: room, x: room.x + room.w / 2, y: room.y + room.h / 2, eng: true, hurt: false, job: null, work: 0 }); }
+  })();
+  var particles = [], engineersOn = false;
+
+  function breachRoom(room, quiet) {
+    if (room.breach) return;
+    var cx = 24, cy = 35;
+    // the corner farthest from the middle: the hull is thinnest there
+    var cs = [[room.x, room.y], [room.x + room.w, room.y], [room.x, room.y + room.h], [room.x + room.w, room.y + room.h]];
+    cs.sort(function (a, b) { return Math.hypot(b[0] - cx, b[1] - cy) - Math.hypot(a[0] - cx, a[1] - cy); });
+    room.breach = { x: cs[0][0], y: cs[0][1], patch: 0, said: false };
+    if (!quiet) say('crit', 'breach', 'Разгерметизация: ' + room.name, 'Палуба ' + (room.deck + 1) + ' · давление падает, двери закрыты');
+  }
+  function ignite(room) { room.fire = Math.max(room.fire, .5); }
+
+  function stepRooms(dt) {
+    decks.forEach(function (dk) {
+      var seen = {};
+      dk.rooms.forEach(function (r) {
+        // doors close on a room that is losing air; they open again when it is whole
+        r.adj.forEach(function (d) { var lose = (d.a.breach && !d.a.breach.patched) || (d.b.breach && !d.b.breach.patched); d.closed = lose && Math.min(d.a.p, d.b.p) < .96; });
+      });
+      dk.rooms.forEach(function (r) {
+        if (r.breach && !r.breach.patched) { r.p = Math.max(0, r.p - dt * .11); if (Math.random() < dt * 14 * Math.max(.2, r.p)) particles.push({ deck: dk.n - 1, x: r.breach.x, y: r.breach.y, vx: (r.breach.x - 24) * .8 + (Math.random() - .5) * 5, vy: (r.breach.y - 35) * .8 + (Math.random() - .5) * 5, t: 0 }); }
+        else if (r.breach && r.breach.patched) { r.p = Math.min(1, r.p + dt * .16); if (r.p >= 1) { r.breach = null; } }
+        else if (r.p < 1) r.p = Math.min(1, r.p + dt * .05);
+        r.adj.forEach(function (d) { if (d.a !== r || d.closed) return; var o = d.b, f = (r.p - o.p) * .18 * dt; r.p -= f; o.p += f; });
+        // fire: feeds on air, dies in vacuum
+        if (r.fire > 0) { if (r.p < .35) r.fire = Math.max(0, r.fire - dt * .5); else r.fire = Math.min(1, r.fire + dt * .02); }
+        r.p = Math.max(0, Math.min(1, r.p));
+      });
+    });
+    // engineers go to the worst room, close the hole, put the fire out
+    crew.forEach(function (c) {
+      if (!c.eng || !engineersOn) return;
+      if (!c.job || !(c.job.breach && !c.job.breach.patched) && !(c.job.fire > .02)) {
+        c.job = null; c.work = 0;
+        var best = null, bs = 0;
+        decks.forEach(function (dk) { dk.rooms.forEach(function (r) { var s = (r.breach && !r.breach.patched ? 2 : 0) + r.fire; var taken = crew.some(function (o) { return o !== c && o.eng && o.job === r; }); if (s > bs && !taken) { bs = s; best = r; } }); });
+        if (best) c.job = best;
+      }
+      var tr = c.job || c.room, tx = tr.x + tr.w / 2, ty = tr.y + tr.h / 2;
+      if (c.job && c.deck !== c.job.deck) { c.wait = (c.wait || 0) + dt; if (c.wait > 1.6) { c.deck = c.job.deck; c.wait = 0; c.x = 24; c.y = 38; } return; }
+      var dx = tx - c.x, dy = ty - c.y, d = Math.hypot(dx, dy);
+      if (d > 1.2) { c.x += dx / d * 6 * dt; c.y += dy / d * 6 * dt; c.room = roomAt(c.deck, c.x, c.y) || c.room; }
+      else if (c.job) {
+        c.work += dt;
+        if (c.job.breach && !c.job.breach.patched && c.work > 9) { c.job.breach.patched = true; c.work = 0; say('good', 'ok', 'Пробоина закрыта: ' + c.job.name, 'Палуба ' + (c.job.deck + 1) + ' · воздух возвращается'); }
+        else if (c.job.fire > 0 && !(c.job.breach && !c.job.breach.patched)) { c.job.fire = Math.max(0, c.job.fire - dt * .09); if (c.job.fire <= 0) { c.work = 0; say('good', 'ok', 'Пожар потушен: ' + c.job.name, 'Палуба ' + (c.job.deck + 1)); } }
+      }
+    });
+    particles.forEach(function (p) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; }); particles = particles.filter(function (p) { return p.t < .9; });
+  }
+  function roomAt(di, x, y) { var rs = decks[di].rooms; for (var i = 0; i < rs.length; i++) { var r = rs[i]; if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r; } return null; }
+
+  // ------------------------------------------------------------------ the world
+  var ship = { x: 0, y: 0, a: 0, vx: 0, vy: 0 }, cam = { x: 0, y: 0 }, time = 0, missionT = 0, offY = 0;
+  var objs = [
+    { id: 'raider', kind: 'foe', name: 'Налётчик', x: 150, y: -330, r: 14, v: 6 },
+    { id: 'scout', kind: 'foe', name: 'Разведчик', x: -520, y: -210, r: 10, v: 9 },
+    { id: 'hunter', kind: 'foe', name: 'Охотник', x: 640, y: 380, r: 14, v: 5 },
+    { id: 'planet', kind: 'big', name: 'Газовый гигант', x: 1150, y: -260, r: 330 },
+    { id: 'hole', kind: 'hole', name: 'Чёрная дыра', x: -1500, y: 620, r: 40 },
+    { id: 'wreck', kind: 'wreck', name: 'Остов станции', x: -380, y: -980, r: 70 },
+    { id: 'gate', kind: 'gate', name: 'Прыжковые врата', x: 480, y: 1300, r: 90 },
+    { id: 'rocks', kind: 'rocks', name: 'Поле астероидов', x: -800, y: 760, r: 220 },
+    { id: 'comet', kind: 'comet', name: 'Комета', x: 1200, y: 900, r: 20, vx: -22, vy: -14 }
+  ];
+  var rocks = []; (function () { var r = rng(5), o = objs[7]; for (var i = 0; i < 40; i++) { var a = r() * 6.28, d = Math.sqrt(r()) * o.r; rocks.push({ x: o.x + Math.cos(a) * d, y: o.y + Math.sin(a) * d, s: 2 + r() * 6 }); } })();
+  var stars = []; (function () { var r = rng(9); for (var i = 0; i < 200; i++) stars.push({ x: r() * 2000, y: r() * 2000, k: 0.12 + r() * 0.5, c: r() }); })();
+  var nebula = [[300, 400, 360, '176,107,255', .16], [1200, 900, 440, '255,154,42', .1], [800, 1500, 380, '92,230,255', .07], [1700, 300, 300, '255,95,216', .08]];
+
+  var legend = $('legend');
+  [['foe', 'Враг', 'foe', 'var(--red)'], ['big', 'Планета', 'planet', 'var(--violet)'], ['hole', 'Чёрная дыра', 'hole', '#ff9a2a'], ['wreck', 'Остов', 'wreck', 'var(--amber)'], ['gate', 'Врата', 'gate', 'var(--cyan)'], ['rocks', 'Астероиды', 'rocks', '#b9ad9e'], ['comet', 'Комета', 'comet', '#8af0ff']].forEach(function (d) {
+    var n = document.createElement('div'); n.style.setProperty('--c', d[3]); n.innerHTML = '<span class="core">' + svg(d[2]) + '</span><span>' + d[1] + '</span>'; legend.appendChild(n);
+  });
+  var pl = $('pressLegend');
+  [['#1d4766', '100%: норма'], ['#9a7a1f', 'около 60%: воздух уходит'], ['#a33a33', 'около 25%: тревога, нужен скафандр'], ['#07080c', '0%: вакуум, огонь гаснет']].forEach(function (d) { var i = document.createElement('i'); i.style.setProperty('--c', d[0]); var s = document.createElement('span'); s.textContent = d[1]; pl.appendChild(i); pl.appendChild(s); });
+
+  // ------------------------------------------------------------------ drawing
+  function hullPath() { ctx.beginPath(); HULL.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath(); }
+  function drawExterior() {
+    hullPath(); ctx.fillStyle = '#9aa7bd'; ctx.fill();
+    ctx.save(); hullPath(); ctx.clip();
+    ctx.fillStyle = '#7d8aa3'; ctx.fillRect(23.4, 0, 1.2, 70); [22, 31, 41, 51, 61].forEach(function (y) { ctx.fillRect(0, y, 48, .8); });
+    ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(0, 0, 24, 70); ctx.restore();
+    ctx.fillStyle = '#59e6ff'; [[16, 17], [30, 17], [8, 33], [38, 33], [3, 47], [43, 47]].forEach(function (p) { ctx.fillRect(p[0] - 1, p[1] - 1, 2.4, 2.4); });
+    ctx.fillStyle = '#ffd24a'; [[19, 70], [22.5, 70], [26, 70], [4, 62], [41, 62]].forEach(function (p) { ctx.fillRect(p[0], p[1] - 1.6, 3, 2.6); });
+    var sp = Math.hypot(ship.vx, ship.vy);
+    if (sp > 6) { ctx.fillStyle = 'rgba(255,170,60,.85)'; ctx.fillRect(19, 71, 10, 4 + Math.random() * 7); ctx.fillStyle = 'rgba(255,230,140,.9)'; ctx.fillRect(21.5, 71, 5, 2 + Math.random() * 3); }
+  }
+  function roomFill(r) {
+    if (r.p < .04) return '#07080c';
+    var t = Math.min(1, Math.max(0, (.9 - r.p) / .9));
+    // from the calm blue to amber to red
+    var c1 = [29, 71, 102], c2 = [154, 122, 31], c3 = [163, 58, 51], k = t < .5 ? t / .5 : (t - .5) / .5, a = t < .5 ? c1 : c2, b = t < .5 ? c2 : c3;
+    return 'rgb(' + Math.round(a[0] + (b[0] - a[0]) * k) + ',' + Math.round(a[1] + (b[1] - a[1]) * k) + ',' + Math.round(a[2] + (b[2] - a[2]) * k) + ')';
+  }
+  function drawDeck(di) {
+    var dk = decks[di];
+    hullPath(); ctx.fillStyle = '#05070d'; ctx.fill();
+    ctx.save(); hullPath(); ctx.clip();
+    dk.rooms.forEach(function (r) {
+      ctx.fillStyle = roomFill(r); ctx.fillRect(r.x, r.y, r.w, r.h);
+      if (r.p < .6) { ctx.save(); ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip(); ctx.strokeStyle = r.p < .04 ? 'rgba(255,106,90,.35)' : 'rgba(255,106,90,.22)'; ctx.lineWidth = .7; for (var s = -r.h; s < r.w + r.h; s += 2.6) { ctx.beginPath(); ctx.moveTo(r.x + s, r.y); ctx.lineTo(r.x + s - r.h, r.y + r.h); ctx.stroke(); } ctx.restore(); }
+      if (r.fire > .02) { var n = 3 + Math.round(r.fire * 7); for (var f = 0; f < n; f++) { var fx = r.x + 1.5 + Math.random() * (r.w - 3), fy = r.y + 1.5 + Math.random() * (r.h - 3); ctx.fillStyle = Math.random() < .5 ? '#ff8a1e' : '#ffd060'; ctx.fillRect(fx, fy, 1.4, 1.4 + Math.random() * 1.4); } }
+    });
+    ctx.restore();
+    // walls
+    ctx.strokeStyle = 'rgba(150,175,215,.55)'; ctx.lineWidth = .55; dk.rooms.forEach(function (r) { ctx.strokeRect(r.x, r.y, r.w, r.h); });
+    if (hiRoom && hiRoom.deck === di) { ctx.strokeStyle = 'rgba(89,230,255,' + (.6 + .4 * Math.sin(time * 8)) + ')'; ctx.lineWidth = 1.1; ctx.strokeRect(hiRoom.x, hiRoom.y, hiRoom.w, hiRoom.h); }
+    // doors
+    var seen = []; dk.rooms.forEach(function (r) { r.adj.forEach(function (d) { if (seen.indexOf(d) >= 0) return; seen.push(d); ctx.fillStyle = d.closed ? '#ff6a5a' : '#ffd24a'; if (d.vertical) ctx.fillRect(d.x - .6, d.y - 1.4, 1.2, 2.8); else ctx.fillRect(d.x - 1.4, d.y - .6, 2.8, 1.2); }); });
+    // breaches: a crack and the air going out
+    dk.rooms.forEach(function (r) { if (r.breach && !r.breach.patched) { ctx.strokeStyle = '#fff3d0'; ctx.lineWidth = .8; var b = r.breach, sx = b.x < 24 ? -1 : 1, sy = b.y < 35 ? -1 : 1; ctx.beginPath(); ctx.moveTo(b.x - sx * 2, b.y - sy * 1); ctx.lineTo(b.x, b.y); ctx.lineTo(b.x + sx * 1.6, b.y + sy * 2.2); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + sx * 2.4, b.y - sy * .6); ctx.stroke(); } else if (r.breach && r.breach.patched) { ctx.fillStyle = '#63e07a'; ctx.fillRect(r.breach.x - 1, r.breach.y - 1, 2, 2); } });
+    particles.forEach(function (p) { if (p.deck !== di) return; ctx.globalAlpha = Math.max(0, 1 - p.t / .9); ctx.fillStyle = '#d6ecff'; ctx.fillRect(p.x, p.y, 1.1, 1.1); }); ctx.globalAlpha = 1;
+    // hull edge
+    hullPath(); ctx.strokeStyle = '#9aa7bd'; ctx.lineWidth = 1.2; ctx.stroke();
+    // crew
+    crew.forEach(function (c) { if (c.deck !== di) return; ctx.fillStyle = c.eng ? '#59e6ff' : '#e8eef9'; ctx.fillRect(c.x - .9, c.y - .9, 1.8, 1.8); if (c.eng && c.job && Math.hypot(c.x - (c.job.x + c.job.w / 2), c.y - (c.job.y + c.job.h / 2)) <= 1.4) { ctx.fillStyle = '#ffd24a'; ctx.fillRect(c.x + 1.2, c.y - 1.8, .8, .8); } });
+  }
+  function drawShip() {
+    var targetK = deckSel === 0 ? (desk ? .8 : .62) : (desk ? 1.5 : 1.4);
+    shipK += (targetK - shipK) * .14;
+    ctx.save(); ctx.translate(Math.round(VW / 2 + (ship.x - cam.x)), Math.round(VH / 2 + (ship.y - cam.y))); ctx.rotate(ship.a); ctx.scale(shipK, shipK); ctx.translate(-24, -35);
+    if (deckSel === 0 || shipK < (desk ? 1.2 : .9)) drawExterior(); else drawDeck(deckSel - 1);
+    if (deckSel !== 0 && shipK < (desk ? 1.2 : .9)) { /* in flight between views */ }
+    ctx.restore();
+  }
+  function drawObj(o, sx, sy) {
+    ctx.save(); ctx.translate(Math.round(sx), Math.round(sy));
+    if (o.kind === 'foe') {
+      ctx.rotate(o.ang || Math.PI); var s = o.r / 14 * (desk ? 1.1 : 1);
+      ctx.fillStyle = '#b9707a'; ctx.beginPath(); ctx.moveTo(0, -16 * s); ctx.lineTo(10 * s, 6 * s); ctx.lineTo(16 * s, 12 * s); ctx.lineTo(0, 9 * s); ctx.lineTo(-16 * s, 12 * s); ctx.lineTo(-10 * s, 6 * s); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ff6a5a'; ctx.fillRect(-2 * s, -4 * s, 4 * s, 4 * s); ctx.fillStyle = '#ffb040'; ctx.fillRect(-3 * s, 10 * s, 6 * s, 2 * s);
+    } else if (o.id === 'planet') {
+      var g = ctx.createRadialGradient(-o.r * .35, -o.r * .35, o.r * .1, 0, 0, o.r); g.addColorStop(0, '#e8d5ff'); g.addColorStop(.55, '#a98ad8'); g.addColorStop(1, '#3a2a66');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, o.r, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = 'rgba(80,50,140,.35)'; ctx.lineWidth = 10; for (var i = -2; i <= 2; i++) { ctx.beginPath(); ctx.arc(0, i * 50, o.r * Math.sqrt(Math.max(0, 1 - Math.pow(i * 50 / o.r, 2))), Math.PI * .1, Math.PI * .9); ctx.stroke(); }
+      ctx.strokeStyle = 'rgba(214,198,164,.8)'; ctx.lineWidth = 12; ctx.beginPath(); ctx.ellipse(0, 0, o.r * 1.7, o.r * .42, -.3, 0, 6.283); ctx.stroke();
+    } else if (o.id === 'hole') {
+      ctx.strokeStyle = '#ff9a2a'; ctx.lineWidth = 6; ctx.beginPath(); ctx.ellipse(0, 0, o.r * 2.4, o.r * .8, -.15, 0, 6.283); ctx.stroke();
+      ctx.strokeStyle = '#ffe9a8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, o.r * 1.8, o.r * .6, -.15, 0, 6.283); ctx.stroke();
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, 0, o.r, 0, 6.283); ctx.fill();
+    } else if (o.id === 'wreck') {
+      ctx.fillStyle = '#4b566c'; ctx.fillRect(-60, -16, 120, 32); ctx.fillRect(-14, -50, 28, 100); ctx.fillStyle = '#2f6dd0'; ctx.fillRect(-92, -8, 28, 36); ctx.fillRect(64, -28, 30, 34);
+      ctx.fillStyle = '#05070d'; ctx.beginPath(); ctx.arc(30, 6, 12, 0, 6.283); ctx.fill(); ctx.fillStyle = '#59e6ff'; ctx.fillRect(-30, -4, 4, 4); ctx.fillRect(10, -30, 4, 4);
+    } else if (o.id === 'gate') {
+      ctx.strokeStyle = '#aab6c9'; ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(0, 0, o.r, 0, 6.283); ctx.stroke();
+      ctx.fillStyle = 'rgba(120,60,220,.55)'; ctx.beginPath(); ctx.arc(0, 0, o.r - 8, 0, 6.283); ctx.fill();
+      ctx.fillStyle = '#ff5fd8'; for (var k = 0; k < 8; k++) { var an = k * .785; ctx.fillRect(Math.cos(an) * o.r - 4, Math.sin(an) * o.r - 4, 8, 8); }
+    } else if (o.id === 'comet') {
+      ctx.rotate(Math.atan2(o.vy, o.vx)); var tg = ctx.createLinearGradient(0, 0, 120, 0); tg.addColorStop(0, 'rgba(138,240,255,.8)'); tg.addColorStop(1, 'rgba(138,240,255,0)');
+      ctx.fillStyle = tg; ctx.fillRect(0, -6, 120, 12); ctx.fillStyle = '#e8fbff'; ctx.beginPath(); ctx.arc(0, 0, 9, 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+  }
+  var shots = [], bursts = [], flash = 0;
+  function frame() {
+    var cx = Math.round(cam.x) - VW / 2, cy = Math.round(cam.y) - VH / 2;
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, VW, VH);
+    nebula.forEach(function (n) { var sx = n[0] - cam.x * .3 + VW / 2 - 400, sy = n[1] - cam.y * .3 + VH / 2 - 400; var g = ctx.createRadialGradient(sx, sy, 0, sx, sy, n[2]); g.addColorStop(0, 'rgba(' + n[3] + ',' + n[4] + ')'); g.addColorStop(1, 'rgba(' + n[3] + ',0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH); });
+    stars.forEach(function (s) { var px = ((s.x - cam.x * s.k) % 600 + 600) % 600, py = ((s.y - cam.y * s.k) % 900 + 900) % 900; if (px < VW && py < VH) { ctx.fillStyle = s.c > .85 ? '#ffe6b0' : s.c > .6 ? '#b8d4ff' : '#7f95bf'; ctx.globalAlpha = .5 + s.k; ctx.fillRect(Math.floor(px), Math.floor(py), 1, 1); } });
+    ctx.globalAlpha = 1;
+    objs.forEach(function (o) { var sx = o.x - cx, sy = o.y - cy, m = o.r * (o.id === 'planet' ? 1.8 : o.id === 'hole' ? 2.5 : 1) + 60; if (sx > -m && sx < VW + m && sy > -m && sy < VH + m) drawObj(o, sx, sy); });
+    ctx.fillStyle = '#8d8478'; rocks.forEach(function (r) { var sx = r.x - cx, sy = r.y - cy; if (sx > -10 && sx < VW + 10 && sy > -10 && sy < VH + 10) ctx.fillRect(Math.round(sx), Math.round(sy), r.s, r.s); });
+    shots.forEach(function (s) { ctx.strokeStyle = s.c; ctx.lineWidth = 1; ctx.globalAlpha = Math.max(0, 1 - s.t / .25); ctx.beginPath(); ctx.moveTo(s.x0 - cx, s.y0 - cy); ctx.lineTo(s.x1 - cx, s.y1 - cy); ctx.stroke(); }); ctx.globalAlpha = 1;
+    bursts.forEach(function (b) { var u = b.t / .5; ctx.strokeStyle = b.c; ctx.globalAlpha = Math.max(0, 1 - u); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x - cx, b.y - cy, 4 + 30 * u, 0, 6.283); ctx.stroke(); }); ctx.globalAlpha = 1;
+    if (target) { var tx = target.x - cx, ty = target.y - cy; ctx.strokeStyle = '#59e6ff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(tx, ty, 4 + Math.sin(time * 6), 0, 6.283); ctx.moveTo(tx - 7, ty); ctx.lineTo(tx + 7, ty); ctx.moveTo(tx, ty - 7); ctx.lineTo(tx, ty + 7); ctx.stroke(); }
+    drawShip();
+    if (flash > 0) { ctx.fillStyle = 'rgba(255,106,90,' + Math.min(.35, flash) + ')'; ctx.fillRect(0, 0, VW, VH); }
+  }
+
+  // ------------------------------------------------------------------ simulation
+  var stats = { hull: 88, shield: 305, energy: 191 }, lastHit = -99;
+  function step(dt) {
+    time += dt; missionT += dt;
+    if (target) {
+      var dx = target.x - ship.x, dy = target.y - ship.y, d = Math.hypot(dx, dy);
+      if (d < 6) target = null; else {
+        var want = Math.min(70, d * .8), ux = dx / d, uy = dy / d;
+        ship.vx += (ux * want - ship.vx) * Math.min(1, dt * 1.6); ship.vy += (uy * want - ship.vy) * Math.min(1, dt * 1.6);
+        var ta = Math.atan2(dx, -dy), da = ((ta - ship.a + Math.PI * 3) % (Math.PI * 2)) - Math.PI; if (noseLock) ship.a += da * Math.min(1, dt * 3);
+      }
+    } else { ship.vx *= Math.max(0, 1 - dt * 1.4); ship.vy *= Math.max(0, 1 - dt * 1.4); }
+    ship.x += ship.vx * dt; ship.y += ship.vy * dt;
+    if (follow) { cam.x += (ship.x - cam.x) * Math.min(1, dt * 4); cam.y += (ship.y + offY - cam.y) * Math.min(1, dt * 4); }
+    objs.forEach(function (o) {
+      if (o.kind === 'foe') {
+        var dx = ship.x - o.x, dy = ship.y - o.y, d = Math.hypot(dx, dy) || 1, orbit = 260 + (o.id === 'scout' ? 120 : 0);
+        o.ang = Math.atan2(dx, -dy);
+        var ux = dx / d, uy = dy / d, tang = d < orbit ? -1 : 1;
+        o.x += (ux * tang * o.v + -uy * o.v * .6) * dt; o.y += (uy * tang * o.v + ux * o.v * .6) * dt;
+        o.fire = (o.fire || Math.random() * 2) - dt;
+        if (o.fire <= 0 && d < 380) { o.fire = 2.2 + Math.random() * 2; shots.push({ x0: o.x, y0: o.y, x1: ship.x + (Math.random() - .5) * 20, y1: ship.y + (Math.random() - .5) * 30, c: '#ff6a5a', t: 0 }); }
+      } else if (o.id === 'comet') { o.x += o.vx * dt; o.y += o.vy * dt; if (Math.hypot(o.x - ship.x, o.y - ship.y) > 2600) { o.x = ship.x + 1300; o.y = ship.y + 700; } }
+    });
+    shots.forEach(function (s) { s.t += dt; }); shots = shots.filter(function (s) { return s.t < .25; });
+    bursts.forEach(function (b) { b.t += dt; }); bursts = bursts.filter(function (b) { return b.t < .5; });
+    flash = Math.max(0, flash - dt * 1.4);
+    if (stats.shield < 420 && missionT - lastHit > 3) stats.shield = Math.min(420, stats.shield + 14 * dt);
+    stats.energy = Math.min(260, stats.energy + 4 * dt);
+    stepRooms(dt);
+  }
+  function paintBars() {
+    $('bHull').querySelector('i').style.width = stats.hull + '%'; $('tHull').textContent = Math.round(stats.hull) + '%';
+    $('bShield').querySelector('i').style.width = (stats.shield / 420 * 100) + '%'; $('tShield').textContent = Math.round(stats.shield);
+    $('bEnergy').querySelector('i').style.width = (stats.energy / 260 * 100) + '%'; $('tEnergy').textContent = Math.round(stats.energy);
+    $('bHull').classList.toggle('low', stats.hull < 40); $('bShield').classList.toggle('low', stats.shield < 1);
+  }
+
+  // ------------------------------------------------------------------ deck buttons
+  var deckBtns = [];
+  ['Вне', 'П1', 'П2', 'П3'].forEach(function (n, i) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'deck'; b.innerHTML = n + '<span class="al"></span>'; b.setAttribute('aria-label', i === 0 ? 'Вид снаружи' : 'Палуба ' + i);
+    b.addEventListener('click', function () { deckSel = i; hiRoom = null; paintDecks(); placeRooms(); });
+    $('gDeck').appendChild(b); deckBtns.push(b);
+  });
+  function worst(dk) { var w = 1, fire = 0; dk.rooms.forEach(function (r) { w = Math.min(w, r.p); fire = Math.max(fire, r.fire); }); return { p: w, fire: fire }; }
+  function paintDecks() {
+    deckBtns.forEach(function (b, i) {
+      b.classList.toggle('on', deckSel === i);
+      if (i >= 1) { var w = worst(decks[i - 1]); b.classList.toggle('crit', w.p < .5); b.classList.toggle('warn', w.p >= .5 && (w.p < .92 || w.fire > .05)); }
+    });
+    var bad = decks.map(function (dk, i) { var w = worst(dk); return (w.p < .92 || w.fire > .05) ? 'П' + (i + 1) : null; }).filter(Boolean);
+    $('deckNote').textContent = bad.length ? '· тревога: ' + bad.join(', ') : '';
+  }
+
+  // ------------------------------------------------------------------ rooms panel
+  var roomsEl = $('rooms'), roomRows = {}, roomsSig = '';
+  function placeRooms() {
+    // on the computer the panel sits in the left column; on the phone it is a strip over the control panel
+    var show = deckSel > 0;
+    roomsEl.classList.toggle('show', show);
+    if (!desk) { $('ui').appendChild(roomsEl); roomsEl.style.position = 'absolute'; roomsEl.style.left = '3cqw'; roomsEl.style.right = '3cqw'; roomsEl.style.bottom = '30cqw'; roomsEl.style.zIndex = 4; el.left.style.display = ''; }
+    else { roomsEl.style.cssText = ''; el.left.appendChild(roomsEl); }
+    roomsSig = '';
+  }
+  function paintRooms() {
+    if (deckSel === 0) return;
+    var dk = decks[deckSel - 1];
+    var bad = dk.rooms.filter(function (r) { return r.p < .96 || r.fire > .02 || (r.breach && !r.breach.patched); }).sort(function (a, b) { return a.p - b.p; });
+    var sig = deckSel + '|' + bad.map(function (r) { return r.i + ':' + Math.round(r.p * 100) + ':' + (r.fire > .02 ? 1 : 0) + (r.breach && !r.breach.patched ? 1 : 0); }).join(',') + '|' + (hiRoom ? hiRoom.i : '') + desk;
+    if (sig === roomsSig) return; roomsSig = sig;
+    var lim = desk ? 6 : 3, shown = bad.slice(0, lim);
+    var h = '<h4>ОТСЕКИ · ПАЛУБА ' + deckSel + '<em>' + (bad.length ? bad.length + ' требуют внимания' : 'всё в норме') + '</em></h4>';
+    shown.forEach(function (r) {
+      var c = r.p < .3 ? 'var(--red)' : r.p < .75 ? 'var(--amber)' : 'var(--green)';
+      h += '<div class="rrow' + (hiRoom === r ? ' hi' : '') + '" data-i="' + r.i + '" style="--c:' + c + '"><span class="nm">' + (r.breach && !r.breach.patched ? '<span class="bi">' + svg('breach') + '</span>' : '') + (r.fire > .02 ? '<span class="fi">' + svg('fire') + '</span>' : '') + r.name + '</span><span class="pb"><i style="width:' + Math.round(r.p * 100) + '%"></i></span><span class="pc">' + Math.round(r.p * 100) + '%</span></div>';
+    });
+    if (bad.length > lim) h += '<div class="rnote">и ещё ' + (bad.length - lim) + ' отсеков</div>';
+    if (!bad.length) h += '<div class="rnote">Воздух в норме во всех ' + dk.rooms.length + ' отсеках.</div>';
+    if (desk) h += '<div class="rleg"><span><i style="background:#1d4766"></i>норма</span><span><i style="background:#9a7a1f"></i>утечка</span><span><i style="background:#a33a33"></i>тревога</span><span><i style="background:#07080c;border:1px solid #444"></i>вакуум</span></div>';
+    roomsEl.innerHTML = h;
+    Array.prototype.forEach.call(roomsEl.querySelectorAll('.rrow'), function (row) { row.addEventListener('click', function () { var r = dk.rooms[+row.dataset.i]; hiRoom = hiRoom === r ? null : r; roomsSig = ''; }); });
+  }
+
+  // ------------------------------------------------------------------ pills on the ship (only where something is wrong)
+  var pillEls = [];
+  decks.forEach(function () { var arr = []; for (var i = 0; i < 16; i++) { var p = document.createElement('div'); p.className = 'pill'; $('pills').appendChild(p); arr.push(p); } pillEls.push(arr); });
+  function layoutPills() {
+    var W = el.screen.clientWidth, s = W / VW, ca = Math.cos(ship.a), sa = Math.sin(ship.a);
+    pillEls.forEach(function (arr, di) {
+      arr.forEach(function (p, i) {
+        var r = decks[di].rooms[i], on = deckSel === di + 1 && shipK > (desk ? 1.6 : 1.2) && (r.p < .96 || r.fire > .02);
+        if (!on) { p.style.display = 'none'; return; }
+        var lx = (r.x + r.w / 2 - 24) * shipK, ly = (r.y + r.h / 2 - 35) * shipK;
+        var wx = VW / 2 + (ship.x - cam.x) + lx * ca - ly * sa, wy = VH / 2 + (ship.y - cam.y) + lx * sa + ly * ca;
+        var c = r.p < .3 ? '#ff6a5a' : r.p < .75 ? '#ffd24a' : '#63e07a';
+        p.style.display = 'block'; p.style.setProperty('--c', c); p.style.transform = 'translate(' + (wx * s).toFixed(1) + 'px,' + (wy * s).toFixed(1) + 'px) translate(-50%,-50%)';
+        p.innerHTML = (r.fire > .02 ? svg('fire') : '') + Math.round(r.p * 100) + '%';
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------ module chips
+  var MODS = [
+    { id: 'gun', icon: 'gun', name: 'Орудия', n: 7, m: 7, hp: 1, tog: true, on: true },
+    { id: 'shield', icon: 'shield', name: 'Щит', n: 1, m: 1, hp: 1 },
+    { id: 'engine', icon: 'engine', name: 'Двигатели', n: 5, m: 5, hp: 1 },
+    { id: 'reactor', icon: 'reactor', name: 'Реактор', n: 1, m: 1, hp: .93 },
+    { id: 'work', icon: 'work', name: 'Мастерская', n: 2, m: 2, hp: 1 },
+    { id: 'med', icon: 'med', name: 'Медотсек', n: 1, m: 1, hp: 1 },
+    { id: 'pod', icon: 'pod', name: 'Капсулы', n: 3, m: 4, hp: .75 }
+  ];
+  var modEls = {};
+  MODS.forEach(function (m) {
+    var b = document.createElement(m.tog ? 'button' : 'div'); if (m.tog) b.type = 'button';
+    b.className = 'mod' + (m.tog ? ' tog' : ''); b.innerHTML = '<div class="mt">' + svg(m.icon) + '<span>' + m.name + '</span></div><div class="mn"><span class="a"></span><span class="b"></span></div><div class="mb"><i></i></div>';
+    if (m.tog) b.addEventListener('click', function () { m.on = !m.on; paintMods(); });
+    $('gMod').appendChild(b); modEls[m.id] = b;
+  });
+  function paintMods() {
+    MODS.forEach(function (m) {
+      var b = modEls[m.id]; b.classList.toggle('dead', m.n === 0); b.classList.toggle('dmg', m.n > 0 && (m.n < m.m || m.hp < .9)); b.classList.toggle('off', m.tog && !m.on);
+      b.querySelector('.a').textContent = m.n + '/' + m.m; b.querySelector('.b').textContent = m.tog ? (m.on ? 'ВКЛ' : 'ВЫКЛ') : Math.round(m.hp * 100) + '%'; b.querySelector('.mb i').style.width = Math.round(m.n / m.m * m.hp * 100) + '%';
+    });
+  }
+  paintMods();
+
+  // ------------------------------------------------------------------ markers (fixed insets: nothing moves when messages come)
+  var mkEls = {};
+  objs.forEach(function (o) {
+    var d = document.createElement('div'); d.className = 'mk ' + o.kind; d.style.opacity = 0;
+    d.innerHTML = '<span class="arr"><i></i></span><span class="core">' + svg({ foe: 'foe', big: 'planet', hole: 'hole', wreck: 'wreck', gate: 'gate', rocks: 'rocks', comet: 'comet' }[o.kind]) + '</span><span class="d"></span>';
+    d.querySelector('.core').addEventListener('click', function (e) { e.stopPropagation(); target = { x: o.x, y: o.y }; hideHint(); });
+    el.markers.appendChild(d); mkEls[o.id] = d;
+  });
+  function layoutMarkers() {
+    var W = el.screen.clientWidth, H = el.screen.clientHeight, s = W / VW, u = W / 100 * (desk ? .4 : 1), cx = cam.x - VW / 2, cy = cam.y - VH / 2;
+    uPx = u;
+    var freeMid = ((desk ? 6 * u : 18 * u) + (el.dock.offsetTop - (desk ? 0 : (deckSel > 0 ? 16 * u : 0)))) / 2; offY = VH / 2 - freeMid / s;
+    // fixed frame: clear of the bars on top and the control panel below; on the computer also clear of the left column
+    var pad = 11 * u, L = (desk ? 72 * u : 0) + pad, R = W - pad, T = (desk ? 3 * u : 14 * u) + pad * .9, B = el.dock.offsetTop - pad * .8;
+    var list = [];
+    objs.forEach(function (o) {
+      var m = mkEls[o.id], sx = (o.x - cx) * s, sy = (o.y - cy) * s, dist = Math.hypot(o.x - ship.x, o.y - ship.y);
+      if (sx > 0 && sx < W && sy > 0 && sy < H) { m.style.opacity = 0; return; }
+      list.push({ o: o, m: m, sx: sx, sy: sy, dist: dist });
+    });
+    list.sort(function (a, b) { return (b.o.kind === 'foe') - (a.o.kind === 'foe') || a.dist - b.dist; });
+    list.slice(7).forEach(function (q) { q.m.style.opacity = 0; });
+    var pts = list.slice(0, 7).map(function (q) {
+      var mx = (L + R) / 2, my = (T + B) / 2, dx = q.sx - mx, dy = q.sy - my;
+      var k = Math.min(dx ? ((dx > 0 ? R : L) - mx) / dx : 1e9, dy ? ((dy > 0 ? B : T) - my) / dy : 1e9);
+      var x = mx + dx * k, y = my + dy * k, edge = Math.abs(x - L) < 1 ? 'l' : Math.abs(x - R) < 1 ? 'r' : Math.abs(y - T) < 1 ? 't' : 'b';
+      return { q: q, x: x, y: y, edge: edge, ang: Math.atan2(dy, dx) };
+    });
+    ['l', 'r', 't', 'b'].forEach(function (e) {
+      var g = pts.filter(function (p) { return p.edge === e; }), horiz = e === 't' || e === 'b';
+      g.sort(function (a, b) { return horiz ? a.x - b.x : a.y - b.y; });
+      var gap = (horiz ? 13 : 19) * u;
+      for (var pass = 0; pass < 6; pass++) for (var i = 1; i < g.length; i++) { var a = g[i - 1], b = g[i], da = horiz ? b.x - a.x : b.y - a.y; if (da < gap) { var push = (gap - da) / 2; if (horiz) { a.x -= push; b.x += push; } else { a.y -= push; b.y += push; } } }
+      g.forEach(function (p) { if (horiz) p.x = Math.max(L, Math.min(R, p.x)); else p.y = Math.max(T, Math.min(B, p.y)); });
+    });
+    pts.forEach(function (p) {
+      var m = p.q.m, fade = Math.max(.4, Math.min(1, 1.15 - p.q.dist / 2600));
+      m.style.opacity = fade; m.style.transform = 'translate(' + p.x.toFixed(1) + 'px,' + p.y.toFixed(1) + 'px)';
+      m.querySelector('.arr').style.transform = 'rotate(' + (p.ang * 180 / Math.PI).toFixed(1) + 'deg)';
+      var d = m.querySelector('.d'); d.textContent = Math.round(p.q.dist) + ' кл'; d.style.top = (6 * u) + 'px';
+    });
+  }
+
+  // ------------------------------------------------------------------ the dispatcher
+  var SEV = { crit: 'sev-crit', warn: 'sev-warn', good: 'sev-good', info: 'sev-info' };
+  var logAll = [], feedMsgs = [], logFilter = 'all';
+  function fmt(t) { var m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + (s < 10 ? '0' : '') + s; }
+  function msgNode(m) { var n = document.createElement('div'); n.className = 'msg ' + SEV[m.sev] + (m.sev === 'crit' ? ' crit' : ''); n.innerHTML = '<span class="ic">' + svg(m.icon) + '</span><div><div class="t"></div><div class="s"></div></div><span class="tm"></span>'; paintMsg(n, m); return n; }
+  function paintMsg(n, m) { n.querySelector('.t').innerHTML = m.title + (m.n > 1 ? ' <span class="x">×' + m.n + '</span>' : ''); n.querySelector('.s').textContent = m.sub; n.querySelector('.tm').textContent = fmt(m.at); }
+  function say(sev, icon, title, sub) {
+    var last = logAll[logAll.length - 1];
+    if (last && last.title === title && missionT - last.lastAt < 5) { last.n++; last.lastAt = missionT; last.sub = sub; if (last.node) { paintMsg(last.node, last); last.node.classList.remove('out'); last.until = performance.now() + 7000; } refreshLog(); return; }
+    var m = { sev: sev, icon: icon, title: title, sub: sub, at: missionT, lastAt: missionT, n: 1, until: performance.now() + 7000 };
+    m.node = msgNode(m); logAll.push(m); feedMsgs.push(m); el.feed.insertBefore(m.node, el.feed.firstChild);
+    while (feedMsgs.length > (desk ? 3 : 2)) { var old = feedMsgs.shift(); if (old.node) { old.node.remove(); old.node = null; } }
+    $('dispN').textContent = logAll.length; refreshLog();
+    if (sev === 'crit') flash = .3;
+  }
+  function tickFeed() {
+    var now = performance.now();
+    feedMsgs = feedMsgs.filter(function (m) { if (now > m.until && m.node) { var node = m.node; node.classList.add('out'); m.node = null; setTimeout(function () { node.remove(); }, 650); return false; } return !!m.node; });
+  }
+  var logBox = $('log'), logList = $('logList');
+  function refreshLog() {
+    if (logBox.hidden) return; logList.textContent = '';
+    logAll.slice().reverse().filter(function (m) { return logFilter === 'all' || m.sev === logFilter; }).forEach(function (m) { logList.appendChild(msgNode(m)); });
+    if (!logList.firstChild) { var e = document.createElement('div'); e.className = 'fine'; e.textContent = 'Пока ничего.'; logList.appendChild(e); }
+  }
+  [['all', 'Все'], ['crit', 'Критичные'], ['warn', 'Внимание'], ['good', 'Успех'], ['info', 'Сведения']].forEach(function (d) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (d[0] === 'all' ? ' on' : ''); b.textContent = d[1];
+    b.addEventListener('click', function () { logFilter = d[0]; Array.prototype.forEach.call($('logChips').children, function (c) { c.classList.remove('on'); }); b.classList.add('on'); refreshLog(); });
+    $('logChips').appendChild(b);
+  });
+  $('dispHead').addEventListener('click', function () { logBox.hidden = !logBox.hidden; refreshLog(); });
+  $('logClose').addEventListener('click', function () { logBox.hidden = true; });
+
+  var names = ['Кира Вельт', 'Тимур Оса', 'Лена Корвин', 'Ян Дрозд', 'Мира Осеева', 'Ким Ларсен'];
+  function hit() { lastHit = missionT; bursts.push({ x: ship.x + (Math.random() - .5) * 30, y: ship.y + (Math.random() - .5) * 40, t: 0, c: '#ff9a2a' }); stats.shield = Math.max(0, stats.shield - 120); }
+  function randomRoom() { var dk = decks[Math.random() < .6 && deckSel > 0 ? deckSel - 1 : Math.floor(Math.random() * 3)]; var ok = dk.rooms.filter(function (r) { return !r.breach; }); return pick(ok.length ? ok : dk.rooms); }
+  var EV = [
+    ['Модуль разрушен', function () { var live = MODS.filter(function (m) { return m.n > 0 && m.id !== 'reactor'; }); var m = pick(live); if (!m) return; m.n = Math.max(0, m.n - 1); m.hp = Math.max(.3, m.hp - .1); stats.hull = Math.max(8, stats.hull - 9); hit(); paintMods(); say('crit', 'module', (m.n === 0 ? m.name + ' выведены из строя' : 'Потерян модуль: ' + m.name), 'Палуба ' + (1 + Math.floor(Math.random() * 3)) + ' · осталось ' + m.n + ' из ' + m.m); }],
+    ['Погиб космонавт', function () { var n = pick(names), r = pick(['артиллерист', 'инженер', 'оператор щита']); stats.hull = Math.max(8, stats.hull - 4); hit(); say('crit', 'killed', 'Погиб ' + n, r + ' · ур. ' + (1 + Math.floor(Math.random() * 4)) + ', отсек разгерметизирован'); }],
+    ['Ранение', function () { say('warn', 'hurt', 'Ранен ' + pick(names), pick(['инженер', 'артиллерист', 'пилот']) + ' · вынесен в медотсек, пост пуст'); }],
+    ['Пожар', function () { var r = randomRoom(); ignite(r); say('warn', 'fire', 'Пожар: ' + r.name, 'Палуба ' + (r.deck + 1) + ' · инженеры на пути'); }],
+    ['Разгерметизация', function () { var r = randomRoom(); stats.hull = Math.max(8, stats.hull - 5); hit(); breachRoom(r); }],
+    ['Щит упал', function () { stats.shield = 0; lastHit = missionT; hit(); say('warn', 'shield', 'Щит упал', 'Перезарядка начнётся через 3 с'); }],
+    ['Враг уничтожен', function () { say('good', 'ok', 'Противник уничтожен', pick(['Налётчик', 'Разведчик', 'Охотник']) + ' · в трюм +' + (10 + Math.floor(Math.random() * 20)) + ' кр.'); }],
+    ['Мало энергии', function () { stats.energy = 28; say('warn', 'energy', 'Мало энергии', 'Оружие замедляется, переведите приоритет на щит'); }],
+    ['Остов найден', function () { say('info', 'wreck', 'Обнаружен остов', 'Станция · ' + Math.round(Math.hypot(objs[5].x - ship.x, objs[5].y - ship.y)) + ' кл. Подлетите и осмотрите'); }]
+  ];
+  EV.forEach(function (e) { var b = document.createElement('button'); b.type = 'button'; b.textContent = e[0]; b.addEventListener('click', e[1]); $('demo').appendChild(b); });
+  var evClock = 7, evIndex = 0, order = [4, 2, 3, 0, 1, 5, 6, 8, 3, 4, 7, 1];
+  function autoEvents(dt) { if (!$('auto').checked) return; evClock -= dt; if (evClock <= 0) { evClock = 6 + Math.random() * 3; EV[order[evIndex++ % order.length]][1](); } }
+
+  // ------------------------------------------------------------------ input
+  function hideHint() { $('course').style.opacity = 0; }
+  el.screen.addEventListener('click', function (ev) {
+    if (ev.target.closest('.dock') || ev.target.closest('.disp') || ev.target.closest('.log') || ev.target.closest('.mk') || ev.target.closest('.rooms') || ev.target.closest('.bars')) return;
+    var r = el.screen.getBoundingClientRect(), s = r.width / VW;
+    target = { x: (ev.clientX - r.left) / s + cam.x - VW / 2, y: (ev.clientY - r.top) / s + cam.y - VH / 2 }; hideHint();
+  });
+  setTimeout(hideHint, 9000);
+  function placeHint() { $('course').style.display = (!desk && deckSel > 0) ? 'none' : ''; var dh = el.dock.offsetHeight + 3 * uPx + 8; if (desk) { $('course').style.bottom = 'auto'; $('course').style.top = 4 * uPx + 'px'; } else { $('course').style.top = 'auto'; $('course').style.bottom = dh + 'px'; } if (!desk && deckSel > 0) roomsEl.style.bottom = dh - 4 + 'px'; }
+
+  // ------------------------------------------------------------------ loop
+  var last = performance.now(), tick = 0;
+  function loop(now) {
+    var dt = Math.min(.05, (now - last) / 1000); last = now;
+    if (!paused) { var k = slowmo ? .35 : 1; step(dt * k); autoEvents(dt * k); }
+    frame(); tickFeed(); layoutMarkers(); layoutPills(); paintBars(); placeHint();
+    if ((tick++ & 7) === 0) { paintDecks(); paintRooms(); }
+    requestAnimationFrame(loop);
+  }
+  // an opening state that reads at once: a breach and a fire already on deck 2, the ship on a course
+  for (var i = 0; i < 40; i++) step(.05);
+  breachRoom(decks[1].rooms[5], true); breachRoom(decks[1].rooms[9], true); ignite(decks[1].rooms[6]); ignite(decks[0].rooms[8]);
+  for (var j = 0; j < 90; j++) stepRooms(.05);
+  engineersOn = true;
+  MODS[0].n = 5; MODS[0].hp = .86; MODS[6].n = 3; paintMods();
+  setMode(window.innerWidth >= 1000);
+  paintDecks(); paintRooms();
+  setTimeout(function () {
+    say('info', 'wreck', 'Обнаружен остов', 'Станция · 1050 кл. по курсу');
+    say('warn', 'fire', 'Пожар: ' + decks[1].rooms[6].name, 'Палуба 2 · инженеры на пути');
+    say('crit', 'breach', 'Разгерметизация: ' + decks[1].rooms[5].name, 'Палуба 2 · давление падает, двери закрыты');
+  }, 80);
+  target = { x: -160, y: -260 };
+  requestAnimationFrame(loop);
+})();
+</script>

@@ -1,5 +1,5 @@
-import { Container, Texture, TilingSprite } from 'pixi.js';
-import { mulberry32 } from '../sim/rng';
+import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
+import { hash2, mulberry32 } from '../sim/rng';
 import type { SectorId } from '../sim/space';
 import { generateSky } from './space/skyGen';
 
@@ -60,6 +60,9 @@ export class Starfield {
   private neb: { far: Layer; near: Layer; dust: Layer };
   private cache = new Map<string, SkyTextures>();
   private current = '';
+  private sector: SectorId = 'violet';
+  /** Meteors of the crimson sector's sky, drawn on the screen (they are far behind everything). */
+  private readonly meteors = new Graphics();
 
   constructor() {
     const stars = [
@@ -82,6 +85,7 @@ export class Starfield {
     this.neb = { far: nebLayer(0.07, 0.9), near: nebLayer(0.15, 0.85), dust: nebLayer(0.19, 1) };
     this.layers = [starLayer(stars[0]), this.neb.far, starLayer(stars[1]), this.neb.near, this.neb.dust, starLayer(stars[2])];
     for (const l of this.layers) this.container.addChild(l.sprite);
+    this.container.addChild(this.meteors);
   }
 
   /** Hangs a sector's nebulae and dust behind the arena; the same sector and seed reuse their textures. */
@@ -106,9 +110,36 @@ export class Starfield {
     this.neb.dust.sprite.texture = t.dust;
     for (const l of [this.neb.far, this.neb.near, this.neb.dust]) l.sprite.visible = true;
     this.current = key;
+    this.sector = sector;
+  }
+
+  /** A meteor shower: short bright streaks cross the sky on a slant and go out, each at its own pace. */
+  private drawMeteors(screenW: number, screenH: number): void {
+    const g = this.meteors;
+    g.clear();
+    if (this.sector !== 'crimson') return;
+    const t = performance.now() / 1000;
+    const u = Math.max(2, Math.round(screenW / 256));
+    for (let i = 0; i < 16; i++) {
+      const P = 2 + hash2(i, 1, 81) * 2.4;
+      const ph = ((t + hash2(i, 2, 81) * P) % P) / P;
+      const sx = hash2(i, 3, 81) * 1.5 * screenW;
+      const sy = -10 + hash2(i, 4, 81) * screenH * 0.5;
+      const dx = -0.82;
+      const dy = 0.57;
+      const hx = sx + dx * screenW * ph;
+      const hy = sy + dy * screenW * ph;
+      const len = 7 + Math.floor(hash2(i, 5, 81) * 8);
+      for (let k = 0; k < len; k++) {
+        const f = 1 - k / len;
+        const color = k < 2 ? 0xffffff : k / len < 0.5 ? 0xa0dcff : 0x6e46aa;
+        g.rect(Math.round(hx - dx * k * u), Math.round(hy - dy * k * u), u, u).fill({ color, alpha: 0.25 + 0.75 * f });
+      }
+    }
   }
 
   update(camX: number, camY: number, pxPerCell: number, screenW: number, screenH: number): void {
+    this.drawMeteors(screenW, screenH);
     for (const l of this.layers) {
       l.sprite.width = screenW;
       l.sprite.height = screenH;

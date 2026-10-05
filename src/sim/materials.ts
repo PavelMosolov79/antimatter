@@ -19,6 +19,7 @@ export const Mat = {
   CRUISE: 17,
   BRAKE: 18,
   TURN: 19,
+  ROCK: 20,
 } as const;
 
 export interface MaterialDef {
@@ -52,4 +53,6 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'cruise', hp: 55, mass: 4, color: 0xd8423a },
   { name: 'brake', hp: 22, mass: 0.8, color: 0xeef2f6 },
   { name: 'turn', hp: 22, mass: 0.8, color: 0xa362e8 },
+  // Space rock: the asteroids (sim/rocks.ts); tough and heavy, and its veins are painted on it.
+  { name: 'rock', hp: 45, mass: 1.6, color: 0x7a7064 },
 ];

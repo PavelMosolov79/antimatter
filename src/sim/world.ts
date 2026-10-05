@@ -6,13 +6,16 @@ import { GridBody } from './body';
 import { pilotAvailable, spawnCrew, updateCrew } from './crew';
 import type { DutyCrew } from './roster';
 import { DUST_MIN_COLUMNS, splitBody, type SplitResult } from './fragment';
-import { gravityAt, isSolid, type Celestial } from './gravity';
+import { gravityAt, isSolid, swallows, type Celestial } from './gravity';
 import type { Module, ShipGrid } from './grid';
 import { MATERIALS } from './materials';
 import { applyPropulsion } from './propulsion';
 import { mulberry32, type Rng } from './rng';
-import type { SectorId } from './space';
-import { SYSTEMS, createSys, updateSystems, type EnergyPriority, type Nav } from './systems';
+import { PULSAR, STORM, pulsarAngle, stormBolt, type SectorId } from './space';
+import { fieldRocks, makeRock } from './rocks';
+import { WRECK, buildWreck, inspect, wreckSpec, type Find, type Trap } from './wrecks';
+import { KEEP, chunkIndex, chunkKey, genChunk } from './sky';
+import { SYSTEMS, absorbShield, createSys, updateSystems, type EnergyPriority, type Nav } from './systems';
 import { stepProjectiles, updateWeapons, type Beam, type Projectile } from './weapons';
 
 export type SimEvent =
@@ -23,6 +26,7 @@ export type SimEvent =
   | { t: 'shield'; x: number; y: number; shipId: number }
   | { t: 'warning'; x: number; y: number }
   | { t: 'detonate'; x: number; y: number; r: number }
+  | { t: 'bolt'; x: number; y: number }
   | { t: 'dead'; x: number; y: number; shipId: number }
   | { t: 'crewLost'; x: number; y: number };
 
@@ -42,7 +46,22 @@ interface Blast {
   r: number;
   dmg: number;
   /** The exploding ship itself: it breaks apart instead of being hit by its own blast. */
-  src: GridBody;
+  src: GridBody | null;
+}
+
+/** What the world tells the game about wrecks, for the game to act on (the hold, the barracks, new enemies, the screen). */
+export type WorldNote =
+  | { type: 'find'; find: Find }
+  | { type: 'salvage'; metal: number }
+  | { type: 'trap'; trap: Trap; text: string }
+  | { type: 'ambush'; x: number; y: number; n: number };
+
+interface PendingTrap {
+  trap: 'mine' | 'reactor';
+  t: number;
+  x: number;
+  y: number;
+  r: number;
 }
 
 /** Wreck pieces of a detonated ship get thrown outward once the split has happened. */
@@ -83,12 +102,228 @@ export class World implements DamageSink {
   private damaged = new Set<GridBody>();
   private buf: number[] = [];
   private grav = { ax: 0, ay: 0 };
+  /** The rocks of each field of rocks that is in the world. */
+  private rocksOf = new Map<Celestial, GridBody[]>();
+  /** The hull of each wreck that is in the world, how far its looking-over has got, and where it was looked over or shot to pieces (by place: it does not come back when the sky is laid out again). */
+  private wrecksOf = new Map<Celestial, GridBody>();
+  private looking = new Map<Celestial, number>();
+  private spent = new Set<string>();
+  /** Bodies whose lost cells give metal (a wreck and its pieces), and the part of a metal not yet given. */
+  private salvage = new Set<GridBody>();
+  private salvageRest = 0;
+  private traps: PendingTrap[] = [];
+  /** Told to the game, which empties it every tick. */
+  notes: WorldNote[] = [];
+  /** The wreck the player is looking over now, and how far along it is (0…1), for the screen. */
+  inspecting: { x: number; y: number; frac: number } | null = null;
+  /** Ships with a module knocked out by lightning. */
+  private stunned = new Set<GridBody>();
+  /** The chunks of the sky that have been laid out (sim/sky.ts), and when the sky was last looked at. */
+  private chunks = new Set<string>(['0,0']);
+  private skyClock = 0;
+  /** Whether the sky lays itself out as the player flies (on for an arena given by `setCelestials`, off for a bare test world). */
+  streaming = false;
   private ctl: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0, arrived: false, heading: null };
   /** The player's drive commands from the last step (for the HUD and tests). */
   readonly playerControl: Control = { main: 0, back: 0, right: 0, left: 0, torque: 0, arrived: false, heading: null };
 
   constructor(seed = 1) {
     this.rng = mulberry32(seed);
+  }
+
+  /** The arena's own bodies replace whatever the world had; nothing else of the sky is in yet (see `streamSky`). */
+  setCelestials(list: Celestial[]): void {
+    for (const c of this.celestials) this.dropBodies(c);
+    this.celestials = [];
+    this.spent.clear();
+    this.looking.clear();
+    this.traps.length = 0;
+    this.chunks = new Set(['0,0']);
+    this.streaming = true;
+    for (const c of list) this.addCelestial(c);
+  }
+
+  addCelestial(c: Celestial): void {
+    this.celestials.push(c);
+    if (c.kind === 'asteroids') this.spawnRocks(c);
+    else if (c.kind === 'wreck') this.spawnWreck(c);
+  }
+
+  removeCelestial(c: Celestial): void {
+    const i = this.celestials.indexOf(c);
+    if (i >= 0) this.celestials.splice(i, 1);
+    this.dropBodies(c);
+  }
+
+  private dropBodies(c: Celestial): void {
+    this.dropRocks(c);
+    const w = this.wrecksOf.get(c);
+    if (w) {
+      if (!w.removed) this.removeBody(w);
+      this.wrecksOf.delete(c);
+    }
+    this.looking.delete(c);
+  }
+
+  private wreckKey(c: Celestial): string {
+    return `${Math.round(c.x)},${Math.round(c.y)}`;
+  }
+
+  private spawnWreck(c: Celestial): void {
+    if (this.spent.has(this.wreckKey(c))) return;
+    const g = buildWreck(c);
+    const b = this.spawn(g, c.x, c.y, mulberry32(c.seed + 5)() * Math.PI * 2, 'debris');
+    b.anchored = true;
+    this.wrecksOf.set(c, b);
+    this.salvage.add(b);
+  }
+
+  /** Looking a wreck over: close to it and slow for a few seconds. What is found (or what goes off) is decided by `inspect`. */
+  private wrecks(dt: number): void {
+    this.inspecting = null;
+    for (const b of this.salvage) if (b.removed) this.salvage.delete(b);
+    for (const t of this.traps) t.t -= dt;
+    for (const t of this.traps) {
+      if (t.t > 0) continue;
+      this.blasts.push({ x: t.x, y: t.y, r: t.r, dmg: SYSTEMS.blastDamage * (t.trap === 'mine' ? 0.35 : 1), src: null });
+      this.push({ t: 'detonate', x: t.x, y: t.y, r: t.r });
+    }
+    this.traps = this.traps.filter((t) => t.t > 0);
+    const p = this.player;
+    for (const [c, body] of this.wrecksOf) {
+      if (body.removed) {
+        // shot to pieces, or the hull is gone: nothing more to look at
+        this.spent.add(this.wreckKey(c));
+        this.wrecksOf.delete(c);
+        this.looking.delete(c);
+        continue;
+      }
+      if (!p || p.removed || this.spent.has(this.wreckKey(c))) continue;
+      const near = Math.hypot(p.x - body.x, p.y - body.y) - body.radius - p.radius < WRECK.inspectRange;
+      const slow = Math.hypot(p.vx, p.vy) < WRECK.inspectSpeed;
+      const was = this.looking.get(c) ?? 0;
+      const t = near && slow ? was + dt : Math.max(0, was - dt * 0.5);
+      this.looking.set(c, t);
+      if (t > 0 && near) this.inspecting = { x: body.x, y: body.y, frac: Math.min(1, t / WRECK.inspectTime) };
+      if (t < WRECK.inspectTime) continue;
+      this.spent.add(this.wreckKey(c));
+      this.looking.delete(c);
+      this.inspecting = null;
+      const res = inspect(c);
+      if (res.find) this.notes.push({ type: 'find', find: res.find });
+      if (res.trap === 'mine') {
+        this.notes.push({ type: 'trap', trap: 'mine', text: 'Осмотр остова: мина! Уходите от обломков.' });
+        this.traps.push({ trap: 'mine', t: 1.2, x: p.x, y: p.y, r: 14 });
+        this.push({ t: 'warning', x: p.x, y: p.y });
+      } else if (res.trap === 'reactor') {
+        this.notes.push({ type: 'trap', trap: 'reactor', text: `Осмотр остова: реактор станции разгоняется! Взрыв через ${WRECK.reactorFuse} с, уходите.` });
+        this.traps.push({ trap: 'reactor', t: WRECK.reactorFuse, x: body.x, y: body.y, r: Math.max(30, c.radius * 0.8) });
+        this.push({ t: 'warning', x: body.x, y: body.y });
+      } else if (res.trap === 'ambush') {
+        this.notes.push({ type: 'trap', trap: 'ambush', text: wreckSpec(c).kind === 'ancient' ? 'Осмотр: древний сторож просыпается, из обломков выходят чужие.' : 'Осмотр остова: засада! Из-за обломков выходят враги.' });
+        this.notes.push({ type: 'ambush', x: body.x, y: body.y, n: 2 });
+      }
+    }
+  }
+
+
+  private spawnRocks(c: Celestial): void {
+    const list: GridBody[] = [];
+    for (const r of fieldRocks(c)) {
+      const b = this.spawn(makeRock(r.seed, r.r, r.ore), r.x, r.y, r.angle, 'debris');
+      b.anchored = true;
+      list.push(b);
+    }
+    this.rocksOf.set(c, list);
+  }
+
+  private dropRocks(c: Celestial): void {
+    for (const b of this.rocksOf.get(c) ?? []) if (!b.removed) this.removeBody(b);
+    this.rocksOf.delete(c);
+  }
+
+  /**
+   * Flying on meets new things: the chunks of the sky round the player are laid out when he comes near
+   * (and the far ones taken away again, to come back the same). The arena's own chunk stays.
+   */
+  private streamSky(): void {
+    const p = this.player;
+    if (!p) return;
+    const cx = chunkIndex(p.x);
+    const cy = chunkIndex(p.y);
+    for (let dx = -KEEP; dx <= KEEP; dx++) {
+      for (let dy = -KEEP; dy <= KEEP; dy++) {
+        const key = chunkKey(cx + dx, cy + dy);
+        if (this.chunks.has(key)) continue;
+        this.chunks.add(key);
+        for (const c of genChunk(this.sector, this.skySeed, cx + dx, cy + dy, this.celestials)) this.addCelestial(c);
+      }
+    }
+    for (const c of [...this.celestials]) {
+      if (!c.chunk) continue;
+      const [x, y] = c.chunk.split(',').map(Number);
+      if (Math.abs(x - cx) > KEEP + 1 || Math.abs(y - cy) > KEEP + 1) this.removeCelestial(c);
+    }
+    for (const k of [...this.chunks]) {
+      if (k === '0,0') continue;
+      const [x, y] = k.split(',').map(Number);
+      if (Math.abs(x - cx) > KEEP + 1 || Math.abs(y - cy) > KEEP + 1) this.chunks.delete(k);
+    }
+  }
+
+  /** Comets fly on; a pulsar's beam drains the shield of what it sweeps; a storm keeps shields down and lightning knocks a module out. */
+  private hazards(dt: number): void {
+    for (const c of this.celestials) {
+      if (c.kind === 'comet') {
+        c.x += (c.vx ?? 0) * dt;
+        c.y += (c.vy ?? 0) * dt;
+      } else if (c.kind === 'pulsar') {
+        const th = pulsarAngle(c, this.time);
+        const ct = Math.cos(th);
+        const st = Math.sin(th);
+        for (const b of this.bodies) {
+          if (b.removed || !b.sys || b.sys.dead) continue;
+          const dx = b.x - c.x;
+          const dy = b.y - c.y;
+          if (dx * dx + dy * dy > (PULSAR.beamLength + b.radius) ** 2) continue;
+          const along = Math.abs(dx * ct + dy * st);
+          const perp = Math.abs(dx * st - dy * ct);
+          if (along > c.radius + 10 && perp < PULSAR.beamWidth + along * PULSAR.beamSlope + b.radius * 0.5) absorbShield(b.sys, PULSAR.shieldPerSecond * dt, this.time);
+        }
+      } else if (c.kind === 'storm') {
+        const ry = c.ry ?? c.radius;
+        const inside: GridBody[] = [];
+        for (const b of this.bodies) {
+          if (b.removed || !b.sys || b.sys.dead) continue;
+          const nx = (b.x - c.x) / c.radius;
+          const ny = (b.y - c.y) / ry;
+          if (nx * nx + ny * ny < 1) {
+            inside.push(b);
+            b.sys.lastHit = this.time; // the shield does not come back in a storm
+          }
+        }
+        const bolt = stormBolt(c, this.time);
+        if (bolt.on && bolt.phase * STORM.boltEvery < dt && inside.length > 0) {
+          const b = inside[bolt.index % inside.length];
+          const live = b.grid.modules.filter((m) => m.alive > 0 && m.stun <= 0);
+          if (live.length > 0) {
+            const m = live[Math.floor(this.rng() * live.length)];
+            m.stun = STORM.stun;
+            this.stunned.add(b);
+            this.push({ t: 'bolt', x: b.x, y: b.y });
+            this.impact(b.x, b.y, 400);
+          }
+        }
+      }
+    }
+    for (const b of this.stunned) {
+      let any = false;
+      for (const m of b.grid.modules) {
+        if (m.stun > 0) m.stun = Math.max(0, m.stun - dt);
+        if (m.stun > 0) any = true;
+      }
+      if (!any || b.removed) this.stunned.delete(b);
+    }
   }
 
   spawn(grid: ShipGrid, x: number, y: number, angle = 0, kind: 'ship' | 'debris' = 'ship'): GridBody {
@@ -256,6 +491,14 @@ export class World implements DamageSink {
 
   private flushDestroyed(body: GridBody): void {
     const buf = this.buf;
+    if (this.salvage.has(body) && buf.length > 0) {
+      this.salvageRest += (buf.length / 4) * WRECK.salvagePerCell;
+      const whole = Math.floor(this.salvageRest);
+      if (whole > 0) {
+        this.salvageRest -= whole;
+        this.notes.push({ type: 'salvage', metal: whole });
+      }
+    }
     for (let k = 0; k < buf.length; k += 4) {
       const p = body.localToWorld(buf[k] + 0.5, buf[k + 1] + 0.5, tmpPt);
       this.push({ t: 'cell', x: p.x, y: p.y, color: MATERIALS[buf[k + 3]].color });
@@ -354,7 +597,11 @@ export class World implements DamageSink {
   private replace(b: GridBody, res: SplitResult): void {
     const wasPlayer = this.player === b;
     this.removeBody(b);
-    for (const piece of res.pieces) this.bodies.push(piece);
+    const scrap = this.salvage.has(b);
+    for (const piece of res.pieces) {
+      this.bodies.push(piece);
+      if (scrap) this.salvage.add(piece);
+    }
     if (wasPlayer) this.player = res.main;
     for (const d of res.dust) this.push({ t: 'cell', x: d.x, y: d.y, color: d.color });
     this.push({ t: 'split', x: b.x, y: b.y });
@@ -416,7 +663,19 @@ export class World implements DamageSink {
     updateWeapons(this, dt);
     stepProjectiles(this, dt);
 
+    this.hazards(dt);
+    this.wrecks(dt);
+    this.skyClock += dt;
+    if (this.streaming && this.skyClock >= 0.5) {
+      this.skyClock = 0;
+      this.streamSky();
+    }
+
     for (const b of this.bodies) {
+      if (b.anchored) {
+        b.vx = b.vy = b.w = 0;
+        continue;
+      }
       const g = this.gravityAt(b.x, b.y);
       b.vx += g.ax * dt;
       b.vy += g.ay * dt;
@@ -442,7 +701,7 @@ export class World implements DamageSink {
     if (this.blasts.length > 0) {
       for (const bl of this.blasts) {
         for (const o of this.bodies) {
-          if (o.removed || o === bl.src) continue;
+          if (o.removed || (bl.src && o === bl.src)) continue;
           if (Math.hypot(o.x - bl.x, o.y - bl.y) > bl.r + o.radius) continue;
           this.damageCrater(o, bl.x, bl.y, bl.r, bl.dmg, 1);
         }
@@ -457,7 +716,7 @@ export class World implements DamageSink {
     }
 
     for (const b of this.bodies) {
-      if (b.kind === 'debris' && Math.hypot(b.x, b.y) > FAR_LIMIT) this.removeBody(b);
+      if (b.kind === 'debris' && !b.anchored && Math.hypot(b.x, b.y) > FAR_LIMIT) this.removeBody(b);
     }
     this.bodies = this.bodies.filter((b) => !b.removed);
   }
@@ -467,7 +726,7 @@ export class World implements DamageSink {
     for (const c of this.celestials) {
       if (isSolid(c)) {
         for (const b of bodies) if (!b.removed) collideGridCircle(this, b, c);
-      } else {
+      } else if (swallows(c)) {
         for (const b of bodies) if (!b.removed) this.consume(b, c);
       }
     }

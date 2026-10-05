@@ -69,6 +69,9 @@ const CSS = `
 #overlay .reward small { color: #8fa4cc; font-size: 11px; }
 #overlay .reward .lost { color: #ff6a5a; }
 #overlay button { margin: 0 4px; padding: 6px 14px; font-size: 13px; }
+#toasts { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; z-index: 4; }
+#toasts div { background: rgba(8,12,22,.88); border: 1px solid #2c3d63; border-radius: 8px; padding: 5px 12px; color: #cfe0ff; font-size: 12px; max-width: 460px; text-align: center; }
+#toasts .look { color: #ffd24a; border-color: #6a5a2c; }
 #hint { left: 8px; bottom: 8px; color: #7f95bf; font-size: 9.5px; max-width: 340px; pointer-events: none; }
 #panelToggle { position: fixed; right: 8px; bottom: 8px; pointer-events: auto; background: rgba(10,14,24,.85); color: #cfe0ff; border: 1px solid #2a3a5c; border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 10px; cursor: pointer; z-index: 5; }
 .collapsed #left, .collapsed #controls, .collapsed #hint { display: none; }
@@ -408,6 +411,9 @@ export class Hud {
     hint.textContent = 'ЛКМ по врагу — цель; по пустому месту — лететь. ПКМ+drag — камера. Колесо — масштаб.';
     root.appendChild(hint);
 
+    this.toastBox.id = 'toasts';
+    root.appendChild(this.toastBox);
+
     this.overlay.id = 'overlay';
     const box = document.createElement('div');
     box.className = 'box';
@@ -719,8 +725,35 @@ export class Hud {
     if (m) this.setBar(m.copy, frac, left.includes('упал') ? `${m.label}↓` : m.label, right);
   }
 
+  private toastBox = document.createElement('div');
+  private toastShown = '';
+
+  /** Messages over the battle: what a wreck gave or sprung, and how far the looking-over has got. */
+  private updateToasts(): void {
+    const g = this.game;
+    const t = performance.now();
+    g.toasts = g.toasts.filter((x) => t - x.time < 7000);
+    const look = g.world.inspecting;
+    const sig = g.toasts.map((x) => x.text).join('|') + (look ? `#${Math.round(look.frac * 20)}` : '');
+    if (sig === this.toastShown) return;
+    this.toastShown = sig;
+    this.toastBox.replaceChildren();
+    if (look) {
+      const d = document.createElement('div');
+      d.className = 'look';
+      d.textContent = `Осмотр остова… ${Math.round(look.frac * 100)}% (держитесь рядом и не разгоняйтесь)`;
+      this.toastBox.appendChild(d);
+    }
+    for (const x of g.toasts) {
+      const d = document.createElement('div');
+      d.textContent = x.text;
+      this.toastBox.appendChild(d);
+    }
+  }
+
   update(now: number): void {
     const g = this.game;
+    this.updateToasts();
     g.scene.craterPreview = g.tool === 'crater' ? g.crater.radius : 0;
     for (const [t, b] of this.toolBtns) b.classList.toggle('on', g.tool === t);
     for (const [id, b] of this.shipBtns) b.classList.toggle('on', g.mode === 'sandbox' && g.shipId === id);

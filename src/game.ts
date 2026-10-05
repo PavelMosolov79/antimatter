@@ -1,5 +1,6 @@
 import type { GridBody } from './sim/body';
 import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
+import { isSolid } from './sim/gravity';
 import { crewOnDeck, spawnCrew, type Crew } from './sim/crew';
 import { shipEffects } from './sim/effects';
 import type { EnergyPriority } from './sim/systems';
@@ -10,7 +11,7 @@ import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './
 import { QUANTA_PER_BOSS, QUANTA_PER_RUN, QUANTA_START, REPAIR, SPARE_SHIP } from './sim/repairConfig';
 import { clearLayouts, savedLayout } from './sim/layoutStore';
 import { CREW } from './sim/crewConfig';
-import { ROLE_NAMES, abandonShip, emptyRoster, makeMember, applyBattle, assign, autoFill, dutyOf, healPrice, healSpeedUpPrice, hire, hirePrice, inBarracks, loadRoster, postsOf, reconcile, refreshCandidates, release, settleHealing, startHeal, cure, staffShip, storeRoster, unassign, type DutyCrew, type ReportRow, type Roster } from './sim/roster';
+import { ROLE_NAMES, abandonShip, emptyRoster, makeMember, ROLES, applyBattle, assign, autoFill, dutyOf, healPrice, healSpeedUpPrice, hire, hirePrice, inBarracks, loadRoster, postsOf, reconcile, refreshCandidates, release, settleHealing, startHeal, cure, staffShip, storeRoster, unassign, type DutyCrew, type ReportRow, type Roster } from './sim/roster';
 import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
 import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
 import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
@@ -19,7 +20,7 @@ import { mulberry32 } from './sim/rng';
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
 import { shipRef } from './sim/weapons';
 import type { Module, TargetRef, WeaponState } from './sim/grid';
-import { World } from './sim/world';
+import { World, type WorldNote } from './sim/world';
 import { Scene } from './render/scene';
 import { OUTER_VIEW } from './render/shipView';
 
@@ -136,6 +137,8 @@ export class Game {
   roster: Roster = loadRoster();
   /** Things the dock should say when it opens (a repair finished while the game was closed). */
   dockNotes: string[] = [];
+  /** Short messages over the battle (what a wreck gave, what went off); each stays a few seconds. A `key` replaces the message with the same one. */
+  toasts: Array<{ text: string; time: number; key?: string }> = [];
   private baseDamage = new WeakMap<RepairJob, Damage>();
   private bpCache = new Map<string, ShipGrid>();
   selectedWeapon: number | null = null;
@@ -175,7 +178,7 @@ export class Game {
     this.world.autopilot = autopilot;
     // The sandbox arena is one sector's own: its planet, moon, star and (in the crimson one) black hole.
     const sectorSeed = this.seed * 977 + SECTOR_IDS.indexOf(this.sandboxSector);
-    this.world.celestials = buildArena(mulberry32(sectorSeed), this.sandboxSector);
+    this.world.setCelestials(buildArena(mulberry32(sectorSeed), this.sandboxSector));
     this.world.sector = this.sandboxSector;
     this.world.skySeed = sectorSeed;
     this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true });
@@ -868,7 +871,7 @@ export class Game {
     this.world = new World(this.seed++);
     this.world.lockFace = lock;
     this.world.autopilot = autopilot;
-    this.world.celestials = enc.celestials;
+    this.world.setCelestials(enc.celestials);
     this.world.sector = enc.sector;
     this.world.skySeed = enc.skySeed;
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
@@ -1149,10 +1152,86 @@ export class Game {
     if (!enemyAlive && (this.world.player.sys?.countdown ?? -1) < 0) this.state = 'won';
   }
 
+  toast(text: string, key?: string): void {
+    const now = performance.now();
+    const old = key ? this.toasts.find((t) => t.key === key) : undefined;
+    if (old) {
+      old.text = text;
+      old.time = now;
+    } else {
+      this.toasts.push({ text, time: now, key });
+      if (this.toasts.length > 4) this.toasts.shift();
+    }
+  }
+
+  private salvaged = 0;
+  private lastWorld: World | null = null;
+
+  /** What the world says about wrecks: metal and money into the hold, a survivor into the barracks, enemies out of an ambush. */
+  private handleNotes(): void {
+    const notes = this.world.notes.splice(0);
+    const run = this.mode === 'run' ? this.run : null;
+    const hold = (credits: number, metal: number): { credits: number; metal: number; lostMetal: number } => {
+      if (!run) return { credits, metal, lostMetal: 0 };
+      const got = addToHold(run.cargo, shipHoldCap(run.shipId), { credits, metal });
+      return { ...got.gained, lostMetal: got.lostMetal };
+    };
+    for (const n of notes as WorldNote[]) {
+      if (n.type === 'salvage') {
+        const got = hold(0, n.metal);
+        this.salvaged += got.metal;
+        this.toast(got.lostMetal > 0 && got.metal === 0 ? 'Обломки: трюм полон, металл уплывает.' : `Добыча с обломков: +${this.salvaged} мет.`, 'salvage');
+      } else if (n.type === 'trap') {
+        this.toast(n.text);
+      } else if (n.type === 'ambush') {
+        for (let i = 0; i < n.n; i++) {
+          const id = this.world.rng() < 0.5 ? 'scout' : 'raider';
+          const es = ENEMIES.find((e) => e.id === id)!;
+          const a = this.world.rng() * Math.PI * 2;
+          const ex = n.x + Math.cos(a) * 160;
+          const ey = n.y + Math.sin(a) * 160;
+          this.world.spawnShip(es.build(), ex, ey, a, { name: es.label, team: 1, ai: es.ai });
+        }
+      } else if (n.type === 'find') {
+        const f = n.find;
+        if (f.type === 'metal') {
+          const got = hold(0, f.amount);
+          this.toast(got.lostMetal > 0 ? `${f.text} Не влезло: ${got.lostMetal}.` : f.text);
+        } else if (f.type === 'credits') {
+          hold(f.amount, 0);
+          this.toast(f.text);
+        } else if (f.type === 'survivor') {
+          this.toast(this.takeSurvivor() ? f.text : 'Осмотр остова: в капсуле живой космонавт, но в казарме нет места. Он остался в космосе.');
+        } else {
+          this.toast(f.text);
+        }
+      }
+    }
+  }
+
+  /** A rescued astronaut: wounded, in the barracks, waiting to be healed. */
+  private takeSurvivor(): boolean {
+    if (inBarracks(this.roster).length >= CREW.barracksMax) return false;
+    const r = this.world.rng;
+    const t = r();
+    const rar = t < 0.5 ? 1 : t < 0.85 ? 2 : 3;
+    const m = makeMember(this.roster, r, ROLES[Math.floor(r() * ROLES.length)], Math.min(10, rar * 2 - 1 + Math.floor(r() * 2)), rar);
+    m.status = 'hurt';
+    m.healEnd = null;
+    this.roster.members.push(m);
+    storeRoster(this.roster);
+    return true;
+  }
+
   tick(frameDt: number): void {
     // Behind the title and the dock (both full screens of their own) the world stands still and isn't drawn.
     if (this.screen === 'title' || (this.mode === 'run' && this.runPhase === 'dock')) return;
     const dt = Math.min(frameDt, 0.05);
+    if (this.world !== this.lastWorld) {
+      this.lastWorld = this.world;
+      this.salvaged = 0;
+      this.toasts = [];
+    }
     let simDt = 0;
     const halted = this.mode === 'run' && this.runPhase !== 'battle';
     if (!this.paused && !halted) {
@@ -1168,6 +1247,7 @@ export class Game {
       }
       if (steps > 0) this.stepMs = this.stepMs * 0.9 + ((performance.now() - t0) / steps) * 0.1;
       if (steps === 6) this.acc = 0;
+      if (this.world.notes.length > 0) this.handleNotes();
       this.evaluate();
     }
     this.scene.render(this.world, dt, simDt);
@@ -1188,7 +1268,7 @@ export class Game {
 
   private clampToSurface(wx: number, wy: number): { x: number; y: number } {
     for (const c of this.world.celestials) {
-      if (c.kind === 'blackhole') continue;
+      if (!isSolid(c)) continue;
       const dx = wx - c.x;
       const dy = wy - c.y;
       const d = Math.hypot(dx, dy);

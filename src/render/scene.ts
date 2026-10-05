@@ -6,6 +6,7 @@ import type { World } from '../sim/world';
 import { CombatFx } from './combatFx';
 import { CrewView } from './crewView';
 import { DecorView } from './decorView';
+import type { Celestial } from '../sim/gravity';
 import { createCelestialView, type CelestialView } from './celestials';
 import { Particles } from './particles';
 import { BodyView, OUTER_VIEW } from './shipView';
@@ -18,7 +19,7 @@ export class Scene {
   readonly starfield = new Starfield();
   readonly worldLayer = new Container();
   readonly celestialLayer = new Container();
-  private celestialViews: CelestialView[] = [];
+  private celestialViews = new Map<Celestial, CelestialView>();
   readonly bodyLayer = new Container();
   readonly particles = new Particles();
   readonly combat = new CombatFx();
@@ -61,13 +62,31 @@ export class Scene {
     this.combat.reset();
     this.crewView.reset();
     this.decorView.reset();
+    for (const [, v] of this.celestialViews) v.dispose?.();
     for (const c of [...this.celestialLayer.children]) c.destroy({ children: true });
-    this.celestialViews = world.celestials.map(createCelestialView);
-    for (const v of this.celestialViews) this.celestialLayer.addChild(v.root);
+    this.celestialViews.clear();
+    this.syncCelestials(world);
     this.starfield.setSector(world.sector, world.skySeed);
     if (world.player) {
       this.camX = world.player.x;
       this.camY = world.player.y;
+    }
+  }
+
+  /** The sky changes as the player flies (sim/sky.ts): views for what has come into the world, away with what has left it. */
+  private syncCelestials(world: World): void {
+    const live = new Set(world.celestials);
+    for (const [c, v] of this.celestialViews) {
+      if (live.has(c)) continue;
+      v.dispose?.();
+      v.root.destroy({ children: true });
+      this.celestialViews.delete(c);
+    }
+    for (const c of world.celestials) {
+      if (this.celestialViews.has(c)) continue;
+      const v = createCelestialView(c);
+      this.celestialViews.set(c, v);
+      this.celestialLayer.addChild(v.root);
     }
   }
 
@@ -85,7 +104,8 @@ export class Scene {
     this.worldLayer.position.set(sw / 2 - this.camX * s, sh / 2 - this.camY * s);
     this.starfield.update(this.camX, this.camY, s, sw, sh);
     const now = performance.now() / 1000;
-    for (const v of this.celestialViews) v.update(now, this.camX - sw / 2 / s, this.camY - sh / 2 / s, this.camX + sw / 2 / s, this.camY + sh / 2 / s);
+    this.syncCelestials(world);
+    for (const v of this.celestialViews.values()) v.update(now, this.camX - sw / 2 / s, this.camY - sh / 2 / s, this.camX + sw / 2 / s, this.camY + sh / 2 / s, world.time);
 
     const alive = new Set<number>();
     for (const b of world.bodies) alive.add(b.id);

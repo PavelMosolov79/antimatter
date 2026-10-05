@@ -1,5 +1,6 @@
-import type { Celestial } from './gravity';
+import { clearOf, exclusion as exclusionFn, type Celestial } from './gravity';
 import { mulberry32, type Rng } from './rng';
+import { WRECK_KINDS, wreckBody } from './wrecks';
 
 /**
  * The space around an arena, as designed in «Космос Antimatter»: planets ten times the
@@ -212,11 +213,66 @@ function clearOfSpawns(x: number, y: number, radius: number): boolean {
   return ARENA_CLEAR.every((p) => Math.hypot(x - p.x, y - p.y) - radius >= p.r);
 }
 
+// ------------------------------------------------------------------ the things that are in space
+
+/** A planet as a body of the world. */
+export function planetBody(x: number, y: number, seed: number, type: PlanetTypeId, opts: PlanetOptions = {}): Celestial {
+  const spec = genPlanet(seed, { type, ...opts });
+  return { kind: 'planet', x, y, radius: spec.R, mu: spec.mu, soft: SPACE.planetSoft, seed, variant: spec.type, ring: spec.ring };
+}
+
+export function holeBody(x: number, y: number, h: HoleSpec): Celestial {
+  return { kind: 'blackhole', x, y, radius: h.R0, mu: h.mu, soft: SPACE.holeSoft, seed: h.seed };
+}
+
+/** A pulsar: a small, heavy star with two beams that sweep the sky. */
+export const PULSAR = { radius: 30, mu: 110000, soft: 20, beamLength: 1400, beamWidth: 22, beamSlope: 0.055, rate: 0.45, shieldPerSecond: 70 };
+export function pulsarBody(x: number, y: number, seed: number): Celestial {
+  return { kind: 'pulsar', x, y, radius: PULSAR.radius, mu: PULSAR.mu, soft: PULSAR.soft, seed };
+}
+
+/** An ion storm: an ellipse of purple cloud; no shield recovers in it and lightning knocks modules out. */
+export const STORM = { boltEvery: 3.2, boltChance: 0.7, stun: 4 };
+/** The angle (radians) a pulsar's beams point at, at this time of the world. */
+export const pulsarAngle = (c: Celestial, time: number): number => c.seed * 0.7 + time * PULSAR.rate;
+
+/** The lightning of a storm: one chance every few seconds; `phase` is how far into the interval it is (the flash is the start of it). */
+export function stormBolt(c: Celestial, time: number): { index: number; phase: number; on: boolean } {
+  const index = Math.floor(time / STORM.boltEvery);
+  return { index, phase: (time - index * STORM.boltEvery) / STORM.boltEvery, on: hashOf(index, c.seed) < STORM.boltChance };
+}
+function hashOf(a: number, b: number): number {
+  let h = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+export function stormBody(x: number, y: number, seed: number, rx: number): Celestial {
+  return { kind: 'storm', x, y, radius: rx, ry: rx * 0.6, mu: 0, soft: 1, seed };
+}
+
+/** A comet flies straight across; the ion tail points away from where it is going. */
+export function cometBody(x: number, y: number, seed: number, angle: number, speed: number): Celestial {
+  return { kind: 'comet', x, y, radius: 28, mu: 0, soft: 1, seed, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
+}
+
+export function gateBody(x: number, y: number, seed: number): Celestial {
+  return { kind: 'gate', x, y, radius: 170, mu: 0, soft: 1, seed };
+}
+
+/** Where a field of rocks lies; the rocks themselves are made by the world (sim/rocks.ts). */
+export function fieldBody(x: number, y: number, seed: number, radius: number): Celestial {
+  return { kind: 'asteroids', x, y, radius, mu: 0, soft: 1, seed };
+}
+
 /**
  * The bodies of one arena. The arena sits in the weak field of a huge planet — the pull
  * at the player's spawn is 1–3 cells/s² — so the planet shows up at the edge of the view
  * when the camera pulls back, in the lower half where no enemy comes from. A small moon
- * gives cover, a distant star the light, and some sectors a black hole off to the side.
+ * gives cover, a distant star the light, and some sectors a black hole off to the side
+ * and something of their own: a field of rocks, a comet, a storm, a pulsar. Nothing lies
+ * over anything else, and nothing over the places the fight starts at.
  */
 export function buildArena(rng: Rng, sector: SectorId, opts: ArenaOptions = {}): Celestial[] {
   const def = SECTORS[sector];
@@ -241,19 +297,31 @@ export function buildArena(rng: Rng, sector: SectorId, opts: ArenaOptions = {}):
 
   if (rng() < 0.7) {
     const mr = 90 + rng() * 70;
-    for (let tries = 0; tries < 12; tries++) {
+    for (let tries = 0; tries < 24; tries++) {
       const ma = pa + (rng() - 0.5) * 1.8;
       const md = 480 + rng() * 220;
       const mx = Math.cos(ma) * md;
       const my = Math.sin(ma) * md;
       if (my < -120 || !clearOfSpawns(mx, my, mr)) continue;
-      out.push({ kind: 'moon', x: mx, y: my, radius: mr, mu: mr * mr * 4, soft: 1, seed: Math.floor(rng() * 1000) });
+      const moon: Celestial = { kind: 'moon', x: mx, y: my, radius: mr, mu: mr * mr * 4, soft: 1, seed: Math.floor(rng() * 1000) };
+      if (!clearOf(out, mx, my, exclusionFn(moon))) continue;
+      out.push(moon);
       break;
     }
   }
 
+  // The star only gives the light, so it may sit anywhere clear: round the sky at 2800 first, then further out.
   const sa = rng() * Math.PI * 2;
-  out.push({ kind: 'star', x: Math.cos(sa) * 2800, y: Math.sin(sa) * 2800, radius: 220, mu: 677000, soft: 5, seed: Math.floor(rng() * 1000) });
+  for (let tries = 0; tries < 40; tries++) {
+    const a = sa + tries * 0.55;
+    const d = 2800 + Math.floor(tries / 12) * 1800;
+    const sx = Math.cos(a) * d;
+    const sy = Math.sin(a) * d;
+    if (clearOf(out, sx, sy, 220 * 2 + 100)) {
+      out.push({ kind: 'star', x: sx, y: sy, radius: 220, mu: 677000, soft: 5, seed: Math.floor(rng() * 1000) });
+      break;
+    }
+  }
 
   const hole = opts.hole ?? def.hole;
   if (hole !== 'none') {
@@ -261,8 +329,67 @@ export function buildArena(rng: Rng, sector: SectorId, opts: ArenaOptions = {}):
     // A small hole sits where its pull at the origin is 0.4–0.8; a huge one just outside its own disk.
     const d = hole === 'small' ? Math.max(Math.sqrt(h.mu / (0.4 + rng() * 0.4)), h.R0 + 700) : h.disk * 1.25;
     const side = rng() < 0.5 ? 0.2 : Math.PI - 0.2;
-    const ba = side + (rng() - 0.5) * 0.6;
-    out.push({ kind: 'blackhole', x: Math.cos(ba) * d, y: Math.sin(ba) * d, radius: h.R0, mu: h.mu, soft: SPACE.holeSoft, seed: h.seed });
+    for (let tries = 0; tries < 30; tries++) {
+      const ba = side + (rng() - 0.5) * 0.6 + (tries > 14 ? Math.PI : 0);
+      const dd = d * (1 + Math.floor(tries / 10) * 0.35);
+      const bx = Math.cos(ba) * dd;
+      const by = Math.sin(ba) * dd;
+      const hb = holeBody(bx, by, h);
+      if (clearOf(out, bx, by, h.R0 * 5.6 + 100) && clearOfSpawns(bx, by, h.R0 * 2)) {
+        out.push(hb);
+        break;
+      }
+    }
+  }
+
+  // Something of the sector's own, off to the side of the fight (not in the first one of a run, which is gentle).
+  if (!opts.gentle) {
+    const roll = rng();
+    const make = (): Celestial | null => {
+      const fseed = 1 + Math.floor(rng() * 99999);
+      if (sector === 'violet') return fieldBody(0, 0, fseed, 650 + rng() * 300);
+      if (sector === 'green') return roll < 0.5 ? fieldBody(0, 0, fseed, 650 + rng() * 300) : cometBody(0, 0, fseed, rng() * Math.PI * 2, 55 + rng() * 25);
+      if (sector === 'crimson') return stormBody(0, 0, fseed, 700 + rng() * 300);
+      if (sector === 'ice') return roll < 0.55 ? pulsarBody(0, 0, fseed) : cometBody(0, 0, fseed, rng() * Math.PI * 2, 55 + rng() * 25);
+      return null;
+    };
+    const f = make();
+    if (f) {
+      const ex = exclusionOf(f);
+      for (let tries = 0; tries < 40; tries++) {
+        const a = rng() * Math.PI * 2;
+        const d = 1500 + rng() * 1800 + ex;
+        const fx = Math.cos(a) * d;
+        const fy = Math.sin(a) * d;
+        if (clearOf(out, fx, fy, ex) && clearOfSpawns(fx, fy, ex)) {
+          f.x = fx;
+          f.y = fy;
+          out.push(f);
+          break;
+        }
+      }
+    }
+    // and now and then a wreck lying about, to fly round and look over
+    if (rng() < 0.4) {
+      const w = wreckBody(0, 0, 1 + Math.floor(rng() * 99999), WRECK_KINDS[Math.floor(rng() * WRECK_KINDS.length)]);
+      const ex = exclusionOf(w);
+      for (let tries = 0; tries < 40; tries++) {
+        const a = rng() * Math.PI * 2;
+        const d = 1100 + rng() * 1600 + ex;
+        const wx = Math.cos(a) * d;
+        const wy = Math.sin(a) * d;
+        if (clearOf(out, wx, wy, ex) && clearOfSpawns(wx, wy, ex)) {
+          w.x = wx;
+          w.y = wy;
+          out.push(w);
+          break;
+        }
+      }
+    }
   }
   return out;
+}
+
+function exclusionOf(c: Celestial): number {
+  return exclusionFn(c);
 }

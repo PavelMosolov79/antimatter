@@ -54,6 +54,8 @@ export interface Module {
   /** For a module from the player's pool: which one, and its upgrade level (levels.ts). */
   pool?: string;
   lv?: number;
+  /** Seconds the module is knocked out for (an ion storm's lightning); it works at nothing while it lasts. */
+  stun: number;
 }
 
 export interface MassProps {
@@ -87,7 +89,7 @@ function isStructural(m: number): boolean {
 }
 
 export function moduleEfficiency(m: Module): number {
-  return m.coreAlive && m.total > 0 ? m.alive / m.total : 0;
+  return m.coreAlive && m.total > 0 && m.stun <= 0 ? m.alive / m.total : 0;
 }
 
 /** The picture of a module on a deck of a player's ship: its kind and the room inside it (cells, without the wall). */
@@ -366,6 +368,7 @@ export class ShipGrid {
       regen: opts.regen ?? 0,
       pool: opts.pool,
       lv: opts.lv,
+      stun: 0,
     };
     this.modules.push(module);
     const id = this.modules.length;

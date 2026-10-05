@@ -47,6 +47,8 @@ export class GridBody {
   radius = 0;
   isPlayer = false;
   removed = false;
+  /** Fixed in place, unmoved by anything (a rock of a field, until it is broken). */
+  anchored = false;
   splitTag = 0;
   splitTime = -1;
   throttle = 0;
