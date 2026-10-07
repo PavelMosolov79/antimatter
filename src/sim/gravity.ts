@@ -23,6 +23,8 @@ export interface Celestial {
   /** A comet's velocity, cells per second; it flies straight on. */
   vx?: number;
   vy?: number;
+  /** A field of rocks: how rich it is (0…1): more rocks and more ore (a mining arena's is high). */
+  rich?: number;
   /** The chunk of the sky it belongs to (see sim/sky.ts); the arena's own bodies have none. */
   chunk?: string;
 }

@@ -26,7 +26,7 @@ export const CREW = {
   /** The highest level. */
   levelMax: 10,
   /** Experience for a battle by the point it was fought at, before the share of the person (see xpShare). */
-  xpBattle: { combat: 40, elite: 80, boss: 120 } as Record<string, number>,
+  xpBattle: { combat: 40, elite: 80, boss: 120, mining: 25, event: 15 } as Record<string, number>,
   /** A person gets this share of it for doing nothing worth noting and this much more for a full share of work (the deed reference below). */
   xpShareMin: 0.6,
   xpShareSpan: 0.8,

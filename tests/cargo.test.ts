@@ -153,6 +153,12 @@ describe('a run through the game', () => {
   }
 
   function winFight(g: Game, index: number): void {
+    // (a mining or signal point pays nothing by itself; these tests are about the winnings of fights)
+    const point = g.run!.road.points[index];
+    if (point.kind === 'mining' || point.kind === 'event' || point.kind === 'shop') {
+      point.kind = 'combat';
+      point.enemies = ['scout'];
+    }
     g.travel(index);
     expect(g.runPhase).toBe('battle');
     g.state = 'won';
@@ -170,6 +176,8 @@ describe('a run through the game', () => {
     expect(g.wallet).toMatchObject(emptyCargo());
     g.run!.cargo.metal = 39;
     const lost = g.run!.road.points[2];
+    lost.kind = 'combat';
+    lost.enemies = ['scout'];
     g.travel(2);
     expect(g.pendingReward()!.lostMetal).toBe(rewardFor(lost).metal - 1);
     g.state = 'won';

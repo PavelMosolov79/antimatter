@@ -90,6 +90,13 @@ export const BATTLE_CSS = `
 #bh .mk.hole {--c: #ff9a2a;}
 #bh .mk.wreck {--c: var(--amber);}
 #bh .mk.gate {--c: var(--cyan);}
+#bh .mk.beacon {--c: var(--green);}
+#bh .mk.foeidle {--c: #c98a84;}
+#bh .mk.trail {--c: var(--amber);}
+#bh .mk.trail .core {border-style: dashed;}
+#bh .mk.crate {--c: var(--violet);}
+#bh .mk.foeexit {--c: var(--red);}
+#bh .mk.foeexit .d {width: calc(30 * var(--u)); margin-left: calc(-15 * var(--u));}
 #bh .mk.rocks {--c: #b9ad9e;}
 #bh .mk.comet {--c: #8af0ff;}
 #bh .pill {position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); padding: calc(.7 * var(--u)) calc(1.4 * var(--u)); font: 700 calc(2.3 * var(--u))/1 var(--mono); border-radius: calc(1 * var(--u)); background: rgba(5, 8, 16, .88); border: 1px solid var(--c); color: var(--c); white-space: nowrap; display: none; pointer-events: none !important; font-variant-numeric: tabular-nums;}

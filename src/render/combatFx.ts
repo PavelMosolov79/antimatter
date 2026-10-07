@@ -47,6 +47,7 @@ const BARREL_ART: Record<WeaponType, string[]> = {
   pulse: ['.W.W.', '.W.W.', '.W.W.', 'DDDDD'],
   heavy: ['..W..', '.WWW.', '.WWW.', 'WWWWW', '.DDD.'],
   beam: ['.W.', '.W.', '.W.', 'DDD'],
+  miner: ['.W.', 'WWW', '.W.', 'DDD'],
 };
 
 const barrelTextureCache = new Map<WeaponType, Texture>();
@@ -187,6 +188,15 @@ export class CombatFx {
     for (const bm of world.beams) {
       g.moveTo(bm.x0, bm.y0).lineTo(bm.x1, bm.y1).stroke({ width: 2.4, color: bm.color, alpha: 0.28 });
       g.moveTo(bm.x0, bm.y0).lineTo(bm.x1, bm.y1).stroke({ width: 0.9, color: 0xffffff, alpha: 0.95 });
+    }
+
+    // crystals of ore
+    for (const c of world.crystals) {
+      const k = Math.max(0.25, 1 - c.age / 25);
+      const col = c.kind === 2 ? 0xe3b8ff : 0xfff0a8;
+      const s = 1.1 + 0.3 * Math.sin(time * 6 + c.x);
+      g.circle(c.x, c.y, s * 2.4).fill({ color: col, alpha: 0.14 * k });
+      g.rect(c.x - s, c.y - s, s * 2, s * 2).fill({ color: col, alpha: k });
     }
 
     const focus = world.player?.sys?.focus;

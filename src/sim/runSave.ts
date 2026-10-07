@@ -169,6 +169,7 @@ export function loadWallet(): Wallet {
     return {
       credits: Math.max(0, Number(d?.credits) || 0),
       metal: Math.max(0, Number(d?.metal) || 0),
+      ...(Number(d?.ore) > 0 ? { ore: Math.floor(Number(d?.ore)) } : {}),
       // a profile from before quanta existed starts with the starting amount
       quanta: d && d.quanta !== undefined ? Math.max(0, Number(d.quanta) || 0) : QUANTA_START,
     };

@@ -12,7 +12,7 @@ import type { World } from './world';
  */
 
 export type Severity = 'crit' | 'warn' | 'good' | 'info';
-export type DispatchIcon = 'module' | 'killed' | 'hurt' | 'fire' | 'breach' | 'shield' | 'ok' | 'energy' | 'wreck' | 'foe' | 'hull' | 'reactor';
+export type DispatchIcon = 'module' | 'killed' | 'hurt' | 'fire' | 'breach' | 'shield' | 'ok' | 'energy' | 'wreck' | 'foe' | 'hull' | 'reactor' | 'beacon' | 'ally';
 
 export interface DispatchMsg {
   id: number;
@@ -87,6 +87,11 @@ export class Dispatcher {
   private hullStep = 0;
   private energyLow = false;
   private countdown = false;
+
+  /** The game sent these enemies itself and has said so: not a new arrival for the dispatcher to announce. */
+  knownEnemy(shipId: number, name: string): void {
+    this.enemies.set(shipId, { dead: false, name });
+  }
 
   say(sev: Severity, icon: DispatchIcon, title: string, sub: string, time: number): DispatchMsg {
     const last = this.log[this.log.length - 1];

@@ -2,7 +2,7 @@
  * Marks for the objects round the ship that are off screen: each stands on the edge of a frame inside the screen,
  * in the direction of its object. Pure geometry; the screen draws what this returns.
  */
-export type MarkerKind = 'foe' | 'big' | 'hole' | 'wreck' | 'gate' | 'rocks' | 'comet' | 'hazard';
+export type MarkerKind = 'foe' | 'ally' | 'big' | 'hole' | 'wreck' | 'gate' | 'rocks' | 'comet' | 'hazard' | 'beacon' | 'foeidle' | 'trail' | 'crate' | 'foeexit';
 
 export interface MarkerObj {
   id: string;
@@ -15,6 +15,8 @@ export interface MarkerObj {
   sy: number;
   /** Distance from the ship, for the label and for choosing the nearest. */
   dist: number;
+  /** What to write under the mark instead of the distance (a rough fix: «≈1 800 кл»). */
+  label?: string;
 }
 
 export interface MarkerFrame {
@@ -59,7 +61,8 @@ export function edgePoint(f: MarkerFrame, sx: number, sy: number): { x: number; 
  */
 export function placeMarkers(objs: MarkerObj[], W: number, H: number, frame: MarkerFrame, gapAcross: number, gapAlong: number): Placed[] {
   const off = objs.filter((o) => !(o.sx > 0 && o.sx < W && o.sy > 0 && o.sy < H));
-  off.sort((a, b) => Number(b.kind === 'foe') - Number(a.kind === 'foe') || a.dist - b.dist);
+  const foe = (k: MarkerKind): number => (k === 'foe' ? 2 : k === 'foeidle' ? 1 : 0);
+  off.sort((a, b) => foe(b.kind) - foe(a.kind) || a.dist - b.dist);
   const placed: Placed[] = off.slice(0, MARKERS.max).map((obj) => ({ obj, ...edgePoint(frame, obj.sx, obj.sy) }));
   for (const edge of ['l', 'r', 't', 'b'] as const) {
     const group = placed.filter((p) => p.edge === edge);

@@ -54,9 +54,9 @@ export const ENABLED: Record<PointKind, boolean> = {
   dock: true,
   boss: true,
   gate: true,
-  mining: false,
-  event: false,
-  shop: false,
+  mining: true,
+  event: true,
+  shop: true,
 };
 
 export const SECTOR_ORDER: readonly SectorId[] = ['violet', 'green', 'ice', 'crimson', 'clear'];
@@ -72,7 +72,7 @@ function pick<T>(rng: Rng, list: readonly T[]): T {
   return list[Math.floor(rng() * list.length)];
 }
 
-function hashInt(a: number, b: number): number {
+export function hashInt(a: number, b: number): number {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35);
   h ^= h >>> 15;
   h = Math.imul(h, 0x2c1b3c6d);
@@ -228,10 +228,27 @@ export class Road {
 
 export interface Encounter {
   enemies: string[];
+  /** A ship of the player's side that stands there to be protected (a signal of distress). */
+  ally?: 'freighter';
   /** The sky behind the arena and the seed that arranges its clouds. */
   sector: SectorId;
   skySeed: number;
   celestials: Celestial[];
+}
+
+/** What a signal is, from the point's seed: wrecks to look over, or a ship in distress to protect. (Events with a choice wait for the story.) */
+export type SignalKind = 'derelict' | 'distress';
+export const SIGNAL_DISTRESS_SHARE = 0.4;
+export function signalKind(p: RoadPoint): SignalKind {
+  return (hashInt(p.seed, 311) % 1000) / 1000 < SIGNAL_DISTRESS_SHARE ? 'distress' : 'derelict';
+}
+
+/** What attacks a ship in distress: two ships, three further on the road. */
+function distressEnemies(p: RoadPoint): string[] {
+  const rng = mulberry32(hashInt(p.seed, 313));
+  const list = [rng() < 0.5 ? 'scout' : 'raider', 'raider'];
+  if (p.tier >= 4) list.push(rng() < 0.5 ? 'hunter' : 'scout');
+  return list;
 }
 
 /** What waits at a point: its enemies and the bodies of its arena, both from the point's seed. */
@@ -240,10 +257,12 @@ export function encounterFor(point: RoadPoint): Encounter {
   // Elites and the boss wait in the dangerous crimson sky, the very first fight in a quiet clear one.
   const sector: SectorId = point.kind === 'boss' || point.kind === 'elite' ? 'crimson' : point.mission === 1 ? 'clear' : point.sector;
   const hole = point.kind === 'boss' ? 'large' : undefined;
+  const distress = point.kind === 'event' && signalKind(point) === 'distress';
   return {
-    enemies: point.enemies,
+    enemies: distress ? distressEnemies(point) : point.enemies,
+    ally: distress ? 'freighter' : undefined,
     sector,
     skySeed: Math.floor(rng() * 100000),
-    celestials: buildArena(rng, sector, { hole, gentle: point.kind === 'combat' && point.mission === 1 }),
+    celestials: buildArena(rng, sector, { hole, gentle: point.kind === 'combat' && point.mission === 1, mine: point.kind === 'mining', derelict: point.kind === 'event' && !distress }),
   };
 }

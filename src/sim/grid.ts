@@ -5,7 +5,7 @@ export type ModuleKind = 'engine' | 'thruster' | 'brake' | 'turn' | 'turret' | '
 /** The five drive types (propulsion.ts): which one a thrust-producing module is. */
 export type DriveType = 'cruise' | 'impulse' | 'maneuver' | 'brake' | 'turn';
 
-export type WeaponType = 'pulse' | 'beam' | 'heavy';
+export type WeaponType = 'pulse' | 'beam' | 'heavy' | 'miner';
 
 export interface TargetRef {
   shipId: number;
@@ -24,6 +24,9 @@ export interface WeaponState {
   enabled: boolean;
   target: TargetRef | null;
   firing: boolean;
+  /** A mining beam: the rock (a body id) and the cell of ore it holds, and when it last looked for one. */
+  mine?: { body: number; cell: number };
+  mineLook?: number;
 }
 
 export interface Module {

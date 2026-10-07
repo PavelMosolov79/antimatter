@@ -1,10 +1,10 @@
 import type { GridBody } from './sim/body';
 import { doorsOnDeck, ensureRooms, roomsOnDeck, setDoorOpen, type DoorInfo, type Room } from './sim/compartments';
-import { isSolid } from './sim/gravity';
+import { isSolid, type Celestial } from './sim/gravity';
 import { crewOnDeck, spawnCrew, type Crew } from './sim/crew';
 import { shipEffects } from './sim/effects';
 import type { EnergyPriority } from './sim/systems';
-import { ENEMIES, SHIPS, buildFreighter, shipHoldCap } from './sim/ships';
+import { ENEMIES, SHIPS, buildFreighter, buildOutpost, shipDeckGeo, shipHoldCap } from './sim/ships';
 import type { ShipGrid } from './sim/grid';
 import { restAfterBattle } from './sim/run';
 import { damageOf, quantaFor, quote, wreckOf, type Damage, type Quote } from './sim/repair';
@@ -13,22 +13,53 @@ import { clearLayouts, savedLayout } from './sim/layoutStore';
 import { CREW } from './sim/crewConfig';
 import { ROLE_NAMES, abandonShip, emptyRoster, makeMember, ROLES, applyBattle, assign, autoFill, dutyOf, healPrice, healSpeedUpPrice, hire, hirePrice, inBarracks, loadRoster, postsOf, reconcile, refreshCandidates, release, settleHealing, startHeal, cure, staffShip, storeRoster, unassign, type DutyCrew, type ReportRow, type Roster } from './sim/roster';
 import { entryOf, loadGarage, settle, speedUp, standing, storeGarage, type Garage, type RepairJob } from './sim/garage';
-import { ENABLED, Road, encounterFor, type RoadPoint } from './sim/road';
-import { addToHold, deposit, emptyCargo, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
+import { ENABLED, Road, encounterFor, hashInt, signalKind, type RoadPoint } from './sim/road';
+import { addOre, addToHold, deposit, emptyCargo, holdUsed, previewAdd, rewardFor, type Cargo, type HoldResult } from './sim/cargo';
+import { MINING } from './sim/mining';
 import { brokenModules, captureShip, loadRun, loadWallet, restoreShip, storeRun, storeWallet, type SavedRun, type SavedShip, type Wallet } from './sim/runSave';
 import { mulberry32 } from './sim/rng';
+import { AI_SENSE, engaged, setPatrol } from './sim/ai';
+
+/** Where the enemies of a fight patrol: this far from the start (the flagship further), round a loop this wide, clear of big things by this much. Not balanced. */
+const PATROL = { dist: 1200, bossDist: 1400, distSpread: 400, loop: 300, clear: 260 };
+/**
+ * An escort: the freighter lies this far off; once its attackers are gone it heads for the beacon, but only while
+ * the player is within `wait` of it; halfway there one more pair of enemies comes at it, from this far. The scanner
+ * shows a patrol not yet found this roughly (cells off) and finds it within this share of its sensing radius. The
+ * container after a fight lies this far from where the patrol was. Not balanced.
+ */
+const ESCORT = { siteDist: 800, wait: 450, ambushAt: 0.5, ambushFrom: 520 };
+const SCAN = { trailOff: 260, findShare: 1.4, crateOff: 140 };
+/**
+ * A convoy starts this far off to one side of the way and jumps out this far off to the other, cruising (a point this
+ * far ahead each think) until the alarm; a freighter this near its beacon is gone; each one destroyed leaves a
+ * container. An outpost sees this far; its guard goes round it this wide; its store holds this much. The ace has
+ * this much more shield and sees this much further; it hunts after this long or this share of the way. Not balanced.
+ */
+const CONVOY = { startDist: 1300, exitDist: 2600, side: 0.55, cruise: 45, exitR: 90, lootCredits: 30, lootMetal: 10 };
+const OUTPOST = { sense: 700, loop: 420, lootCredits: 60, lootMetal: 20 };
+/** An ambush in the debris of the way springs when the player comes this near. */
+const CORRIDOR_AMBUSH = { reach: 300 };
+const ACE = { name: 'Ас «Вега»', shield: 1.8, sense: 1.3, huntAfter: 25, huntAtShare: 0.3, pingEvery: 2 };
 import { SECTOR_IDS, buildArena, type SectorId } from './sim/space';
-import { shipRef } from './sim/weapons';
+import { hullChunk, planCorridor } from './sim/corridor';
+import { makeRock } from './sim/rocks';
+import { beaconOpen, fightVariant, mainCount, onBeacon, type MissionFacts, planMission, updateMission, type MissionPlan } from './sim/mission';
+import { attackOrder, inspectOrder, mineOrder, pickAt, pickEnemy, stepOrder, type Order, type Pick } from './sim/orders';
 import type { Module, TargetRef, WeaponState } from './sim/grid';
 import { World, type WorldNote } from './sim/world';
 import { Dispatcher, type DispatchIcon, type Severity } from './sim/dispatch';
+import { crewOffers, moduleOffers, type CrewOffer, type ModuleOffer, type Offer } from './sim/trader';
+import { cloneLayout } from './sim/layout';
+import { saveLayout } from './sim/layoutStore';
+import { currentLayout } from './sim/interior';
 import { Scene } from './render/scene';
 import { OUTER_VIEW } from './render/shipView';
 
 export type Tool = 'fly' | 'crater';
 export type BattleState = 'playing' | 'won' | 'lost';
 export type Mode = 'sandbox' | 'run';
-export type RunPhase = 'dock' | 'roaddock' | 'map' | 'battle' | 'over';
+export type RunPhase = 'dock' | 'roaddock' | 'map' | 'battle' | 'over' | 'trade';
 export type RunOutcome = 'defeat';
 
 /** The result of a won battle for the people: who got what, who was wounded, who died. */
@@ -115,6 +146,10 @@ export class Game {
   world: World;
   readonly scene: Scene;
   tool: Tool = 'fly';
+  /** The standing order from a click: attack, mine, look a wreck over (sim/orders.ts). */
+  order: Order | null = null;
+  /** What the pointer is over (set by the input), for the ring round it. */
+  hover: Pick | null = null;
   crater = { radius: 5, damage: 60, pen: 0.6 };
   paused = false;
   slowMo = false;
@@ -786,8 +821,12 @@ export class Game {
     const run = this.run;
     if (!run || !this.canTravel(index)) return;
     const point = run.road.points[index];
-    if (point.kind === 'combat' || point.kind === 'elite' || point.kind === 'boss') {
+    if (point.kind === 'combat' || point.kind === 'elite' || point.kind === 'boss' || point.kind === 'mining' || point.kind === 'event') {
       this.startBattle(point);
+      return;
+    }
+    if (point.kind === 'shop') {
+      this.enterTrade(point);
       return;
     }
     run.cleared = index;
@@ -811,6 +850,8 @@ export class Game {
     if (arriving) {
       run.deposited = deposit(run.cargo, this.wallet);
       storeWallet(this.wallet);
+      const dep = run.deposited as Cargo & { quanta?: number };
+      if (dep.ore) this.dockNotes.push(dep.quanta ? `Руда антиматерии сдана: ${dep.ore} шт., +${dep.quanta} квант.` : `Руда антиматерии сдана: ${dep.ore} шт. (до кванта не хватило, остаток сохранён).`);
       if (run.ship) {
         restAfterBattle(run.ship);
         run.diff = captureShip(run.ship, run.blueprint);
@@ -859,7 +900,7 @@ export class Game {
   /** What winning the fight in progress would put in the hold, and what wouldn't fit. */
   pendingReward(): HoldResult | null {
     const run = this.run;
-    if (!run || !run.fighting) return null;
+    if (!run || !run.fighting || this.retreated || this.plan?.failed) return null;
     return previewAdd(run.cargo, shipHoldCap(run.shipId), rewardFor(run.fighting));
   }
 
@@ -877,22 +918,529 @@ export class Game {
     this.world.skySeed = enc.skySeed;
     if (run.ship) this.world.adoptPlayer(run.ship, 0, 0, 0);
     else run.ship = this.world.spawnShip(spec.build(), 0, 0, 0, { name: spec.label, team: 0, player: true, duty: this.duty(spec.id) });
-    enc.enemies.forEach((id, i) => {
-      const es = ENEMIES.find((e) => e.id === id)!;
-      const spread = enc.enemies.length === 1 ? 0 : (i / (enc.enemies.length - 1) - 0.5) * 1.5;
-      const a = -Math.PI / 2 + spread;
-      const dist = id === 'boss' ? 520 : 380;
-      const ex = Math.cos(a) * dist;
-      const ey = Math.sin(a) * dist;
-      this.world.spawnShip(es.build(), ex, ey, Math.atan2(-ex, ey), { name: es.label, team: 1, ai: es.ai });
-    });
+    this.mission = { kind: point.kind, tier: point.tier, first: -1, next: -1, wave: 0, warned: false, fullSaid: false, signal: point.kind === 'event' ? signalKind(point) : undefined };
+    const fight = point.kind === 'combat' || point.kind === 'elite' || point.kind === 'boss';
+    this.convoy = null;
+    this.outpost = null;
+    this.ace = null;
+    const variant = fightVariant(point);
+    if (variant === 'convoy') this.spawnConvoy(point, enc.enemies, enc.celestials);
+    else if (variant === 'outpost') this.spawnOutpost(point, enc.enemies, enc.celestials);
+    else if (variant === 'ace') this.spawnAce(point, enc.enemies, enc.celestials);
+    else if (fight) this.spawnPatrol(point, enc.enemies, enc.celestials);
+    else if (enc.ally) this.spawnDistress(point, enc.enemies, enc.celestials);
+    else
+      enc.enemies.forEach((id, i) => {
+        const es = ENEMIES.find((e) => e.id === id)!;
+        const spread = enc.enemies.length === 1 ? 0 : (i / (enc.enemies.length - 1) - 0.5) * 1.5;
+        const a = -Math.PI / 2 + spread;
+        const dist = id === 'boss' ? 520 : 380;
+        const ex = Math.cos(a) * dist;
+        const ey = Math.sin(a) * dist;
+        this.world.spawnShip(es.build(), ex, ey, Math.atan2(-ex, ey), { name: es.label, team: 1, ai: es.ai });
+      });
     run.crewIds = (run.ship?.sys?.crew ?? []).flatMap((c) => (c.memberId === null ? [] : [c.memberId]));
+    this.beginPlan(point, enc.celestials);
+    this.buildCorridor(point, enc.celestials);
     run.fighting = point;
     this.runPhase = 'battle';
     this.state = 'playing';
     this.selectedWeapon = null;
     this.scene.reset(this.world);
     this.acc = 0;
+  }
+
+  /** The frame of the mission (sim/mission.ts): its tasks and beacon, and the facts it is told; a fresh briefing stops the world. */
+  plan: MissionPlan | null = null;
+  /** The player left before the tasks were done: no reward for the mission, the hold stays. */
+  retreated = false;
+  /** General Stone's briefing is on the screen (the world stands still while it is, the first time). */
+  briefing: 'intro' | 'again' | null = null;
+  private seenEnemies = new Set<number>();
+  private oreGot = { all: 0, violet: 0 };
+  private inspected = false;
+  private taskSaid = new Map<number, string>();
+  private beaconSaid = false;
+  private crateGot = false;
+  private escortWaitSaid = false;
+  private escortAmbush = false;
+
+  private beginPlan(point: RoadPoint, celestials: Celestial[]): void {
+    const w = this.world;
+    const foes = w.bodies.filter((b) => b.kind === 'ship' && b.sys?.team === 1);
+    let site: { x: number; y: number } | null = null;
+    if (foes.length && (point.kind === 'combat' || point.kind === 'elite' || point.kind === 'boss')) site = { x: foes.reduce((n, b) => n + b.x, 0) / foes.length, y: foes.reduce((n, b) => n + b.y, 0) / foes.length };
+    else if (point.kind === 'mining') site = celestials.find((c) => c.kind === 'asteroids' && c.rich !== undefined) ?? null;
+    else if (this.mission?.ally) site = { x: this.mission.ally.x, y: this.mission.ally.y };
+    else if (point.kind === 'event') site = celestials.filter((c) => c.kind === 'wreck').sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0] ?? null;
+    // the ore asked for is never more than most of the hold can take
+    const cap = this.run ? shipHoldCap(this.run.shipId) : 999;
+    this.plan = planMission(point, celestials, site ? { x: site.x, y: site.y } : null, this.mission?.signal as 'derelict' | 'distress' | undefined, Math.floor(cap * 0.6));
+    this.retreated = false;
+    this.seenEnemies = new Set(foes.map((b) => b.shipId));
+    this.oreGot = { all: 0, violet: 0 };
+    this.inspected = false;
+    this.taskSaid = new Map(this.plan.tasks.map((t, i) => [i, t.state]));
+    this.beaconSaid = false;
+    this.crateGot = false;
+    this.escortWaitSaid = false;
+    this.escortAmbush = false;
+    // the scanner's rough fix on the patrol, and a container of gear where it patrols
+    const rng = mulberry32(hashInt(point.seed, 529));
+    if (this.plan.tasks.some((t) => t.kind === 'find') && site) {
+      const a = rng() * Math.PI * 2;
+      const r = rng() * SCAN.trailOff;
+      this.plan.trail = { x: site.x + Math.cos(a) * r, y: site.y + Math.sin(a) * r };
+    }
+    if (fightVariant(point) === 'intercept' && this.plan.tasks.some((t) => t.kind === 'crate') && site) {
+      const a = rng() * Math.PI * 2;
+      w.loot = [{ id: 1, x: site.x + Math.cos(a) * SCAN.crateOff, y: site.y + Math.sin(a) * SCAN.crateOff, credits: 20 + 5 * point.tier, metal: 6 + 2 * point.tier, task: true }];
+    } else w.loot = [];
+    this.briefing = 'intro';
+    this.paused = true;
+  }
+
+  /** The briefing is closed: the first time, the world starts. */
+  endBriefing(): void {
+    if (this.briefing === 'intro') this.paused = false;
+    this.briefing = null;
+  }
+
+  /** The button «Цель»: General Stone's words again, with the world going on. */
+  showBriefing(): void {
+    if (this.plan && this.runPhase === 'battle' && this.state === 'playing') this.briefing = 'again';
+  }
+
+  /** Tells the mission what happened this tick; says what was done; ends the mission on the beacon. */
+  private stepPlan(): void {
+    const plan = this.plan;
+    if (!plan || this.mode !== 'run' || this.runPhase !== 'battle' || this.state !== 'playing') return;
+    const w = this.world;
+    // the task counts the enemies the point began with, not those that came later (ambushes, waves)
+    let killed = 0;
+    for (const id of this.seenEnemies) {
+      const b = w.findShip(id);
+      if (!b || b.removed || !b.sys || b.sys.dead) killed++;
+    }
+    const ally = this.allyShip();
+    const p = w.player;
+    const allyAlive = this.mission?.ally ? !!ally : null;
+    // found: the patrol has seen the ship, or the ship is within reach of the scanner of one of them, or one is gone
+    let found = killed > 0;
+    let reached = false;
+    if (p) {
+      for (const b of w.bodies) {
+        const ai = b.sys?.ai;
+        if (b.removed || !ai || b.sys!.dead || b.sys!.team !== 1) continue;
+        if (ai.aware !== 'patrol' || Math.hypot(b.x - p.x, b.y - p.y) < ai.sense * SCAN.findShare) found = true;
+      }
+      const field = plan.site && this.run?.fighting?.kind === 'mining' ? w.celestials.find((c) => c.kind === 'asteroids' && c.rich !== undefined) : null;
+      if (field) reached = Math.hypot(p.x - field.x, p.y - field.y) < field.radius + p.radius;
+      if (ally) reached = Math.hypot(p.x - ally.x, p.y - ally.y) < ESCORT.wait + 150;
+    }
+    this.stepEscort(plan);
+    this.stepVariant(plan);
+    const finished = updateMission(plan, {
+      ...this.variantFacts(),
+      enemies: this.seenEnemies.size,
+      killed,
+      ore: this.oreGot.all,
+      antimatter: this.oreGot.violet,
+      inspected: this.inspected,
+      found,
+      reached,
+      crate: this.crateGot,
+      allyAlive,
+      allyHull: ally?.sys ? ally.grid.cells / Math.max(1, ally.sys.cellsMax) : undefined,
+      escorted: !!ally && allyAlive === true && Math.hypot(ally.x - plan.beacon.x, ally.y - plan.beacon.y) <= plan.beacon.r + ally.radius,
+      ship: p ? { x: p.x, y: p.y, r: p.radius } : null,
+    });
+    plan.tasks.forEach((t, i) => {
+      const was = this.taskSaid.get(i);
+      if (was === t.state) return;
+      this.taskSaid.set(i, t.state);
+      if (t.state === 'done' && t.kind !== 'beacon') this.say('good', 'ok', `Задача выполнена: ${t.text}`, t.opt ? 'дополнительная' : mainCount(plan).done < mainCount(plan).all - 1 ? '' : 'маяк прыжка открыт, курс на маяк');
+      else if (t.state === 'failed') this.say('warn', 'killed', `Задача провалена: ${t.text}`, 'дополнительная');
+    });
+    // on the beacon too early: say once what is missing
+    const on = !!p && onBeacon(plan, { x: p.x, y: p.y, r: p.radius });
+    if (on && !finished && !plan.done && !this.beaconSaid) {
+      this.beaconSaid = true;
+      const next = plan.tasks.find((t) => !t.opt && t.state === 'active');
+      this.say('warn', 'beacon', 'Маяк закрыт', next ? `сначала: ${next.text}` : 'задание не выполнено');
+    }
+    if (!on) this.beaconSaid = false;
+    if (finished && (p?.sys?.countdown ?? -1) < 0) {
+      this.say('good', 'beacon', 'Миссия выполнена', 'прыжок с маяка');
+      this.state = 'won';
+    }
+  }
+
+  /**
+   * The enemies of a fight are not waiting at the start any more: they patrol round a place further on (a loop
+   * of four points; the flagship holds its post in the middle), one group alarmed together, and see the player
+   * only within their sensing radius (sim/ai.ts).
+   */
+  private spawnPatrol(point: RoadPoint, ids: string[], celestials: Celestial[]): void {
+    const rng = mulberry32(hashInt(point.seed, 521));
+    const boss = ids.includes('boss');
+    const dist = (boss ? PATROL.bossDist : PATROL.dist) + rng() * PATROL.distSpread;
+    let site = { x: 0, y: -dist };
+    const base = -Math.PI / 2 + (rng() - 0.5) * 1.2;
+    for (let k = 0; k < 24; k++) {
+      const a = base + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.25;
+      const c = { x: Math.cos(a) * dist, y: Math.sin(a) * dist };
+      const clear = celestials.every((o) => {
+        const big = isSolid(o) || o.kind === 'asteroids' || o.kind === 'blackhole' || o.kind === 'wreck';
+        return !big || Math.hypot(o.x - c.x, o.y - c.y) > o.radius + PATROL.clear;
+      });
+      site = c;
+      if (clear) break;
+    }
+    const turn = rng() * Math.PI * 2;
+    const route = [0, 1, 2, 3].map((i) => ({ x: site.x + Math.cos(turn + (i * Math.PI) / 2) * PATROL.loop, y: site.y + Math.sin(turn + (i * Math.PI) / 2) * PATROL.loop }));
+    ids.forEach((id, i) => {
+      const es = ENEMIES.find((e) => e.id === id)!;
+      const a = turn + (i / Math.max(1, ids.length)) * Math.PI * 2;
+      const r = id === 'boss' ? 0 : 90 + 30 * i;
+      const x = site.x + Math.cos(a) * r;
+      const y = site.y + Math.sin(a) * r;
+      const ship = this.world.spawnShip(es.build(), x, y, Math.atan2(-x, y), { name: es.label, team: 1, ai: es.ai });
+      if (ship.sys?.ai) setPatrol(ship.sys.ai, 1, id === 'boss' ? null : route, { x: site.x, y: site.y }, id === 'boss' ? AI_SENSE.capital : undefined);
+    });
+  }
+
+  /** A place this far from the start, roughly the given way, clear of anything big by `clear` cells. */
+  private clearSpot(celestials: Celestial[], dist: number, base: number, clear: number): { x: number; y: number } {
+    let spot = { x: Math.cos(base) * dist, y: Math.sin(base) * dist };
+    for (let k = 0; k < 24; k++) {
+      const a = base + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.25;
+      const c = { x: Math.cos(a) * dist, y: Math.sin(a) * dist };
+      spot = c;
+      const ok = celestials.every((o) => {
+        const big = isSolid(o) || o.kind === 'asteroids' || o.kind === 'blackhole' || o.kind === 'wreck';
+        return !big || Math.hypot(o.x - c.x, o.y - c.y) > o.radius + clear;
+      });
+      if (ok) break;
+    }
+    return spot;
+  }
+
+  /** A signal of distress: the freighter some way off, hit hard, with its attackers round it (they fight at once). */
+  private spawnDistress(point: RoadPoint, ids: string[], celestials: Celestial[]): void {
+    const rng = mulberry32(hashInt(point.seed, 523));
+    const site = this.clearSpot(celestials, ESCORT.siteDist + rng() * 200, -Math.PI / 2 + (rng() - 0.5) * 1.4, 220);
+    const a = this.world.spawnShip(buildFreighter(), site.x, site.y, 0, { name: 'Грузовик', team: 0 });
+    for (let k = 0; k < 4; k++) this.world.explode(a.x + (rng() - 0.5) * 14, a.y + (rng() - 0.5) * 22, 3 + rng() * 2, 120, 0.8);
+    if (this.mission) this.mission.ally = a;
+    ids.forEach((id, i) => {
+      const es = ENEMIES.find((e) => e.id === id)!;
+      const ang = rng() * Math.PI * 2 + i;
+      const x = site.x + Math.cos(ang) * 230;
+      const y = site.y + Math.sin(ang) * 230;
+      const ship = this.world.spawnShip(es.build(), x, y, Math.atan2(site.x - x, -(site.y - y)), { name: es.label, team: 1, ai: es.ai });
+      this.dispatcher.knownEnemy(ship.shipId, es.label);
+    });
+  }
+
+  /** A convoy: its freighters (ship ids), where they jump out, which got away, which are gone, where each was last. */
+  convoy: { ids: number[]; exit: { x: number; y: number }; escaped: Set<number>; destroyed: Set<number>; last: Map<number, { x: number; y: number }>; fleeing: boolean } | null = null;
+  /** An outpost: the station's ship id, whether its store was opened. */
+  outpost: { id: number; opened: boolean; turrets: number } | null = null;
+  /** The ace's hunt: the ace and its wingmen (ship ids), whether they hunt the player now, and when they next look. */
+  ace: { id: number; wing: number[]; hunting: boolean; ping: number } | null = null;
+
+  /** A convoy: two freighters and their guard crossing the sector to their own beacon, slowly, until the alarm. */
+  private spawnConvoy(point: RoadPoint, ids: string[], celestials: Celestial[]): void {
+    const rng = mulberry32(hashInt(point.seed, 541));
+    const base = -Math.PI / 2 + (rng() - 0.5) * 1.0;
+    const start = this.clearSpot(celestials, CONVOY.startDist, base - CONVOY.side, PATROL.clear);
+    const exit = this.clearSpot(celestials, CONVOY.exitDist, base + CONVOY.side, PATROL.clear);
+    const dir = Math.atan2(exit.y - start.y, exit.x - start.x);
+    const head = Math.atan2(Math.cos(dir), -Math.sin(dir));
+    const fids: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const x = start.x - Math.cos(dir) * 90 * i;
+      const y = start.y - Math.sin(dir) * 90 * i;
+      const f = this.world.spawnShip(buildFreighter(), x, y, head, { name: 'Грузовик конвоя', team: 1 });
+      fids.push(f.shipId);
+    }
+    ids.forEach((id, i) => {
+      const es = ENEMIES.find((e) => e.id === id)!;
+      const side = i % 2 ? 1 : -1;
+      const x = start.x + Math.cos(dir + side * 1.4) * (110 + 30 * i);
+      const y = start.y + Math.sin(dir + side * 1.4) * (110 + 30 * i);
+      const ship = this.world.spawnShip(es.build(), x, y, head, { name: es.label, team: 1, ai: es.ai });
+      if (ship.sys?.ai) setPatrol(ship.sys.ai, 1, null, { x: start.x, y: start.y });
+    });
+    this.convoy = { ids: fids, exit, escaped: new Set(), destroyed: new Set(), last: new Map(), fleeing: false };
+  }
+
+  /** An outpost: the station anchored further on with its guard going round it; it sees far. */
+  private spawnOutpost(point: RoadPoint, ids: string[], celestials: Celestial[]): void {
+    const rng = mulberry32(hashInt(point.seed, 547));
+    const site = this.clearSpot(celestials, PATROL.dist + rng() * PATROL.distSpread, -Math.PI / 2 + (rng() - 0.5) * 1.2, PATROL.clear + 80);
+    const st = this.world.spawnShip(buildOutpost(), site.x, site.y, rng() * Math.PI * 2, { name: 'Аванпост', team: 1, ai: 'scout' });
+    st.anchored = true;
+    if (st.sys?.ai) setPatrol(st.sys.ai, 1, null, { x: site.x, y: site.y }, OUTPOST.sense);
+    const turn = rng() * Math.PI * 2;
+    const route = [0, 1, 2, 3].map((i) => ({ x: site.x + Math.cos(turn + (i * Math.PI) / 2) * OUTPOST.loop, y: site.y + Math.sin(turn + (i * Math.PI) / 2) * OUTPOST.loop }));
+    // a smaller guard than the fight would have: the station is the fight
+    ids.slice(0, 2).forEach((id, i) => {
+      const es = ENEMIES.find((e) => e.id === id)!;
+      const r = route[i * 2];
+      const ship = this.world.spawnShip(es.build(), r.x, r.y, 0, { name: es.label, team: 1, ai: es.ai });
+      if (ship.sys?.ai) setPatrol(ship.sys.ai, 1, route, { x: site.x, y: site.y });
+    });
+    this.outpost = { id: st.shipId, opened: false, turrets: st.grid.modules.filter((m) => m.kind === 'turret').length };
+  }
+
+  /** The ace and its wingmen: a patrol at first, then they come hunting for the player. */
+  private spawnAce(point: RoadPoint, ids: string[], celestials: Celestial[]): void {
+    const rng = mulberry32(hashInt(point.seed, 557));
+    const site = this.clearSpot(celestials, PATROL.dist + 300 + rng() * PATROL.distSpread, -Math.PI / 2 + (rng() - 0.5) * 1.6, PATROL.clear);
+    const turn = rng() * Math.PI * 2;
+    const route = [0, 1, 2, 3].map((i) => ({ x: site.x + Math.cos(turn + (i * Math.PI) / 2) * PATROL.loop, y: site.y + Math.sin(turn + (i * Math.PI) / 2) * PATROL.loop }));
+    const order = ids.includes('hunter') ? ['hunter', ...ids.filter((_, k) => k !== ids.indexOf('hunter'))] : ids;
+    let aceId = -1;
+    const wing: number[] = [];
+    order.forEach((id, i) => {
+      const es = ENEMIES.find((e) => e.id === id)!;
+      const g = es.build();
+      // the ace: a stronger shield and its own name
+      if (i === 0) for (const m of g.modules) if (m.kind === 'shield') m.shieldMax *= ACE.shield;
+      const a = turn + i * 0.9;
+      const ship = this.world.spawnShip(g, site.x + Math.cos(a) * 80 * i, site.y + Math.sin(a) * 80 * i, 0, { name: i === 0 ? ACE.name : 'Ведомый', team: 1, ai: es.ai });
+      if (ship.sys?.ai) setPatrol(ship.sys.ai, 1, route, { x: site.x, y: site.y }, i === 0 ? AI_SENSE.radius.hunter * ACE.sense : undefined);
+      if (i === 0) aceId = ship.shipId;
+      else wing.push(ship.shipId);
+    });
+    this.ace = { id: aceId, wing, hunting: false, ping: 0 };
+  }
+
+  /** The convoy, the outpost and the ace as the mission goes: drive the freighters, open the store, send the ace hunting. */
+  private stepVariant(plan: MissionPlan): void {
+    const w = this.world;
+    const p = w.player;
+    const c = this.convoy;
+    if (c) {
+      // the alarm makes the freighters run for their beacon at full speed
+      if (!c.fleeing && w.bodies.some((b) => b.sys?.ai?.group === 1 && !b.sys.dead && engaged(b.sys.ai))) {
+        c.fleeing = true;
+        this.say('warn', 'foe', 'Конвой побежал', 'грузовики идут к своему маяку на полной скорости');
+      }
+      let lead: GridBody | null = null;
+      for (const id of c.ids) {
+        if (c.escaped.has(id) || c.destroyed.has(id)) continue;
+        const f = w.findShip(id);
+        if (!f) {
+          c.destroyed.add(id);
+          const at = c.last.get(id);
+          if (at) w.loot.push({ id: 100 + id, x: at.x, y: at.y, credits: CONVOY.lootCredits + 6 * plan.number, metal: CONVOY.lootMetal + 3 * plan.number, task: true });
+          continue;
+        }
+        c.last.set(id, { x: f.x, y: f.y });
+        lead ??= f;
+        const dx = c.exit.x - f.x;
+        const dy = c.exit.y - f.y;
+        const d = Math.hypot(dx, dy);
+        if (d < CONVOY.exitR) {
+          c.escaped.add(id);
+          w.removeBody(f);
+          this.say('crit', 'foe', 'Грузовик ушёл в прыжок', 'его груз потерян');
+          continue;
+        }
+        const step = c.fleeing ? d : Math.min(d, CONVOY.cruise);
+        f.sys!.nav = { target: { x: f.x + (dx / d) * step, y: f.y + (dy / d) * step }, face: null };
+      }
+      // the guard keeps with the first freighter while nobody has seen anything
+      if (lead) for (const b of w.bodies) if (b.sys?.ai?.group === 1 && !engaged(b.sys.ai)) b.sys.ai.post = { x: lead.x, y: lead.y };
+    }
+    const o = this.outpost;
+    if (o && !o.opened) {
+      const st = w.findShip(o.id);
+      const live = st ? st.grid.modules.filter((m) => m.kind === 'turret' && m.alive > 0 && m.coreAlive).length : 0;
+      if (live === 0) {
+        o.opened = true;
+        const at = st ?? { x: plan.site?.x ?? 0, y: plan.site?.y ?? 0, radius: 30 };
+        const a = w.rng() * Math.PI * 2;
+        w.loot.push({ id: 200, x: at.x + Math.cos(a) * (at.radius + 40), y: at.y + Math.sin(a) * (at.radius + 40), credits: OUTPOST.lootCredits + 8 * plan.number, metal: OUTPOST.lootMetal + 4 * plan.number, task: true });
+        this.say('good', 'wreck', 'Склад станции вскрыт', 'контейнер рядом с аванпостом');
+      }
+    }
+    const a = this.ace;
+    if (a && p) {
+      const progress = 1 - Math.hypot(p.x - plan.beacon.x, p.y - plan.beacon.y) / Math.max(1, plan.startDist);
+      if (!a.hunting && (w.time > ACE.huntAfter || progress > ACE.huntAtShare)) {
+        a.hunting = true;
+        this.say('crit', 'foe', 'Вас ищут', 'ас и ведомые идут на вас');
+      }
+      if (a.hunting && w.time >= a.ping) {
+        a.ping = w.time + ACE.pingEvery;
+        for (const b of w.bodies) {
+          const ai = b.sys?.ai;
+          if (!ai || b.sys!.dead || ai.group !== 1 || engaged(ai)) continue;
+          ai.aware = 'search';
+          ai.lastSeen = { x: p.x, y: p.y };
+          ai.searchUntil = w.time + ACE.pingEvery + 1;
+        }
+      }
+    }
+  }
+
+  /** What the convoy, the outpost and the ace tell the mission. */
+  private variantFacts(): Partial<MissionFacts> {
+    const w = this.world;
+    const out: Partial<MissionFacts> = {};
+    if (this.convoy) out.convoy = { total: this.convoy.ids.length, destroyed: this.convoy.destroyed.size, escaped: this.convoy.escaped.size };
+    if (this.outpost) {
+      const st = w.findShip(this.outpost.id);
+      const mods = st ? st.grid.modules : [];
+      const dead = (m: { alive: number; coreAlive: boolean }) => m.alive <= 0 || !m.coreAlive;
+      const shield = mods.find((m) => m.kind === 'shield');
+      out.outpost = {
+        shieldDown: !st || !shield || dead(shield),
+        turrets: this.outpost.turrets,
+        turretsDead: st ? this.outpost.turrets - mods.filter((m) => m.kind === 'turret' && !dead(m)).length : this.outpost.turrets,
+      };
+    }
+    if (this.ace) {
+      const gone = (id: number) => !w.findShip(id);
+      out.ace = { dead: gone(this.ace.id), wing: this.ace.wing.length, wingDead: this.ace.wing.filter(gone).length };
+    }
+    return out;
+  }
+
+  private awareSaid = new Map<number, string>();
+
+  /**
+   * The freighter of an escort: still while its attackers are about; then on to the beacon, but only with the
+   * player near it (it waits otherwise); halfway there one more pair of enemies comes for it.
+   */
+  private stepEscort(plan: MissionPlan): void {
+    const ally = this.allyShip();
+    const task = plan.tasks.find((t) => t.kind === 'escort');
+    if (!ally || !task || ally.removed || !ally.sys || ally.sys.dead) return;
+    const p = this.world.player;
+    if (task.state !== 'active' || !p) {
+      ally.sys.nav = { target: null, face: null };
+      return;
+    }
+    const near = Math.hypot(p.x - ally.x, p.y - ally.y) < ESCORT.wait;
+    if (near) {
+      ally.sys.nav = { target: { x: plan.beacon.x, y: plan.beacon.y }, face: null };
+      this.escortWaitSaid = false;
+    } else {
+      ally.sys.nav = { target: { x: ally.x, y: ally.y }, face: null };
+      if (!this.escortWaitSaid) {
+        this.escortWaitSaid = true;
+        this.say('warn', 'ally', 'Грузовик ждёт вас', 'без прикрытия он не пойдёт: подлетите ближе');
+      }
+    }
+    const site = plan.site;
+    const total = site ? Math.hypot(site.x - plan.beacon.x, site.y - plan.beacon.y) : 1;
+    const left = Math.hypot(ally.x - plan.beacon.x, ally.y - plan.beacon.y);
+    if (!this.escortAmbush && site && left < total * (1 - ESCORT.ambushAt)) {
+      this.escortAmbush = true;
+      const base = this.world.rng() * Math.PI * 2;
+      for (let i = 0; i < 2; i++) {
+        const id = i === 0 ? 'raider' : 'scout';
+        const es = ENEMIES.find((e) => e.id === id)!;
+        const a = base + i * 0.6;
+        const x = ally.x + Math.cos(a) * ESCORT.ambushFrom;
+        const y = ally.y + Math.sin(a) * ESCORT.ambushFrom;
+        const ship = this.world.spawnShip(es.build(), x, y, Math.atan2(ally.x - x, -(ally.y - y)), { name: es.label, team: 1, ai: es.ai });
+        this.dispatcher.knownEnemy(ship.shipId, es.label);
+      }
+      this.say('crit', 'foe', 'Засада на пути грузовика', 'два корабля, защитите его');
+    }
+  }
+
+  /** The ship to protect, as it is now: a hull that broke in two goes on in its main piece (found by its ship id). */
+  private allyShip(mission = this.mission): GridBody | null {
+    const a = mission?.ally;
+    if (!a) return null;
+    if (!a.removed && a.sys && !a.sys.dead) return a;
+    const now = this.world.findShip(a.shipId);
+    if (now && mission) mission.ally = now;
+    return now;
+  }
+
+  /** The places of the way with an ambush waiting in them (sprung once the player comes near). */
+  private ambushes: Array<{ x: number; y: number; sprung: boolean }> = [];
+  /** The buoys marking the way, for the scene. */
+  buoys: Array<{ x: number; y: number; red: boolean }> = [];
+
+  /** Fills the way from the start to the beacon (sim/corridor.ts): rocks, pieces of hull, containers, mines, buoys. */
+  private buildCorridor(point: RoadPoint, celestials: Celestial[]): void {
+    const plan = this.plan;
+    const w = this.world;
+    this.ambushes = [];
+    this.buoys = [];
+    w.mines = [];
+    if (!plan) return;
+    const c = planCorridor(point.seed, point.tier, { x: 0, y: 0 }, plan.beacon, plan.site, celestials);
+    const rng = mulberry32(hashInt(point.seed, 563));
+    const drift = () => (rng() - 0.5) * 4;
+    for (const r of c.rocks) {
+      const b = w.spawn(makeRock(r.seed, r.r, r.ore, 0.25), r.x, r.y, rng() * Math.PI * 2, 'debris');
+      b.vx = drift();
+      b.vy = drift();
+      b.w = (rng() - 0.5) * 0.2;
+    }
+    for (const k of c.chunks) {
+      const b = w.spawn(hullChunk(k.seed, k.size), k.x, k.y, rng() * Math.PI * 2, 'debris');
+      b.vx = drift();
+      b.vy = drift();
+      b.w = (rng() - 0.5) * 0.3;
+    }
+    c.loot.forEach((l, i) => w.loot.push({ id: 300 + i, ...l }));
+    w.mines = c.mines.map((m) => ({ ...m }));
+    this.ambushes = c.places.filter((p) => p.ambush).map((p) => ({ x: p.x, y: p.y, sprung: false }));
+    this.buoys = c.buoys;
+  }
+
+  /** An ambush in the debris of the way: two ships come out of it as the player comes near. */
+  private stepAmbush(): void {
+    const p = this.world.player;
+    if (!p) return;
+    for (const a of this.ambushes) {
+      if (a.sprung || Math.hypot(p.x - a.x, p.y - a.y) > CORRIDOR_AMBUSH.reach) continue;
+      a.sprung = true;
+      for (let i = 0; i < 2; i++) {
+        const id = i === 0 ? 'raider' : this.world.rng() < 0.5 ? 'scout' : 'raider';
+        const es = ENEMIES.find((e) => e.id === id)!;
+        const ang = this.world.rng() * Math.PI * 2;
+        const x = a.x + Math.cos(ang) * 90;
+        const y = a.y + Math.sin(ang) * 90;
+        const ship = this.world.spawnShip(es.build(), x, y, Math.atan2(p.x - x, -(p.y - y)), { name: es.label, team: 1, ai: es.ai });
+        this.dispatcher.knownEnemy(ship.shipId, es.label);
+      }
+      this.say('crit', 'foe', 'Засада в обломках', 'два корабля выходят из-за обломков');
+    }
+  }
+
+  /** The patrol's alarm as the dispatcher tells it: seen, lost, back on the route. */
+  private stepAware(): void {
+    const groups = new Map<number, { st: string; n: number }>();
+    for (const b of this.world.bodies) {
+      const ai = b.sys?.ai;
+      if (b.removed || !ai || b.sys!.dead || b.sys!.team !== 1 || ai.group === 0) continue;
+      const g = groups.get(ai.group) ?? { st: 'patrol', n: 0 };
+      g.n++;
+      if (ai.aware === 'alert' || ai.aware === 'fight') g.st = 'fight';
+      else if (ai.aware === 'search' && g.st !== 'fight') g.st = 'search';
+      groups.set(ai.group, g);
+    }
+    for (const [id, g] of groups) {
+      const was = this.awareSaid.get(id) ?? 'patrol';
+      if (was === g.st) continue;
+      this.awareSaid.set(id, g.st);
+      const ships = g.n === 1 ? 'один корабль' : `${g.n} ${g.n < 5 ? 'корабля' : 'кораблей'}`;
+      if (g.st === 'fight') this.say('crit', 'foe', was === 'search' ? 'Вас снова заметили' : 'Вас заметили', `патруль, ${ships}`);
+      else if (g.st === 'search') this.say('good', 'ok', 'Патруль потерял вас', 'ищут там, где видели последний раз');
+      else this.say('info', 'foe', 'Патруль вернулся на маршрут', '');
+    }
   }
 
   /** After the battle's end screen: the winnings go into the hold and the player is back on the road; a lost ship ends in the result screen. */
@@ -909,18 +1457,41 @@ export class Game {
     restAfterBattle(ship);
     const rows = this.crewAfterBattle(ship, run.shipId, point.kind);
     run.battlesWon++;
-    const got = addToHold(run.cargo, shipHoldCap(run.shipId), rewardFor(point));
+    const fight = point.kind === 'combat' || point.kind === 'elite' || point.kind === 'boss';
+    const retreat = this.retreated;
+    const failed = !retreat && !!this.plan?.failed;
+    this.retreated = false;
+    this.plan = null;
+    this.briefing = null;
+    const got = addToHold(run.cargo, shipHoldCap(run.shipId), retreat || failed ? emptyCargo() : rewardFor(point));
     run.cleared = point.index;
     run.fighting = null;
     run.road.ensure(run.cleared);
-    const name = point.kind === 'boss' ? 'Рубеж взят' : point.kind === 'elite' ? 'Элитный бой выигран' : 'Бой выигран';
-    run.note = `${name}: в трюм +${got.gained.credits} кр. и +${got.gained.metal} мет.` + (got.lostMetal > 0 ? ` (трюм полон, ${got.lostMetal} мет. не влезло)` : '');
-    if (point.kind === 'boss') {
+    const mission = this.mission;
+    this.mission = null;
+    let signalNote = '';
+    if (mission?.signal === 'distress' && !retreat) {
+      const alive = !!this.allyShip(mission);
+      if (alive) {
+        const reward = 30 + 10 * mission.tier;
+        addToHold(run.cargo, shipHoldCap(run.shipId), { credits: reward, metal: 0 });
+        signalNote = this.takeSurvivor() ? ` Грузовик ушёл, космонавт с него в казарме (ранен), в трюм +${reward} кр.` : ` Грузовик ушёл, в трюм +${reward} кр. (в казарме нет места для спасённого).`;
+      } else signalNote = ' Грузовик погиб.';
+    }
+    const name = point.kind === 'boss' ? 'Рубеж взят' : point.kind === 'elite' ? 'Элитный бой выигран' : point.kind === 'mining' ? 'Добыча окончена' : point.kind === 'event' ? (mission?.signal === 'distress' ? 'Сигнал бедствия' : 'Сигнал осмотрен') : 'Бой выигран';
+    run.note = failed
+      ? `Задание провалено: награды нет, в трюме ${run.cargo.credits} кр. · ${run.cargo.metal} мет.${run.cargo.ore ? ` · ${run.cargo.ore} руды` : ''}.`
+      : retreat
+      ? `Отступление: награда за задание не выдана, в трюме ${run.cargo.credits} кр. · ${run.cargo.metal} мет.${run.cargo.ore ? ` · ${run.cargo.ore} руды` : ''}.`
+      : fight || got.gained.credits > 0
+      ? `${name}: в трюм +${got.gained.credits} кр. и +${got.gained.metal} мет.` + (got.lostMetal > 0 ? ` (трюм полон, ${got.lostMetal} мет. не влезло)` : '')
+      : `${name}: в трюме ${run.cargo.credits} кр. · ${run.cargo.metal} мет.${run.cargo.ore ? ` · ${run.cargo.ore} руды.` : ''}${signalNote}`;
+    if (point.kind === 'boss' && !retreat) {
       this.wallet.quanta += QUANTA_PER_BOSS;
       storeWallet(this.wallet);
       run.note += ` +${QUANTA_PER_BOSS} квант за рубеж.`;
     }
-    if (rows.length) run.report = { title: point.kind === 'boss' ? 'Рубеж взят' : point.kind === 'elite' ? 'Элитный бой выигран' : 'Бой выигран', rows };
+    if (rows.length) run.report = { title: name, rows };
     if (rows.some((r) => r.fate !== 'ok')) run.note += ' Посты опустели до ближайшего дока.';
     const block = this.flightBlock();
     if (block) run.note += ' ' + block;
@@ -1091,6 +1662,22 @@ export class Game {
     if (sys) sys.focus = null;
     for (const r of this.weaponRows()) r.weapon.target = null;
     this.selectedWeapon = null;
+    this.dropOrder();
+    this.world.mineTarget = null;
+  }
+
+  /** Esc: first the targets (the guns', the beam's) and the order, then the point the ship flies to. */
+  cancel(): void {
+    const sys = this.world.player?.sys;
+    const anyTarget = !!sys?.focus || this.order !== null || this.world.mineTarget !== null || this.weaponRows().some((r) => r.weapon.target);
+    if (anyTarget) this.clearTargets();
+    else this.world.target = null;
+  }
+
+  private dropOrder(): void {
+    this.order = null;
+    this.world.hold = false;
+    this.world.holdFace = null;
   }
 
   private assignTarget(ref: TargetRef): void {
@@ -1107,43 +1694,13 @@ export class Game {
   }
 
   pickEnemy(wx: number, wy: number): TargetRef | null {
-    const p = this.world.player;
-    if (!p?.sys) return null;
-    let best: { ref: TargetRef; d: number } | null = null;
-    for (const b of this.world.bodies) {
-      if (b.removed || b.kind !== 'ship' || !b.sys || b.sys.dead || b.sys.team === p.sys.team) continue;
-      const lp = b.worldToLocal(wx, wy, { x: 0, y: 0 });
-      let bd = Infinity;
-      let bx = 0;
-      let by = 0;
-      const ix = Math.floor(lp.x);
-      const iy = Math.floor(lp.y);
-      for (let j = -3; j <= 3; j++) {
-        for (let i = -3; i <= 3; i++) {
-          if (!b.grid.isOccupied(ix + i, iy + j)) continue;
-          const cx = ix + i + 0.5;
-          const cy = iy + j + 0.5;
-          const d = Math.hypot(cx - lp.x, cy - lp.y);
-          if (d < bd) {
-            bd = d;
-            bx = cx;
-            by = cy;
-          }
-        }
-      }
-      if (bd <= 3.5) {
-        if (!best || bd < best.d) best = { ref: shipRef(b, bx, by), d: bd };
-      } else {
-        const dc = Math.hypot(b.x - wx, b.y - wy);
-        if (dc < b.radius + 3 && (!best || dc + 4 < best.d)) best = { ref: shipRef(b), d: dc + 4 };
-      }
-    }
-    return best ? best.ref : null;
+    return pickEnemy(this.world, wx, wy);
   }
 
   private evaluate(): void {
     if (this.state !== 'playing') return;
     if (this.mode === 'run' ? this.runPhase !== 'battle' : this.scenario.enemies.length === 0) return;
+    if ((this.plan || !this.endsByFight()) && this.world.player) return;
     if (!this.world.player) {
       this.state = 'lost';
       return;
@@ -1180,6 +1737,127 @@ export class Game {
   }
 
   private salvaged = 0;
+  private oreSaid = false;
+  /** The mission in progress at a non-fighting point (mining, a signal): when the first ore came out, the next patrol, and what has been said. */
+  mission: { kind: string; tier: number; first: number; next: number; wave: number; warned: boolean; fullSaid: boolean; signal?: string; ally?: GridBody } | null = null;
+
+  /** Does the point end by itself when the enemies are gone (a fight), or when the player flies away (mining, a signal)? */
+  private endsByFight(): boolean {
+    const k = this.run?.fighting?.kind;
+    return this.mode !== 'run' || !k || k === 'combat' || k === 'elite' || k === 'boss' || this.mission?.signal === 'distress';
+  }
+
+  // ---------------------------------------------------------------- the trader
+
+  /** The trader the player is at: the offers (by the point's seed) and what has been bought. */
+  trade: { point: RoadPoint; modules: ModuleOffer[]; crew: CrewOffer[]; sold: Set<string> } | null = null;
+
+  private enterTrade(point: RoadPoint): void {
+    this.trade = { point, modules: moduleOffers(point), crew: crewOffers(point, this.roster), sold: new Set() };
+    this.runPhase = 'trade';
+  }
+
+  tradeOffers(): Offer[] {
+    return this.trade ? [...this.trade.modules, ...this.trade.crew] : [];
+  }
+
+  /** Buys an offer with the hold's credits and metal; the module goes into the ship's stock, the person into the barracks. */
+  buyOffer(id: string): 'ok' | 'credits' | 'metal' | 'barracks' | 'sold' | 'none' {
+    const t = this.trade;
+    const run = this.run;
+    const offer = this.tradeOffers().find((o) => o.id === id);
+    if (!t || !run || !offer) return 'none';
+    if (t.sold.has(id)) return 'sold';
+    if (run.cargo.credits < offer.price.credits) return 'credits';
+    if (run.cargo.metal < offer.price.metal) return 'metal';
+    if (offer.kind === 'crew' && inBarracks(this.roster).length >= CREW.barracksMax) return 'barracks';
+    run.cargo.credits -= offer.price.credits;
+    run.cargo.metal -= offer.price.metal;
+    if (offer.kind === 'module') {
+      const layout = cloneLayout(savedLayout(run.shipId) ?? currentLayout(run.shipId, shipDeckGeo(run.shipId)));
+      (layout.stock ??= []).push({ id: layout.next++, type: offer.type, lv: offer.lv });
+      saveLayout(run.shipId, layout);
+    } else {
+      this.roster.members.push(offer.member);
+      storeRoster(this.roster);
+    }
+    t.sold.add(id);
+    return 'ok';
+  }
+
+  /** Leaves the trader: on to the next point. */
+  leaveTrade(): void {
+    const run = this.run;
+    const t = this.trade;
+    if (!run || !t) return;
+    run.cleared = t.point.index;
+    run.road.ensure(run.cleared);
+    run.note = t.sold.size > 0 ? `Торговец: куплено ${t.sold.size}. Модули ждут в запасе, ставьте их в доке.` : 'Торговец: ничего не куплено.';
+    this.trade = null;
+    this.runPhase = 'map';
+    this.saveRun();
+  }
+
+  /** Whether the point in progress is one the player flies away from (mining, a signal with nothing to protect). */
+  get canLeave(): boolean {
+    return this.mode === 'run' && this.runPhase === 'battle' && !!this.run?.fighting && this.state === 'playing';
+  }
+
+  /** The player leaves a point that is not a fight (the button «Улететь» of the battle screen). */
+  leavePoint(): void {
+    if (!this.canLeave) return;
+    // with the tasks undone it is a retreat: no reward for the mission, the hold stays
+    this.retreated = !this.plan?.done;
+    this.briefing = null;
+    this.paused = false;
+    this.state = 'won';
+  }
+
+  /** Waves of enemies at a mining point: warned before, then sent in from round the ship, growing with the road's tier and the wave. */
+  private stepMission(): void {
+    const m = this.mission;
+    const run = this.run;
+    if (!m || m.kind !== 'mining' || !run || this.state !== 'playing' || m.next < 0) return;
+    const t = this.world.time;
+    if (!m.warned && t >= m.next - MINING.patrolWarn) {
+      m.warned = true;
+      this.dispatcher.say('warn', 'foe', `Патруль на подходе: ${MINING.patrolWarn} с`, 'Улетайте или готовьтесь к бою', t);
+    }
+    if (t < m.next) return;
+    m.wave++;
+    m.warned = false;
+    m.next = t + MINING.patrolEvery;
+    const ids = this.patrolFor(m.tier, m.wave);
+    const p = this.world.player;
+    if (!p) return;
+    // the patrol comes in from outside the field and sweeps it round a loop: it may well miss a quiet miner
+    const field = this.world.celestials.find((c) => c.kind === 'asteroids' && c.rich !== undefined);
+    const cx = field ? field.x : p.x;
+    const cy = field ? field.y : p.y;
+    const fr = field ? field.radius : 300;
+    const base = this.world.rng() * Math.PI * 2;
+    const route = [0, 1, 2, 3].map((i) => ({ x: cx + Math.cos(base + (i * Math.PI) / 2) * fr * 0.75, y: cy + Math.sin(base + (i * Math.PI) / 2) * fr * 0.75 }));
+    ids.forEach((id, i) => {
+      const es = ENEMIES.find((e) => e.id === id)!;
+      const a = base + Math.PI + (i - (ids.length - 1) / 2) * 0.25;
+      const x = cx + Math.cos(a) * (fr + 650);
+      const y = cy + Math.sin(a) * (fr + 650);
+      const ship = this.world.spawnShip(es.build(), x, y, Math.atan2(cx - x, -(cy - y)), { name: es.label, team: 1, ai: es.ai });
+      if (ship.sys?.ai) setPatrol(ship.sys.ai, 100 + m.wave, route, { x: cx, y: cy });
+      this.dispatcher.knownEnemy(ship.shipId, es.label);
+    });
+    this.dispatcher.say('crit', 'foe', `Патруль идёт к полю (волна ${m.wave})`, `${ids.length === 1 ? 'один корабль' : `${ids.length} корабля`}: держитесь тихо или готовьтесь к бою`, t);
+  }
+
+  /** The ships of a mining patrol: more and tougher as the tier and the wave grow. */
+  private patrolFor(tier: number, wave: number): string[] {
+    const power = tier * 0.6 + wave;
+    const list: string[] = [power < 3 ? 'scout' : 'raider'];
+    if (power >= 2.5) list.push(power < 5 ? 'scout' : 'raider');
+    if (power >= 5) list.push('hunter');
+    if (power >= 8) list.push('raider');
+    return list.slice(0, 4);
+  }
   private lastWorld: World | null = null;
 
   /** What the world says about wrecks: metal and money into the hold, a survivor into the barracks, enemies out of an ambush. */
@@ -1192,11 +1870,35 @@ export class Game {
       return { ...got.gained, lostMetal: got.lostMetal };
     };
     for (const n of notes as WorldNote[]) {
-      if (n.type === 'salvage') {
+      if (n.type === 'ore') {
+        this.oreGot.all++;
+        if (n.kind === 2) this.oreGot.violet++;
+        const m = this.mission;
+        if (m && m.first < 0) {
+          m.first = this.world.time;
+          if (m.kind === 'mining') m.next = this.world.time + MINING.patrolFirst;
+        }
+        if (run) {
+          addOre(run.cargo, shipHoldCap(run.shipId), n.kind);
+          if (n.kind === 2 && !this.oreSaid) {
+            this.oreSaid = true;
+            this.say('info', 'ok', 'Руда антиматерии', 'каждые пять кусков в доке дают квант; в трюме она занимает втрое больше места');
+          }
+          if (this.world.holdRoom < 1 && m && !m.fullSaid) {
+            m.fullSaid = true;
+            this.say('warn', 'ok', 'Трюм полон', 'новые кристаллы уплывают; сдайте груз в доке или улетайте');
+          }
+        }
+      } else if (n.type === 'salvage') {
         const got = hold(0, n.metal);
         this.salvaged += got.metal;
         this.say(got.lostMetal > 0 && got.metal === 0 ? 'warn' : 'good', 'ok', 'Добыча с обломков', got.lostMetal > 0 && got.metal === 0 ? 'трюм полон, металл уплывает' : `+${this.salvaged} мет.`, 'salvage');
+      } else if (n.type === 'loot') {
+        if (n.task) this.crateGot = true;
+        const got = hold(n.credits, n.metal);
+        this.say('good', 'wreck', 'Контейнер подобран', `+${got.credits} кр. · +${got.metal} мет.${got.lostMetal > 0 ? ` (не влезло ${got.lostMetal})` : ''}`);
       } else if (n.type === 'trap') {
+        this.inspected = true;
         this.say('crit', n.trap === 'reactor' ? 'reactor' : n.trap === 'ambush' ? 'foe' : 'breach', n.text.split(': ')[0], n.text.split(': ').slice(1).join(': '));
       } else if (n.type === 'ambush') {
         for (let i = 0; i < n.n; i++) {
@@ -1205,9 +1907,11 @@ export class Game {
           const a = this.world.rng() * Math.PI * 2;
           const ex = n.x + Math.cos(a) * 160;
           const ey = n.y + Math.sin(a) * 160;
-          this.world.spawnShip(es.build(), ex, ey, a, { name: es.label, team: 1, ai: es.ai });
+          const ship = this.world.spawnShip(es.build(), ex, ey, a, { name: es.label, team: 1, ai: es.ai });
+          this.dispatcher.knownEnemy(ship.shipId, es.label);
         }
       } else if (n.type === 'find') {
+        this.inspected = true;
         const f = n.find;
         if (f.type === 'metal') {
           const got = hold(0, f.amount);
@@ -1253,16 +1957,25 @@ export class Game {
     const dt = Math.min(frameDt, 0.05);
     if (this.world !== this.lastWorld) {
       this.lastWorld = this.world;
+      this.order = null;
+      this.awareSaid.clear();
       this.salvaged = 0;
       this.toasts = [];
       this.dispatcher = new Dispatcher();
+      this.oreSaid = false;
+      if (this.mission?.ally) this.dispatcher.say('warn', 'foe', 'Сигнал бедствия', 'грузовик под обстрелом: отбейте его и доведите до маяка', 0);
     }
+    this.world.holdRoom = this.mode === 'run' && this.run ? Math.max(0, shipHoldCap(this.run.shipId) - holdUsed(this.run.cargo)) : Infinity;
     let simDt = 0;
     const halted = this.mode === 'run' && this.runPhase !== 'battle';
     if (!this.paused && !halted) {
       const scale = this.slowMo ? 0.25 : 1;
       this.acc += dt * scale;
       simDt = dt * scale;
+      if (this.order) {
+        this.order = stepOrder(this.world, this.order, simDt);
+        if (!this.order) this.dropOrder();
+      }
       let steps = 0;
       const t0 = performance.now();
       while (this.acc >= STEP && steps < 6) {
@@ -1273,23 +1986,93 @@ export class Game {
       if (steps > 0) this.stepMs = this.stepMs * 0.9 + ((performance.now() - t0) / steps) * 0.1;
       if (steps === 6) this.acc = 0;
       if (this.world.notes.length > 0) this.handleNotes();
+      this.stepMission();
+      this.stepPlan();
+      this.stepAware();
+      this.stepAmbush();
       if (steps > 0) this.dispatcher.observe(this.world);
       this.evaluate();
     }
+    this.scene.rings = this.rings();
+    this.scene.alarms = this.world.bodies.filter((b) => !b.removed && b.sys?.ai && !b.sys.dead && this.world.time - b.sys.ai.alertAt < 1.6).map((b) => ({ x: b.x, y: b.y - b.radius - 8 }));
+    const plan = this.mode === 'run' && this.runPhase === 'battle' ? this.plan : null;
+    this.scene.beacon = plan ? { ...plan.beacon, open: beaconOpen(plan) } : null;
+    this.scene.buoys = plan ? this.buoys : [];
     this.scene.render(this.world, dt, simDt);
   }
 
-  pointerAction(wx: number, wy: number): void {
-    if (this.tool === 'fly') {
-      const enemy = this.pickEnemy(wx, wy);
-      if (enemy) {
-        this.assignTarget(enemy);
-        return;
-      }
-      this.world.target = this.clampToSurface(wx, wy);
-    } else {
-      this.world.explode(wx, wy, this.crater.radius, this.crater.damage, this.crater.pen);
+  /** The rings the scene draws: what the pointer is over, and what the standing order is about. */
+  private rings(): Scene['rings'] {
+    const out: Scene['rings'] = [];
+    const h = this.hover;
+    if (h && h.kind !== 'space' && !h.body.removed) out.push({ x: h.body.x, y: h.body.y, r: h.body.radius + 4, color: h.kind === 'enemy' ? 0xff6a5a : h.kind === 'ore' ? 0xffd24a : 0xb06bff, solid: true });
+    const o = this.order;
+    const mine = this.world.mineTarget;
+    if (mine !== null) {
+      const rock = this.world.bodies.find((b) => b.id === mine && !b.removed);
+      if (rock) out.push({ x: rock.x, y: rock.y, r: rock.radius + 6, color: 0xffd24a });
     }
+    if (o?.kind === 'inspect') {
+      const w = this.world.bodies.find((b) => b.id === o.body && !b.removed);
+      if (w) out.push({ x: w.x, y: w.y, r: w.radius + 8, color: 0xb06bff });
+    }
+    // the patrols' sensing radius, shown as the player comes near; red for a moment when the alarm goes off
+    const p = this.world.player;
+    if (p) {
+      for (const b of this.world.bodies) {
+        const ai = b.sys?.ai;
+        if (b.removed || !ai || b.sys!.dead || b.sys!.team !== 1 || ai.group === 0) continue;
+        const d = Math.hypot(b.x - p.x, b.y - p.y);
+        const since = this.world.time - ai.alertAt;
+        if (since < 1.2) out.push({ x: b.x, y: b.y, r: ai.sense, color: 0xff6a5a, solid: true, alpha: 1 - since / 1.2 });
+        else if ((ai.aware === 'patrol' || ai.aware === 'search') && d < ai.sense * 2) out.push({ x: b.x, y: b.y, r: ai.sense, color: 0xffd24a, alpha: 0.2 + 0.6 * Math.max(0, Math.min(1, (ai.sense * 2 - d) / ai.sense)) });
+      }
+    }
+    if (this.convoy) out.push({ x: this.convoy.exit.x, y: this.convoy.exit.y, r: CONVOY.exitR, color: 0xff6a5a });
+    if (o?.kind === 'attack') {
+      const t = this.world.findShip(o.shipId);
+      if (t) out.push({ x: t.x, y: t.y, r: t.radius + 10, color: 0xff6a5a });
+    }
+    return out;
+  }
+
+  /**
+   * A click (or a tap) in space: on an enemy it is the guns' target and the ship flies on as before, and a second
+   * click on it at once is an attack (the autopilot keeps the guns' range round it); on a rock with ore it is the
+   * beam's target and the ship comes to its reach and stops; on a wreck it is looked over; on empty space the ship
+   * flies there (the beam's target stays, the order to stand by it goes).
+   */
+  pointerAction(wx: number, wy: number, double = false): void {
+    if (this.tool !== 'fly') {
+      this.world.explode(wx, wy, this.crater.radius, this.crater.damage, this.crater.pen);
+      return;
+    }
+    this.act(pickAt(this.world, wx, wy), wx, wy, double ? 'attack' : 'auto');
+  }
+
+  /** Does what a pick asks; `how` forces the kind of order a long press chose from its menu. */
+  act(pick: Pick, wx: number, wy: number, how: 'auto' | 'attack' | 'fly' = 'auto'): void {
+    if (how === 'fly' || pick.kind === 'space') {
+      this.dropOrder();
+      this.world.target = this.clampToSurface(wx, wy);
+      return;
+    }
+    if (pick.kind === 'enemy') {
+      this.assignTarget(pick.ref);
+      if (how === 'attack') this.order = attackOrder(this.world, pick.body);
+      return;
+    }
+    if (pick.kind === 'ore') {
+      this.world.mineTarget = pick.body.id;
+      this.order = mineOrder(pick.body);
+      return;
+    }
+    this.order = inspectOrder(pick.body);
+  }
+
+  /** What the pointer is over, for the hint under it (null over empty space with nothing to say). */
+  hoverAt(wx: number, wy: number): Pick {
+    return pickAt(this.world, wx, wy);
   }
 
   private clampToSurface(wx: number, wy: number): { x: number; y: number } {

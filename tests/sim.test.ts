@@ -249,7 +249,10 @@ describe('flight assist', () => {
 
   it('a ship without engines cannot steer or thrust', () => {
     const world = new World();
-    const p = world.spawnPlayer(buildFreighter(), 0, 0);
+    // a bare hull (the freighter has drives now, for the escort)
+    const bare = new ShipGrid(12, 16, 1);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 12; x++) bare.setCell(x, y, 0, Mat.HULL);
+    const p = world.spawnPlayer(bare, 0, 0);
     world.target = { x: 100, y: 0 };
     fly(world, 5);
     expect(Math.hypot(p.x, p.y)).toBeLessThan(1e-6);

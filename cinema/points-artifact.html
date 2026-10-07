@@ -1,0 +1,557 @@
+<title>Точки карты и добыча Antimatter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Unbounded:wght@500;700;900&display=swap">
+<style>
+/* Layout: a design document with tabs; one live demo (mining) in the middle of it. Dark, the game's own night. */
+:root {
+  --bg: #05070d;
+  --panel: #0a0f1c;
+  --panel2: #0d1424;
+  --line: #2c3d63;
+  --line-soft: #1c2742;
+  --fg: #cfe0ff;
+  --dim: #7f95bf;
+  --faint: #4d5f86;
+  --cyan: #59e6ff;
+  --violet: #b06bff;
+  --magenta: #ff5fd8;
+  --amber: #ffd24a;
+  --red: #ff6a5a;
+  --green: #63e07a;
+  --teal: #4ff0d0;
+  --display: 'Unbounded', 'Arial Black', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { margin: 0; padding-inline: 16px; padding-block: 24px 56px; color: var(--fg); font: 400 13.5px/1.6 var(--mono); }
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { margin: 0; font: 900 clamp(24px, 4vw, 38px)/1.05 var(--display); letter-spacing: .04em; color: #fff; text-wrap: balance; }
+h1 span { color: var(--cyan); }
+.lead { margin: 10px 0 0; color: var(--dim); max-width: 70ch; }
+h2 { margin: 0 0 12px; font: 700 12px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--cyan); }
+h3 { margin: 0 0 6px; font: 700 15px/1.2 var(--display); letter-spacing: .02em; color: #fff; }
+p { margin: 0 0 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; }
+.tab { background: var(--panel); border: 1px solid var(--line); color: var(--dim); border-radius: 9px; padding: 10px 14px; font: 700 12px/1 var(--mono); letter-spacing: .06em; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--cyan); border-color: var(--cyan); color: #04202a; }
+.tab:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+section[hidden] { display: none; }
+.stack { display: flex; flex-direction: column; gap: 18px; }
+.card { border: 1px solid var(--line-soft); border-radius: 12px; padding: 16px; background: rgba(10, 15, 28, .7); min-width: 0; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font: 700 10.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--c); color: var(--c); margin-right: 6px; }
+.tag.have { --c: var(--green); } .tag.todo { --c: var(--amber); } .tag.ask { --c: var(--magenta); } .tag.later { --c: var(--faint); }
+ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+li::marker { color: var(--faint); }
+.k { color: var(--dim); }
+b { color: #eef5ff; font-weight: 700; }
+.pt { display: grid; grid-template-columns: 76px 1fr; gap: 14px; align-items: start; }
+.pt svg { width: 76px; height: 76px; border-radius: 10px; border: 1px solid var(--line); background: #060a14; }
+.pt h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dl { display: grid; grid-template-columns: 92px 1fr; gap: 3px 10px; margin-top: 8px; font-size: 12.5px; }
+.dl dt { color: var(--faint); letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px; padding-top: 2px; }
+.dl dd { margin: 0; }
+.bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.bar i { display: grid; place-items: center; font: 700 10.5px/1 var(--mono); color: #05070d; font-style: normal; white-space: nowrap; overflow: hidden; }
+.link10 { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 10px; }
+.link10 span { height: 34px; border-radius: 7px; border: 1px solid var(--line); display: grid; place-items: center; font: 700 10px/1 var(--mono); color: #05070d; background: var(--c); }
+.link10 small { text-align: center; color: var(--faint); font-size: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { color: var(--faint); font: 700 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.tbl { overflow-x: auto; }
+.row2 { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 860px) { .row2 { grid-template-columns: minmax(0, 1fr); } }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.flow div { flex: 1 1 150px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel2); font-size: 12.5px; position: relative; }
+.flow div b { display: block; margin-bottom: 3px; color: var(--cyan); font: 700 11px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.flow div.danger b { color: var(--red); } .flow div.good b { color: var(--green); }
+
+/* the mining demo */
+.demo { position: relative; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #000; container-type: inline-size; touch-action: manipulation; user-select: none; }
+.demo canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; cursor: crosshair; }
+.hud { position: absolute; inset: 0; pointer-events: none; font: 700 12px/1 var(--mono); }
+.hud .top { position: absolute; left: 10px; right: 10px; top: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.hud .pl { background: rgba(8, 12, 22, .88); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; display: flex; justify-content: space-between; gap: 6px; }
+.hud .pl em { font-style: normal; color: var(--dim); font-size: 10px; letter-spacing: .1em; }
+.hud .meter { height: 4px; border-radius: 3px; background: rgba(255, 255, 255, .08); margin-top: 5px; overflow: hidden; }
+.hud .meter i { display: block; height: 100%; background: var(--c); width: 0; transition: width .2s; }
+.hud .banner { position: absolute; left: 50%; top: 62px; transform: translateX(-50%); padding: 7px 14px; border-radius: 99px; background: rgba(8, 12, 22, .92); border: 1px solid var(--amber); color: var(--amber); white-space: nowrap; display: none; }
+.hud .banner.on { display: block; } .hud .banner.crit { border-color: var(--red); color: var(--red); animation: bl .6s infinite alternate; }
+@keyframes bl { to { box-shadow: 0 0 14px rgba(255, 106, 90, .7); } }
+.hud .ctl { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; gap: 6px; pointer-events: auto; }
+.hud .ctl button { flex: 1; background: rgba(8, 12, 22, .92); border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 10px 6px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.hud .ctl button.on { border-color: var(--teal); color: var(--teal); background: rgba(79, 240, 208, .1); }
+.hud .ctl button.leave { border-color: var(--amber); color: var(--amber); flex: .8; }
+.hud .end { position: absolute; inset: 0; display: none; place-items: center; background: rgba(3, 6, 12, .78); pointer-events: auto; }
+.hud .end.on { display: grid; }
+.hud .end div { max-width: 320px; text-align: center; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); font-weight: 400; line-height: 1.6; font-size: 13px; }
+.hud .end h4 { margin: 0 0 8px; font: 700 15px/1.2 var(--display); color: #fff; }
+.hud .end button { margin-top: 10px; background: var(--cyan); color: #04202a; border: 0; border-radius: 8px; padding: 9px 16px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.sl { display: grid; grid-template-columns: 120px 1fr 54px; gap: 10px; align-items: center; margin: 6px 0; font-size: 12.5px; }
+.sl input { accent-color: var(--cyan); width: 100%; }
+.sl output { text-align: right; color: var(--cyan); font-variant-numeric: tabular-nums; }
+.hint { color: var(--faint); font-size: 12px; }
+.q { border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; background: rgba(10, 15, 28, .7); }
+.q h3 { font-size: 14px; }
+.q .rec { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--green); background: rgba(99, 224, 122, .06); font-size: 12.5px; }
+.q .alt { color: var(--dim); font-size: 12.5px; margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .hud .banner.crit { animation: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Точки карты <span>и добыча</span></h1>
+    <p class="lead">Как будут работать точки дороги, которых в игре пока нет (добыча, сигнал, торговец), и как устроена добыча лучом. Всё, что отмечено «предложение», ждёт вашего слова; числа не балансировались. В середине живой макет добычи: летайте, добывайте, ждите патруль.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Разделы">
+    <button class="tab" role="tab" aria-selected="true" data-t="points">Точки дороги</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="mining">Добыча</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="signal">Сигнал</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="trader">Торговец</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="reward">Награды и риск</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="ask">Что решить</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="plan">План работ</button>
+  </nav>
+
+  <!-- ============================================================ POINTS -->
+  <section data-s="points" class="stack">
+    <div class="card">
+      <h2>Звено дороги из десяти миссий (пример)</h2>
+      <p>Первая миссия всегда бой, пятая док, десятая рубеж. Остальные семь выпадают по весам; три одинаковых подряд не бывает, торговец не стоит рядом с доком и не идёт два раза подряд. <span class="k">(Веса уже в коде, road.ts.)</span></p>
+      <div class="link10" id="link10"></div>
+      <div class="bar" id="weights" style="margin-top:14px"></div>
+      <p class="hint" style="margin-top:8px">Вес выпадения для случайных семи: бой 46%, элитный бой 12% (с четвёртой миссии), добыча 17%, сигнал 17%, торговец 8%. Сейчас на дороге только бой, элита, док, рубеж и врата.</p>
+    </div>
+    <div class="grid" id="pointCards"></div>
+  </section>
+
+  <!-- ============================================================ MINING -->
+  <section data-s="mining" class="stack" hidden>
+    <div class="row2">
+      <div class="stack">
+        <div class="demo" id="demo">
+          <canvas id="cv" width="480" height="560" aria-label="Макет добычи: корабль, поле астероидов с жилами, добывающий луч"></canvas>
+          <div class="hud">
+            <div class="top">
+              <div class="pl"><span><em>КОРПУС</em></span><b id="hHull">100%</b></div>
+              <div class="pl" style="flex-direction:column"><div style="display:flex;justify-content:space-between"><em>ТРЮМ</em><b id="hHold">0/40</b></div><div class="meter"><i id="mHold" style="--c:var(--amber)"></i></div></div>
+              <div class="pl" style="flex-direction:column"><div style="display:flex;justify-content:space-between"><em>ЭНЕРГИЯ</em><b id="hEn">100</b></div><div class="meter"><i id="mEn" style="--c:var(--amber)"></i></div></div>
+            </div>
+            <div class="banner" id="banner"></div>
+            <div class="ctl">
+              <button id="bBeam" class="on" type="button">Луч: вкл</button>
+              <button id="bAuto" class="on" type="button">Цель: авто</button>
+              <button id="bLeave" class="leave" type="button">Улететь</button>
+            </div>
+            <div class="end" id="end"><div><h4 id="endT">Добыча завершена</h4><p id="endP"></p><button id="endB" type="button">Ещё раз</button></div></div>
+          </div>
+        </div>
+        <p class="hint">Нажмите в космосе, чтобы лететь (как в игре). Луч сам берёт ближайшую жилу в дальности и держит её, пока корабль стоит почти на месте. Золотые жилы дают металл, фиолетовые руду антиматерии. Через некоторое время придёт патруль.</p>
+        <div class="card">
+          <h2>Настройки макета (числа предложения)</h2>
+          <div class="sl"><span>Дальность луча</span><input id="sRange" type="range" min="30" max="140" step="5" value="80"><output id="oRange"></output></div>
+          <div class="sl"><span>Секунд на клетку</span><input id="sCell" type="range" min="0.3" max="3" step="0.1" value="1.1"><output id="oCell"></output></div>
+          <div class="sl"><span>Патруль, с</span><input id="sPatrol" type="range" min="15" max="90" step="5" value="35"><output id="oPatrol"></output></div>
+          <div class="sl"><span>Место в трюме</span><input id="sHold" type="range" min="10" max="120" step="5" value="40"><output id="oHold"></output></div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <h2>Ход добычи</h2>
+          <div class="flow">
+            <div><b>1. Подлёт</b>Арена: поле астероидов, видны жилы. Врагов нет, первое время тихо.</div>
+            <div><b>2. Захват</b>Луч берёт жилу в дальности. Корабль должен стоять почти на месте.</div>
+            <div class="good"><b>3. Добыча</b>Луч выжигает клетки жилы по одной. Каждая даёт кристалл руды.</div>
+            <div><b>4. Сбор</b>Кристаллы летят к кораблю в радиусе захвата, дальше уплывают и гаснут.</div>
+            <div class="danger"><b>5. Патруль</b>Тишина кончается: диспетчер предупреждает за 15 с. Приходят враги.</div>
+            <div class="good"><b>6. Решение</b>Остаться и добывать дальше или нажать «Улететь». Трюм остаётся при вылете.</div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Правила</h2>
+          <ul>
+            <li><b>Модуль «Добывающий луч»:</b> орудие на обшивке, как турели. Работает, если на орудийном посту стоит человек; своего оператора добычи пока нет (идея на потом). Луч бьёт только по клеткам жил, камень вокруг не трогает.</li>
+            <li><b>Энергия:</b> луч тратит её всё время, пока горит. Из-за этого приоритет «щит или оружие» (уже есть) получает смысл ещё и здесь.</li>
+            <li><b>Уязвимость:</b> попадание по модулю луча его глушит на 1,5 с; при шаге двигателей вперёд корабль соскальзывает с жилы. Щит не восстанавливается, пока луч горит <span class="k">(предложение)</span>.</li>
+            <li><b>Руда:</b> золотая жила даёт металл, фиолетовая руду антиматерии. Что с ней делать, открытый вопрос (вкладка «Что решить»).</li>
+            <li><b>Трюм:</b> место занимает только металл и руда; полон трюм, кристаллы уплывают, диспетчер говорит «трюм полон».</li>
+            <li><b>Конец точки:</b> кнопка «Улететь» (появляется у добычи вместо победы над врагами), полный трюм с вопросом «остаться?», или гибель: груз пропадает как обычно.</li>
+            <li><b>Патруль:</b> первая волна через 35 секунд после <i>первой добытой клетки</i>, потом каждые 35 с, чуть сильнее. Сила и состав по ярусу дороги, как у обычного боя; убить патруль можно, награды за него нет (чтобы не выгоднее было ждать).</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>Что в арене по секторам</h2>
+          <div class="tbl"><table>
+            <tr><th>Сектор</th><th>Добыча</th></tr>
+            <tr><td>Фиолетовая</td><td>Большое поле, жил среднее число, спокойно</td></tr>
+            <tr><td>Изумрудная</td><td>Поле и комета: комета пролетает, её жилы богаче, но уходят за кадр</td></tr>
+            <tr><td>Багровая</td><td>Поле у чёрной дыры: больше фиолетовых жил, но тянет в дыру; штормы глушат модули</td></tr>
+            <tr><td>Ледяная</td><td>Поле в луче пульсара: щит садится, пока стоишь в луче</td></tr>
+            <tr><td>Чистое небо</td><td>Малое поле, мало жил, никого нет</td></tr>
+          </table></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Что в игре уже есть для этого</h2>
+      <ul>
+        <li><span class="tag have">есть</span>Камни астероидов как настоящие тела из клеток, неподвижные, разрушаемые, с золотыми и фиолетовыми жилами (пока только нарисованы).</li>
+        <li><span class="tag have">есть</span>Бесконечное небо, диспетчер, метки на краю экрана (поле астероидов уже помечается), новый экран боя, трюм с ограничением металла.</li>
+        <li><span class="tag todo">сделать</span>Модуль «Добывающий луч» (тип орудия), жилы как свойство клеток камня, кристаллы руды, захват, патрули по времени, конец точки без боя, строка «Добыча» в панели боя.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ SIGNAL -->
+  <section data-s="signal" class="stack" hidden>
+    <div class="card">
+      <h2>Точка «Сигнал»: три вида, вид выбирается по зерну точки</h2>
+      <div class="grid">
+        <div class="q"><h3>Обломок <span class="tag have">большая часть есть</span></h3>
+          <p>Арена с одним или двумя остовами (станция, корабль игрока, вражеский, древний). Подлететь, осмотреть, получить металл, кредиты или спасённого космонавта; иногда ловушка. Всё уже работает в бою (GDD 3.0.2).</p>
+          <p class="k">Нужно добавить: арена без врагов, кнопка «Улететь», конец точки без победы над врагами. Вес: 45% сигналов.</p></div>
+        <div class="q"><h3>Сигнал бедствия <span class="tag todo">сделать</span></h3>
+          <p>Рядом повреждённый нейтральный корабль, на него нападают два или три врага. Защитить его, пока он не стартует (полоска «Эвакуация 0:30»). Спасён: космонавт в казарму (ранен) плюс награда. Погиб корабль: ничего, но и штрафа нет.</p>
+          <p class="k">Враги по ярусу дороги. Вес: 30%.</p></div>
+        <div class="q"><h3>Происшествие <span class="tag ask">ждёт текст</span></h3>
+          <p>Событие с выбором из двух или трёх вариантов (осмотреть аномалию, ответить на вызов, идти за призраком). Исход зависит от выбора и зерна. Это то, ради чего нужен лор автора; без текстов не делаем.</p>
+          <p class="k">Пока вес 0, в карте включается вместе с историей (MVP-3в).</p></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Награды сигнала (предложение)</h2>
+      <ul>
+        <li>Обломок: как в игре сейчас: металл 8–22 × размер, тайник кредитов 25–70 × размер, спасённый космонавт, пусто, ловушка 25%.</li>
+        <li>Сигнал бедствия: космонавт редкости 1–3 (ранен, в казарму) и кредиты как за обычный бой.</li>
+        <li>Сигнал в целом приносит меньше, чем бой, но почти без боя. Это точка для передышки с небольшим риском.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ TRADER -->
+  <section data-s="trader" class="stack" hidden>
+    <div class="row2">
+      <div class="card">
+        <h2>Точка «Торговец»</h2>
+        <p>Мирная арена: торговый корабль и станция, боя нет. Открывается окно торга, как дока, только без ремонта. Корабль после торга остаётся на дороге, дальше идёт следующая точка.</p>
+        <ul>
+          <li><b>Что продаёт:</b> 3 уникальных модуля с дополнительным эффектом и 2 уникальных космонавта с особенностью. Набор по зерну точки.</li>
+          <li><b>Чем платить:</b> предложение: <b>только трюмом</b> (кредиты и металл, добытые после последнего дока), то есть рискуя, а не копилкой. Так добыча и торговец связаны: добыл, купил, донёс.</li>
+          <li><b>Купленный модуль</b> лежит в «запасе» корабля и ставится в доке; космонавт идёт в казарму.</li>
+          <li><b>Цены</b> по ярусу, дороже обычного магазина в доке: платишь за редкость.</li>
+        </ul>
+        <p class="hint">Эффекты уникальных модулей и особенности космонавтов задаём вместе, когда у обычных модулей будет всё готово. Сначала можно запустить торговца с обычными модулями повышенного уровня.</p>
+      </div>
+      <div class="card" style="--c:var(--amber)">
+        <h2>Макет окна</h2>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="q" style="padding:10px 12px"><b>Реактор «Сверхновая»</b> <span class="tag" style="--c:var(--violet)">уникальный</span><br><span class="k">+25% энергии, но взрыв на 20% сильнее</span><br><span style="color:var(--amber)">140 кр · 30 мет.</span></div>
+          <div class="q" style="padding:10px 12px"><b>Щит «Зеркало»</b> <span class="tag" style="--c:var(--violet)">уникальный</span><br><span class="k">отражает 15% урона обратно</span><br><span style="color:var(--amber)">200 кр</span></div>
+          <div class="q" style="padding:10px 12px"><b>Тайра Вэл, пилот ур. 5</b> <span class="tag" style="--c:var(--cyan)">космонавт</span><br><span class="k">«Хладнокровная»: не бежит из горящего отсека</span><br><span style="color:var(--amber)">120 кр</span></div>
+          <div class="hint">Платите из трюма: сейчас 96 кр · 22 мет.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ REWARDS -->
+  <section data-s="reward" class="stack" hidden>
+    <div class="card">
+      <h2>Что приносит каждая точка и чем рискует игрок (предложение, числа не балансировались)</h2>
+      <div class="tbl"><table>
+        <tr><th>Точка</th><th>Награда</th><th>Риск</th><th>Время</th><th>Зачем игроку</th></tr>
+        <tr><td>Бой</td><td>кредиты 18+7·ярус, металл 4+2·ярус</td><td>урон, потери экипажа</td><td>короткая</td><td>основной ход вперёд</td></tr>
+        <tr><td>Элитный бой</td><td>кредиты 50+12·ярус, металл 10+3·ярус</td><td>высокий</td><td>средняя</td><td>быстро богатеть</td></tr>
+        <tr><td>Рубеж</td><td>кредиты 160+15·ярус, металл 30+5·ярус, 1 квант</td><td>очень высокий</td><td>длинная</td><td>контрольная точка перед доком</td></tr>
+        <tr><td>Добыча</td><td id="rMine">металл и руда по времени; сколько именно, покажет макет на вкладке «Добыча» (число в итоге после «Улететь»)</td><td>растёт со временем: патрули</td><td>игрок решает</td><td>набрать металла, пока не страшно; ремонт и модули стоят металла</td></tr>
+        <tr><td>Сигнал</td><td>как у обломка, от 0 до 70+ кр или металла, иногда космонавт</td><td>мал, но ловушки</td><td>короткая</td><td>передышка и редкий космонавт</td></tr>
+        <tr><td>Торговец</td><td>нет, покупка</td><td>нет</td><td>короткая</td><td>тратить трюм на уникальное</td></tr>
+        <tr><td>Док</td><td>сдача, ремонт, найм</td><td>нет</td><td>игрок решает</td><td>убрать риск</td></tr>
+      </table></div>
+    </div>
+    <div class="card">
+      <h2>Главная мысль добычи</h2>
+      <p>У добычи нет победы над врагами и нет награды «просто за приход»: она платит <b>временем под угрозой</b>. Чем дольше игрок держит луч на жиле, тем больше трюм и тем чаще и сильнее патрули. Каждую минуту стоит решать, хватит ли ему корпуса и экипажа вернуться с тем, что в трюме. Следующий док рядом, но трюм ограничен складом.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ ASK -->
+  <section data-s="ask" class="stack" hidden>
+    <div class="q"><h3>1. Что делать с рудой антиматерии (фиолетовые жилы)?</h3>
+      <div class="rec"><b>Предложение:</b> 5 единиц руды дают 1 квант (премиум-валюта, сейчас её дают за боссов и за забег). Руда занимает место в трюме втрое больше металла, поэтому её берёшь осознанно.</div>
+      <div class="alt">Другое: руда нужна для улучшения модулей выше 3-го уровня; или руда только красиво выглядит, а жилы всегда дают металл.</div></div>
+    <div class="q"><h3>2. Кто стоит у добывающего луча?</h3>
+      <div class="rec"><b>Предложение:</b> для начала орудийный пост, как у орудий. Отдельного оператора добычи добавим вместе со специализацией позже.</div>
+      <div class="alt">Другое: сразу новая профессия «оператор добычи» и пост «Добывающий отсек» в пуле модулей.</div></div>
+    <div class="q"><h3>3. Есть ли у стартовых кораблей добывающий луч?</h3>
+      <div class="rec"><b>Предложение:</b> да, один слабый у каждого, чтобы точка «Добыча» была доступна с первой миссии. Модули лучшего луча покупаются.</div>
+      <div class="alt">Другое: луч покупается в магазине дока, до покупки точка «Добыча» для игрока «пуста» (можно просто пролететь).</div></div>
+    <div class="q"><h3>4. Патруль: волны по времени или один большой враг в конце?</h3>
+      <div class="rec"><b>Предложение:</b> волны по времени: первая через 35 с после первой добытой клетки, дальше каждые 35 с. Нет награды за патруль, чтобы ожидание не было выгодным.</div>
+      <div class="alt">Другое: на арене всегда стоит враг-страж, а добыча начинается после боя с ним.</div></div>
+    <div class="q"><h3>5. Чем платить торговцу?</h3>
+      <div class="rec"><b>Предложение:</b> только содержимым трюма (риск есть). Копилка недоступна.</div>
+      <div class="alt">Другое: можно и копилкой, тогда торговец это магазин с редким ассортиментом.</div></div>
+    <div class="q"><h3>6. Происшествия с выбором</h3>
+      <div class="rec"><b>Предложение:</b> не делаем до текстов истории (MVP-3в). В точке «Сигнал» пока обломок и сигнал бедствия.</div>
+      <div class="alt">Если хотите, можно набросать три-четыре происшествия на русском как заготовку, вы поправите.</div></div>
+    <div class="q"><h3>7. Конец точки без победы</h3>
+      <div class="rec"><b>Предложение:</b> для добычи, сигнала и торговца в панели боя вместо победы кнопка «Улететь» (в новом экране боя она встанет в группу «Время»). После неё игрок на карте, награды получены по ходу.</div>
+      <div class="alt">Другое: точка кончается сама через заданное время.</div></div>
+  </section>
+
+  <!-- ============================================================ PLAN -->
+  <section data-s="plan" class="stack" hidden>
+    <div class="card">
+      <h2>План работ (MVP-3б-2), по шагам</h2>
+      <ul>
+        <li><b>1. Добывающий луч.</b> Тип орудия «луч добычи»; жилы как свойство клеток камня (золото, фиолет); луч выжигает клетки жилы и бросает кристаллы; захват кристаллов; затраты энергии; глушение попаданием. Тесты.</li>
+        <li><b>2. Арена добычи.</b> Генерация поля с жилами по сектору и ярусу, патрули по времени, диспетчер предупреждает; конец точки кнопкой «Улететь», полный трюм, гибель.</li>
+        <li><b>3. Экран боя для добычи.</b> Строка «Добыча» в панели (луч, цель, жила), полоска трюма, предупреждение о патруле, метки жил.</li>
+        <li><b>4. Сигнал.</b> Арена-обломок без врагов; сигнал бедствия с эвакуацией; веса в дороге.</li>
+        <li><b>5. Торговец.</b> Окно торга, запас модулей, оплата из трюма, купленное в запас.</li>
+        <li><b>6. Включение точек.</b> `ENABLED` в road.ts, сохранение забега, тесты дороги, картинки точек уже есть.</li>
+      </ul>
+      <p class="hint">Порядок можно менять: например, начать с сигнала-обломка, он почти готов.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  // ---------------------------------------------------------------- tabs
+  var tabs = document.querySelectorAll('.tab'), secs = document.querySelectorAll('section[data-s]');
+  function show(t) {
+    tabs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.t === t)); });
+    secs.forEach(function (s) { s.hidden = s.dataset.s !== t; });
+    try { sessionStorage.setItem('tab', t); } catch (e) {}
+    if (t === 'mining') sizeDemo();
+  }
+  tabs.forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.t); }); });
+  var first = 'points'; try { first = sessionStorage.getItem('tab') || 'points'; } catch (e) {}
+
+  // ---------------------------------------------------------------- the points
+  var KINDS = {
+    combat: { n: 'Бой', c: '#59e6ff', s: 'есть' }, elite: { n: 'Элитный бой', c: '#ff9a2a', s: 'есть' }, boss: { n: 'Рубеж', c: '#ff6a5a', s: 'есть' },
+    dock: { n: 'Док', c: '#63e07a', s: 'есть' }, gate: { n: 'Врата', c: '#b06bff', s: 'есть' }, mining: { n: 'Добыча', c: '#4ff0d0', s: 'сделать' },
+    event: { n: 'Сигнал', c: '#ff5fd8', s: 'сделать' }, shop: { n: 'Торговец', c: '#ffd24a', s: 'сделать' }
+  };
+  var LINK = ['combat', 'mining', 'event', 'combat', 'dock', 'elite', 'shop', 'combat', 'event', 'boss'];
+  var l10 = $('link10');
+  LINK.forEach(function (k, i) { var s = document.createElement('span'); s.style.setProperty('--c', KINDS[k].c); s.textContent = i + 1; s.title = KINDS[k].n; l10.appendChild(s); });
+  LINK.forEach(function (k) { var s = document.createElement('small'); s.textContent = ({ combat: 'бой', mining: 'добыча', event: 'сигнал', dock: 'док', elite: 'элита', shop: 'торг.', boss: 'рубеж' })[k]; l10.appendChild(s); });
+  var W = $('weights');
+  [['combat', 46], ['elite', 12], ['mining', 17], ['event', 17], ['shop', 8]].forEach(function (w) { var i = document.createElement('i'); i.style.width = w[1] + '%'; i.style.background = KINDS[w[0]].c; i.textContent = KINDS[w[0]].n + ' ' + w[1] + '%'; W.appendChild(i); });
+
+  function icon(kind) {
+    var c = KINDS[kind].c, g = '';
+    if (kind === 'combat') g = '<circle cx="38" cy="40" r="14" fill="#7a5ad0"/><path d="M16 14l8 18-8-6-8 6z" fill="#ff6a5a"/><path d="M60 18l7 14-7-5-7 5z" fill="#ff6a5a"/>';
+    if (kind === 'elite') g = '<circle cx="38" cy="38" r="9" fill="#000" stroke="#ff9a2a" stroke-width="3"/><ellipse cx="38" cy="38" rx="22" ry="7" fill="none" stroke="#ff9a2a" stroke-width="2"/><path d="M10 14l7 14-7-5-7 5z" fill="#ff6a5a"/><path d="M66 58l7 14-7-5-7 5z" fill="#ff6a5a"/>';
+    if (kind === 'boss') g = '<circle cx="38" cy="38" r="12" fill="#000" stroke="#ff6a5a" stroke-width="3"/><path d="M38 12l10 24-10 6-10-6z" fill="#ff6a5a"/><ellipse cx="38" cy="38" rx="30" ry="9" fill="none" stroke="#ff9a2a" stroke-width="2"/>';
+    if (kind === 'dock') g = '<circle cx="38" cy="38" r="22" fill="none" stroke="#9aa7bd" stroke-width="6"/><circle cx="38" cy="38" r="12" fill="#1a2a4a"/><rect x="30" y="32" width="16" height="12" fill="#63e07a"/>';
+    if (kind === 'gate') g = '<circle cx="38" cy="38" r="24" fill="none" stroke="#aab6c9" stroke-width="7"/><circle cx="38" cy="38" r="17" fill="#6a3ad0"/><circle cx="38" cy="14" r="3" fill="#ff5fd8"/><circle cx="38" cy="62" r="3" fill="#ff5fd8"/>';
+    if (kind === 'mining') g = '<circle cx="24" cy="46" r="13" fill="#8d8478"/><circle cx="52" cy="30" r="9" fill="#7a7064"/><rect x="20" y="42" width="4" height="4" fill="#ffd24a"/><rect x="50" y="28" width="4" height="4" fill="#b06bff"/><path d="M10 18l22 24" stroke="#4ff0d0" stroke-width="3"/><path d="M6 12l8 4-4 8z" fill="#9aa7bd"/>';
+    if (kind === 'event') g = '<path d="M10 54l14-18 8 8 14-22 16 32z" fill="#4b566c"/><circle cx="38" cy="22" r="10" fill="none" stroke="#ff5fd8" stroke-width="3"/><text x="38" y="27" fill="#ff5fd8" text-anchor="middle" font-size="14" font-weight="700" font-family="monospace">?</text>';
+    if (kind === 'shop') g = '<rect x="12" y="38" width="20" height="16" fill="#8a6a2a"/><rect x="36" y="30" width="26" height="24" fill="#6a7a9a"/><circle cx="60" cy="16" r="9" fill="none" stroke="#ffd24a" stroke-width="3"/><text x="60" y="21" fill="#ffd24a" text-anchor="middle" font-size="12" font-weight="700" font-family="monospace">$</text>';
+    return '<svg viewBox="0 0 76 76" role="img" aria-label="' + KINDS[kind].n + '" style="border-color:' + c + '55">' + g + '</svg>';
+  }
+  var CARDS = [
+    ['combat', 'Враги на орбите планеты', 'Уничтожить всех врагов', 'Кредиты и металл по ярусу', 'Урон, потери экипажа', 'Как сейчас.'],
+    ['elite', 'Малая чёрная дыра и три корабля', 'Уничтожить всех', 'Больше, чем за бой', 'Высокий', 'Как сейчас, с четвёртой миссии.'],
+    ['boss', 'Огромная дыра и линкор-босс', 'Уничтожить линкор', 'Крупная награда и квант', 'Очень высокий', 'Как сейчас; за ним врата и док.'],
+    ['dock', 'Станция-кольцо', 'Ничего: выбрать, что сделать', 'Сдача груза, ремонт, найм', 'Нет', 'Как сейчас; пятая миссия звена и врата.'],
+    ['gate', 'Кольцо с порталом', 'Пройти', 'Следующее звено, новый сектор', 'Нет', 'Как сейчас; вместе с доком.'],
+    ['mining', 'Поле астероидов с жилами', 'Добыть сколько хочешь и улететь', 'Металл и руда по времени', 'Патрули, чем дольше тем сильнее', 'Новая: вкладка «Добыча».'],
+    ['event', 'Обломок, сигнал бедствия, происшествие', 'Осмотреть, спасти, выбрать', 'Редкое: космонавт, тайник, металл', 'Малый, ловушки', 'Новая: вкладка «Сигнал».'],
+    ['shop', 'Торговый корабль и станция', 'Купить и лететь дальше', 'Уникальные модули и космонавты', 'Нет, но платишь из трюма', 'Новая: вкладка «Торговец».']
+  ];
+  var pc = $('pointCards');
+  CARDS.forEach(function (c) {
+    var k = KINDS[c[0]], el = document.createElement('div'); el.className = 'card pt';
+    el.innerHTML = icon(c[0]) + '<div><h3 style="color:' + k.c + '">' + k.n + '<span class="tag ' + (k.s === 'есть' ? 'have' : 'todo') + '">' + k.s + '</span></h3><div class="k">' + c[1] + '</div><dl class="dl"><dt>Цель</dt><dd>' + c[2] + '</dd><dt>Награда</dt><dd>' + c[3] + '</dd><dt>Риск</dt><dd>' + c[4] + '</dd><dt>Статус</dt><dd>' + c[5] + '</dd></dl></div>';
+    pc.appendChild(el);
+  });
+
+  // ---------------------------------------------------------------- the mining demo
+  var cv = $('cv'), ctx = cv.getContext('2d'), VW = 480, VH = 560;
+  ctx.imageSmoothingEnabled = false;
+  function rng(s) { var a = s >>> 0; return function () { a = (a + 0x6D2B79F5) >>> 0; var t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  var P = { range: 80, cell: 1.1, patrol: 35, hold: 40 };
+  function bindSlider(id, out, key, fmt) { var s = $(id), o = $(out); function f() { P[key] = +s.value; o.textContent = fmt(+s.value); } s.addEventListener('input', f); f(); }
+  bindSlider('sRange', 'oRange', 'range', function (v) { return v + ' кл'; });
+  bindSlider('sCell', 'oCell', 'cell', function (v) { return v.toFixed(1) + ' с'; });
+  bindSlider('sPatrol', 'oPatrol', 'patrol', function (v) { return v + ' с'; });
+  bindSlider('sHold', 'oHold', 'hold', function (v) { return v; });
+
+  var S;
+  function init() {
+    var r = rng(41);
+    var rocks = [];
+    for (var i = 0; i < 20; i++) {
+      var a = r() * 6.28, d = Math.sqrt(r()) * 200, rad = 14 + r() * 26;
+      var x = 240 + Math.cos(a) * d * 1.1, y = 190 + Math.sin(a) * d * .8;
+      var cells = [], ph = r() * 6, n = Math.round(rad * 1.6);
+      for (var k = 0; k < n; k++) { var aa = r() * 6.28, dd = Math.sqrt(r()) * rad * .85; var q = r(); cells.push({ x: x + Math.cos(aa) * dd, y: y + Math.sin(aa) * dd, ore: q < .16 ? 1 : q < .22 ? 2 : 0, hp: 1, gone: false }); }
+      rocks.push({ x: x, y: y, r: rad, ph: ph, cells: cells });
+    }
+    S = { t: 0, ship: { x: 240, y: 440, vx: 0, vy: 0, a: 0 }, tgt: null, rocks: rocks, hull: 100, hold: 0, ore: 0, metal: 0, energy: 100, beam: true, auto: true, mined: 0, firstAt: -1, nextPatrol: -1, enemies: [], shots: [], crystals: [], fx: [], lastHit: -9, cur: null, over: false, banner: '', bannerT: 0, stunned: 0, said: {} };
+    $('end').classList.remove('on');
+  }
+  function say(text, crit, ms) { S.banner = text; S.bannerT = (ms || 3500) / 1000; $('banner').className = 'banner on' + (crit ? ' crit' : ''); $('banner').textContent = text; }
+  function finish(title) {
+    S.over = true; var min = Math.max(0.1, (S.t - Math.max(0, S.firstAt)) / 60);
+    $('endT').textContent = title;
+    $('endP').innerHTML = 'Металл: <b>' + S.metal + '</b>, руда антиматерии: <b>' + S.ore + '</b><br>В трюме: ' + S.hold + '/' + P.hold + '<br>Корпус: ' + Math.round(S.hull) + '%<br>За ' + Math.round(S.t) + ' с, примерно ' + ((S.metal + S.ore) / min).toFixed(1) + ' ед. в минуту';
+    $('end').classList.add('on');
+  }
+  $('endB').addEventListener('click', init);
+  $('bBeam').addEventListener('click', function () { S.beam = !S.beam; this.classList.toggle('on', S.beam); this.textContent = 'Луч: ' + (S.beam ? 'вкл' : 'выкл'); });
+  $('bAuto').addEventListener('click', function () { S.auto = !S.auto; this.classList.toggle('on', S.auto); this.textContent = 'Цель: ' + (S.auto ? 'авто' : 'ручная'); if (S.auto) S.cur = null; });
+  $('bLeave').addEventListener('click', function () { if (!S.over) finish('Вы улетели'); });
+  var manual = null;
+  cv.addEventListener('click', function (e) {
+    if (S.over) return;
+    var r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * VW, y = (e.clientY - r.top) / r.height * VH;
+    if (!S.auto) {
+      var best = null, bd = 18;
+      S.rocks.forEach(function (k) { k.cells.forEach(function (c) { if (c.ore && !c.gone) { var d = Math.hypot(c.x - x, c.y - y); if (d < bd) { bd = d; best = c; } } }); });
+      if (best) { manual = best; S.cur = best; return; }
+    }
+    S.tgt = { x: x, y: y };
+  });
+
+  function nearestOre() {
+    var best = null, bd = P.range;
+    S.rocks.forEach(function (k) { k.cells.forEach(function (c) { if (c.ore && !c.gone) { var d = Math.hypot(c.x - S.ship.x, c.y - S.ship.y); if (d < bd) { bd = d; best = c; } } }); });
+    return best;
+  }
+  function spawnPatrol() {
+    var side = Math.random() < .5 ? -30 : VW + 30;
+    S.enemies.push({ x: side, y: 40 + Math.random() * 120, hp: 1, fire: 1.5, life: 14, orb: Math.random() * 6 });
+    say('Патруль в зоне боя', true, 3000);
+  }
+  function step(dt) {
+    if (S.over) return;
+    S.t += dt; S.bannerT = Math.max(0, S.bannerT - dt); if (S.bannerT <= 0) $('banner').className = 'banner';
+    var sh = S.ship;
+    if (S.tgt) {
+      var dx = S.tgt.x - sh.x, dy = S.tgt.y - sh.y, d = Math.hypot(dx, dy);
+      if (d < 4) S.tgt = null; else { var want = Math.min(70, d * 1.2); sh.vx += (dx / d * want - sh.vx) * Math.min(1, dt * 2); sh.vy += (dy / d * want - sh.vy) * Math.min(1, dt * 2); sh.a = Math.atan2(dx, -dy); }
+    } else { sh.vx *= Math.max(0, 1 - dt * 2); sh.vy *= Math.max(0, 1 - dt * 2); }
+    sh.x = Math.max(10, Math.min(VW - 10, sh.x + sh.vx * dt)); sh.y = Math.max(70, Math.min(VH - 80, sh.y + sh.vy * dt));
+    var speed = Math.hypot(sh.vx, sh.vy);
+    S.stunned = Math.max(0, S.stunned - dt);
+    S.energy = Math.min(100, S.energy + 6 * dt);
+    // the beam
+    var cur = S.cur && !S.cur.gone && Math.hypot(S.cur.x - sh.x, S.cur.y - sh.y) <= P.range ? S.cur : null;
+    if (!cur && S.auto) cur = nearestOre();
+    if (!cur && !S.auto) cur = manual && !manual.gone && Math.hypot(manual.x - sh.x, manual.y - sh.y) <= P.range ? manual : null;
+    S.cur = cur;
+    var firing = S.beam && cur && speed < 22 && S.stunned <= 0 && S.energy > 2 && S.hold < P.hold;
+    S.firing = firing;
+    if (S.beam && cur && S.hold >= P.hold && !S.said.full) { S.said.full = 1; say('Трюм полон: кристаллы уплывают', false, 3500); }
+    if (firing) {
+      S.energy = Math.max(0, S.energy - 14 * dt);
+      cur.hp -= dt / P.cell;
+      if (S.firstAt < 0) { S.firstAt = S.t; S.nextPatrol = S.t + P.patrol; }
+      if (cur.hp <= 0) {
+        cur.gone = true; S.mined++;
+        S.crystals.push({ x: cur.x, y: cur.y, ore: cur.ore, t: 0, vx: (Math.random() - .5) * 20, vy: (Math.random() - .5) * 20 });
+        S.cur = null;
+      }
+    }
+    // crystals fly to the ship within the pull radius, else fade
+    S.crystals.forEach(function (c) {
+      c.t += dt;
+      var dx = sh.x - c.x, dy = sh.y - c.y, d = Math.hypot(dx, dy);
+      if (d < 70) { c.vx += dx / d * 260 * dt; c.vy += dy / d * 260 * dt; }
+      c.vx *= 1 - dt * 1.3; c.vy *= 1 - dt * 1.3; c.x += c.vx * dt; c.y += c.vy * dt;
+      if (d < 8) {
+        c.gone = true;
+        if (S.hold < P.hold) { S.hold += c.ore === 2 ? 3 : 1; if (c.ore === 2) S.ore++; else S.metal++; }
+      }
+      if (c.t > 18) c.gone = true;
+    });
+    S.crystals = S.crystals.filter(function (c) { return !c.gone; });
+    // the patrol
+    if (S.nextPatrol > 0) {
+      var left = S.nextPatrol - S.t;
+      if (left <= 15 && left > 14.5 && !S.said['w' + S.nextPatrol]) { S.said['w' + S.nextPatrol] = 1; say('Патруль на подходе: 15 с', false, 3000); }
+      if (left <= 0) { spawnPatrol(); S.nextPatrol = S.t + P.patrol; }
+    }
+    S.enemies.forEach(function (e) {
+      e.life -= dt; e.orb += dt * .7;
+      var tx = sh.x + Math.cos(e.orb) * 110, ty = sh.y - 90 + Math.sin(e.orb) * 40;
+      e.x += (tx - e.x) * Math.min(1, dt * 1.2); e.y += (ty - e.y) * Math.min(1, dt * 1.2);
+      e.fire -= dt;
+      if (e.fire <= 0) { e.fire = 1.1; S.shots.push({ x0: e.x, y0: e.y, x1: sh.x + (Math.random() - .5) * 14, y1: sh.y + (Math.random() - .5) * 20, t: 0 }); S.hull -= 2.6; S.lastHit = S.t; S.stunned = Math.max(S.stunned, 1.5); S.fx.push({ x: sh.x, y: sh.y, t: 0 }); }
+      if (e.life <= 0) { S.fx.push({ x: e.x, y: e.y, t: -1 }); e.dead = true; }
+    });
+    S.enemies = S.enemies.filter(function (e) { return !e.dead; });
+    S.shots.forEach(function (s) { s.t += dt; }); S.shots = S.shots.filter(function (s) { return s.t < .2; });
+    S.fx.forEach(function (f) { f.t += dt; }); S.fx = S.fx.filter(function (f) { return f.t < .5; });
+    if (S.hull <= 0) { S.hull = 0; S.hold = 0; S.metal = 0; S.ore = 0; finish('Корабль потерян: груз пропал'); }
+  }
+  function draw() {
+    var sh = S.ship;
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, VW, VH);
+    var g = ctx.createRadialGradient(240, 190, 20, 240, 190, 300); g.addColorStop(0, 'rgba(176,107,255,.16)'); g.addColorStop(1, 'rgba(176,107,255,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+    var r = rng(5); ctx.fillStyle = '#7f95bf'; for (var i = 0; i < 110; i++) { ctx.globalAlpha = .3 + r() * .5; ctx.fillRect(Math.floor(r() * VW), Math.floor(r() * VH), 1, 1); } ctx.globalAlpha = 1;
+    S.rocks.forEach(function (k) {
+      k.cells.forEach(function (c) { if (c.gone) return; var col = c.ore === 1 ? '#ffd24a' : c.ore === 2 ? '#b06bff' : '#6b6258'; ctx.fillStyle = col; ctx.globalAlpha = c.hp < 1 ? .5 + .5 * c.hp : 1; ctx.fillRect(Math.round(c.x), Math.round(c.y), 3, 3); });
+    });
+    ctx.globalAlpha = 1;
+    // glow for veins
+    S.rocks.forEach(function (k) { k.cells.forEach(function (c) { if (!c.gone && c.ore) { ctx.fillStyle = c.ore === 1 ? 'rgba(255,210,74,.18)' : 'rgba(176,107,255,.22)'; ctx.fillRect(Math.round(c.x) - 2, Math.round(c.y) - 2, 7, 7); } }); });
+    // range ring
+    ctx.strokeStyle = 'rgba(79,240,208,.18)'; ctx.setLineDash([3, 5]); ctx.beginPath(); ctx.arc(sh.x, sh.y, P.range, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+    if (S.tgt) { ctx.strokeStyle = '#59e6ff'; ctx.beginPath(); ctx.arc(S.tgt.x, S.tgt.y, 5, 0, 6.283); ctx.moveTo(S.tgt.x - 8, S.tgt.y); ctx.lineTo(S.tgt.x + 8, S.tgt.y); ctx.moveTo(S.tgt.x, S.tgt.y - 8); ctx.lineTo(S.tgt.x, S.tgt.y + 8); ctx.stroke(); }
+    // marker on the chosen vein
+    if (S.cur) {
+      var c = S.cur; ctx.strokeStyle = c.ore === 1 ? '#ffd24a' : '#b06bff'; ctx.lineWidth = 1.5; ctx.strokeRect(c.x - 5, c.y - 5, 13, 13);
+      if (S.firing) { ctx.beginPath(); ctx.arc(c.x + 1.5, c.y + 1.5, 10, -1.57, -1.57 + 6.283 * (1 - c.hp)); ctx.strokeStyle = '#4ff0d0'; ctx.lineWidth = 2; ctx.stroke(); }
+      ctx.lineWidth = 1;
+    }
+    if (S.firing && S.cur) {
+      ctx.strokeStyle = 'rgba(79,240,208,.45)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(sh.x, sh.y - 12); ctx.lineTo(S.cur.x + 1.5, S.cur.y + 1.5); ctx.stroke();
+      ctx.strokeStyle = '#e8fffb'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(sh.x, sh.y - 12); ctx.lineTo(S.cur.x + 1.5, S.cur.y + 1.5); ctx.stroke(); ctx.lineWidth = 1;
+    }
+    S.crystals.forEach(function (c) { ctx.fillStyle = c.ore === 2 ? '#d9b8ff' : '#fff0a8'; ctx.globalAlpha = Math.max(.25, 1 - c.t / 18); ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.t * 3); ctx.fillRect(-2, -2, 4, 4); ctx.restore(); }); ctx.globalAlpha = 1;
+    // ship
+    ctx.save(); ctx.translate(Math.round(sh.x), Math.round(sh.y)); ctx.rotate(sh.a);
+    ctx.fillStyle = '#9aa7bd'; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(7, 4); ctx.lineTo(11, 11); ctx.lineTo(4, 11); ctx.lineTo(4, 14); ctx.lineTo(-4, 14); ctx.lineTo(-4, 11); ctx.lineTo(-11, 11); ctx.lineTo(-7, 4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#59e6ff'; ctx.fillRect(-1, -8, 2, 3); ctx.fillStyle = S.firing ? '#4ff0d0' : '#ffd24a'; ctx.fillRect(-3, 12, 6, 2);
+    ctx.restore();
+    // enemies
+    S.enemies.forEach(function (e) { ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(Math.atan2(sh.x - e.x, -(sh.y - e.y))); ctx.fillStyle = '#b9707a'; ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(7, 4); ctx.lineTo(11, 9); ctx.lineTo(0, 6); ctx.lineTo(-11, 9); ctx.lineTo(-7, 4); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#ff6a5a'; ctx.fillRect(-1.5, -3, 3, 3); ctx.restore(); });
+    S.shots.forEach(function (s) { ctx.strokeStyle = 'rgba(255,106,90,' + (1 - s.t / .2) + ')'; ctx.beginPath(); ctx.moveTo(s.x0, s.y0); ctx.lineTo(s.x1, s.y1); ctx.stroke(); });
+    S.fx.forEach(function (f) { if (f.t < 0) return; ctx.strokeStyle = 'rgba(255,154,42,' + (1 - f.t / .5) + ')'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(f.x, f.y, 4 + 20 * f.t / .5, 0, 6.283); ctx.stroke(); ctx.lineWidth = 1; });
+    if (S.t - S.lastHit < .2) { ctx.fillStyle = 'rgba(255,106,90,.18)'; ctx.fillRect(0, 0, VW, VH); }
+    // patrol clock under the ship
+    if (S.nextPatrol > 0) { var left = Math.max(0, S.nextPatrol - S.t); ctx.fillStyle = left < 15 ? '#ff6a5a' : '#7f95bf'; ctx.font = '700 11px monospace'; ctx.textAlign = 'center'; ctx.fillText('патруль ' + Math.ceil(left) + ' с', 240, 496); ctx.textAlign = 'start'; }
+    else { ctx.fillStyle = '#4d5f86'; ctx.font = '700 11px monospace'; ctx.textAlign = 'center'; ctx.fillText('тихо: патруль придёт после первой добытой клетки', 240, 496); ctx.textAlign = 'start'; }
+  }
+  function paintHud() {
+    $('hHull').textContent = Math.round(S.hull) + '%'; $('hHold').textContent = S.hold + '/' + P.hold; $('mHold').style.width = Math.min(100, S.hold / P.hold * 100) + '%';
+    $('hEn').textContent = Math.round(S.energy); $('mEn').style.width = S.energy + '%';
+  }
+  var last = performance.now();
+  function sizeDemo() { }
+  function loop(now) {
+    var dt = Math.min(.05, (now - last) / 1000); last = now;
+    if (!$('demo').closest('section').hidden) { step(dt); draw(); paintHud(); }
+    requestAnimationFrame(loop);
+  }
+  init(); draw(); paintHud();
+  show(first);
+  requestAnimationFrame(loop);
+})();
+</script>

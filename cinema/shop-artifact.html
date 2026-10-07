@@ -1,0 +1,468 @@
+<title>Магазин дока Antimatter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Unbounded:wght@500;700;900&display=swap">
+<style>
+/* Layout: a design document with tabs; the first tab is a live mock of the dock's shop room (phone or desktop width). Dark, the game's own night. */
+:root {
+  --bg: #05070d;
+  --panel: #0a0f1c;
+  --panel2: #0d1424;
+  --line: #2c3d63;
+  --line-soft: #1c2742;
+  --fg: #cfe0ff;
+  --dim: #7f95bf;
+  --faint: #4d5f86;
+  --cyan: #59e6ff;
+  --violet: #b06bff;
+  --magenta: #ff5fd8;
+  --amber: #ffd24a;
+  --red: #ff6a5a;
+  --green: #63e07a;
+  --teal: #4ff0d0;
+  --display: 'Unbounded', 'Arial Black', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { margin: 0; padding-inline: 16px; padding-block: 24px 56px; color: var(--fg); font: 400 13.5px/1.6 var(--mono); }
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { margin: 0; font: 900 clamp(24px, 4vw, 38px)/1.05 var(--display); letter-spacing: .04em; color: #fff; text-wrap: balance; }
+h1 span { color: var(--cyan); }
+.lead { margin: 10px 0 0; color: var(--dim); max-width: 70ch; }
+h2 { margin: 0 0 12px; font: 700 12px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--cyan); }
+h3 { margin: 0 0 6px; font: 700 15px/1.2 var(--display); letter-spacing: .02em; color: #fff; }
+p { margin: 0 0 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; }
+.tab { background: var(--panel); border: 1px solid var(--line); color: var(--dim); border-radius: 9px; padding: 10px 14px; font: 700 12px/1 var(--mono); letter-spacing: .06em; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--cyan); border-color: var(--cyan); color: #04202a; }
+.tab:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+section[hidden] { display: none; }
+.stack { display: flex; flex-direction: column; gap: 18px; }
+.card { border: 1px solid var(--line-soft); border-radius: 12px; padding: 16px; background: rgba(10, 15, 28, .7); min-width: 0; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font: 700 10.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--c); color: var(--c); margin-left: 4px; vertical-align: middle; }
+.tag.have { --c: var(--green); } .tag.todo { --c: var(--amber); } .tag.ask { --c: var(--magenta); } .tag.later { --c: var(--faint); }
+ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+li::marker { color: var(--faint); }
+.k { color: var(--dim); }
+b { color: #eef5ff; font-weight: 700; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { color: var(--faint); font: 700 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.tbl { overflow-x: auto; }
+.row2 { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 860px) { .row2 { grid-template-columns: minmax(0, 1fr); } }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.flow div { flex: 1 1 150px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel2); font-size: 12.5px; }
+.flow div b { display: block; margin-bottom: 3px; color: var(--cyan); font: 700 11px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.flow div.good b { color: var(--green); } .flow div.warn b { color: var(--amber); }
+.hint { color: var(--faint); font-size: 12px; }
+.q { border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; background: rgba(10, 15, 28, .7); }
+.q h3 { font-size: 14px; }
+.q .rec { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--green); background: rgba(99, 224, 122, .06); font-size: 12.5px; }
+.q .alt { color: var(--dim); font-size: 12.5px; margin-top: 6px; }
+.cur { font-weight: 700; white-space: nowrap; }
+.cur.cr { color: var(--amber); } .cur.me { color: var(--teal); } .cur.qu { color: var(--violet); }
+
+/* the mock of the room */
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { background: var(--panel); color: var(--dim); border: 0; padding: 9px 14px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--cyan); color: #04202a; }
+.ghost { background: var(--panel); border: 1px solid var(--line); color: var(--fg); border-radius: 9px; padding: 9px 14px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.stage { display: flex; justify-content: center; padding: 18px 10px; border: 1px solid var(--line-soft); border-radius: 14px; background: radial-gradient(120% 90% at 50% 0, #0b1630 0, #05070d 70%); overflow: hidden; }
+.shop { width: 100%; max-width: 100%; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(#0a1224, #070b16); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.shop.phone { max-width: 390px; }
+.sh-top { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+.sh-top h4 { margin: 0; font: 700 14px/1 var(--display); color: #fff; letter-spacing: .04em; }
+.wallet { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 99px; padding: 5px 10px; font: 700 12px/1 var(--mono); background: var(--panel); font-variant-numeric: tabular-nums; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.chip.cr { --c: var(--amber); } .chip.me { --c: var(--teal); } .chip.qu { --c: var(--violet); }
+.shelves { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line-soft); overflow-x: auto; }
+.shelf { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); padding: 9px 10px 11px; font: 700 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
+.shelf[aria-selected="true"] { color: var(--cyan); border-color: var(--cyan); }
+.sh-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 14px 0; font-size: 12px; color: var(--dim); }
+.sh-body { padding: 12px 14px 14px; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.shop.phone .sh-body { grid-template-columns: minmax(0, 1fr); }
+.it { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 12px; border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px; background: var(--panel); position: relative; }
+.it.lv3, .it.lv4 { border-color: #3b4f80; } .it.lv5 { border-color: var(--violet); }
+.it .ic { grid-row: 1 / span 2; width: 52px; height: 52px; border-radius: 10px; border: 1px solid var(--line); background: #060a14; display: grid; place-items: center; font: 700 13px/1 var(--mono); color: var(--cyan); position: relative; }
+.it .ic em { position: absolute; right: -6px; bottom: -7px; font: 700 10px/1 var(--mono); font-style: normal; background: var(--cyan); color: #04202a; border-radius: 5px; padding: 3px 5px; }
+.it.lv3 .ic em, .it.lv4 .ic em { background: var(--amber); } .it.lv5 .ic em { background: var(--violet); }
+.it h5 { margin: 0; font: 700 12.5px/1.25 var(--display); color: #fff; }
+.it .ef { color: var(--dim); font-size: 12px; line-height: 1.45; }
+.it .buy { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 6px; }
+.it .pr { display: flex; gap: 10px; font: 700 12.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.it .pr span.no { color: var(--red); }
+.btn { background: var(--cyan); color: #04202a; border: 0; border-radius: 8px; padding: 9px 14px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.btn[disabled] { background: transparent; border: 1px solid var(--line); color: var(--faint); cursor: not-allowed; }
+.btn.sell { background: var(--panel2); border: 1px solid var(--amber); color: var(--amber); }
+.it.own { opacity: .6; }
+.it .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--faint); font-size: 11px; }
+.empty { grid-column: 1 / -1; color: var(--faint); padding: 22px 6px; text-align: center; }
+.toast { min-height: 34px; padding: 8px 14px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--dim); }
+.toast b { color: var(--green); }
+.sl { display: grid; grid-template-columns: 150px 1fr 70px; gap: 10px; align-items: center; margin: 6px 0; font-size: 12.5px; }
+.sl input { accent-color: var(--cyan); width: 100%; }
+.sl output { text-align: right; color: var(--cyan); font-variant-numeric: tabular-nums; }
+select { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 700 12px/1 var(--mono); }
+@media (max-width: 560px) { .sl { grid-template-columns: 1fr 1fr; } .sl input { grid-column: 1 / -1; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Магазин <span>дока</span></h1>
+    <p class="lead">Комната «Магазин» в доке: что в ней продаётся, за что, как обновляется товар и чем она отличается от торговца на дороге. Все числа здесь предложения для разговора, в игре они не балансировались. Цены модулей и найма взяты из кода как есть, остальное придумано и помечено.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Разделы">
+    <button class="tab" role="tab" aria-selected="true" data-t="demo">Витрина</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="goods">Что продаём</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="prices">Цены</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="rotate">Обновление товара</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="trader">Магазин и торговец</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="ask">Что решить</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="plan">План работ</button>
+  </nav>
+
+  <!-- ============================================================ витрина -->
+  <section data-s="demo" class="stack">
+    <div class="card">
+      <div class="bar">
+        <div class="seg" role="group" aria-label="Размер экрана">
+          <button id="m-phone" aria-pressed="false">Телефон</button>
+          <button id="m-desk" aria-pressed="true">Компьютер</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label class="k" for="prog">Прогресс игрока</label>
+          <select id="prog">
+            <option value="3">Начало (модули до 3-го уровня)</option>
+            <option value="4">После первого босса (до 4-го)</option>
+            <option value="5">После третьего (до 5-го)</option>
+          </select>
+          <button class="ghost" id="reset">Сбросить макет</button>
+        </div>
+      </div>
+      <p class="hint" style="margin:10px 0 0">Это макет комнаты: кнопки работают, деньги тратятся, товар обновляется. Так магазин будет выглядеть внутри дока, где сверху всегда видны кредиты, металл и кванты.</p>
+    </div>
+    <div class="stage"><div class="shop" id="shop" aria-live="polite"></div></div>
+  </section>
+
+  <!-- ============================================================ что продаём -->
+  <section data-s="goods" class="stack" hidden>
+    <div class="card">
+      <h2>Чем магазин дока отличается от того, что уже есть</h2>
+      <p>Простой модуль первого уровня и так берётся из пула бесплатно. Нанять космонавта можно в казарме, чинят корабль в ремонтной. Поэтому в магазине должно быть то, чего нигде больше нет: <b>новые корабли</b> и <b>модули сразу нужного уровня</b>. Остальное либо уже сделано в других комнатах, либо ждёт, пока в игре появятся сами вещи.</p>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>Корабли <span class="tag todo">сделать</span></h3>
+        <p class="k">Сейчас в парке сразу три корабля. В игре с магазином игрок начинает с запасного истребителя, остальные покупает.</p>
+        <ul><li>Крейсер и линкор за кредиты и металл из копилки.</li><li>Купленный корабль приходит без экипажа: людей нанимают в казарме.</li><li>Премиум-корабли за кванты: корпусов пока нет, в витрине стоит «скоро».</li></ul>
+        <div class="rec">Платить копилкой, не трюмом. Трюм на этом этапе платит только торговец на дороге.</div></div>
+      <div class="q"><h3>Модули готового уровня <span class="tag todo">сделать</span></h3>
+        <p class="k">Модуль у нас хранит свой уровень, его можно положить в запас корабля и поставить на другую палубу или корабль.</p>
+        <ul><li>Цена модуля уровня L равна цене одной ступени <span class="cur">upgradeCost(L)</span>, а не всей лестницы. Купить сразу 3-й уровень дешевле, чем прокачать 1-й до 3-го.</li><li>Купленное попадает в запас корабля (<span class="cur">layout.stock</span>), как и модуль, снятый с палубы.</li></ul>
+        <div class="rec">Продаётся 6 модулей за раз. Уровень растёт с прогрессом игрока, 5-й уровень только после третьего босса.</div></div>
+      <div class="q"><h3>Продажа обратно <span class="tag todo">сделать</span></h3>
+        <p class="k">Запас модулей накапливается: подобрали на дороге, сняли с палуб, купили лишнее.</p>
+        <ul><li>Модуль из запаса продаётся за половину цены магазина.</li><li>Корабли не продаются: мало смысла и легко потерять единственный.</li></ul>
+        <div class="rec">Это единственная трата модулей из запаса. Без неё лишние модули копятся впустую.</div></div>
+      <div class="q"><h3>Космонавты <span class="tag have">уже есть в казарме</span></h3>
+        <p class="k">Пять кандидатов, цена найма 60 × уровень × множитель редкости, обновление списка за 25 кредитов.</p>
+        <div class="rec">В магазине не дублируем. На полке «Экипаж» одна карточка-ссылка на казарму, чтобы игрок не искал, где нанять.</div></div>
+      <div class="q"><h3>Расходники <span class="tag later">позже</span></h3>
+        <p class="k">Ремонтный набор, стимулятор лечения, топливо. Ускорение ремонта за кванты уже есть в ремонтной.</p>
+        <div class="alt">Если ввести, это новая сущность в сохранении и в бою. На первую версию магазина не берём.</div></div>
+      <div class="q"><h3>Орудия и чертежи <span class="tag later">позже</span></h3>
+        <p class="k">Тип орудия на турели (импульс, тяжёлое, луч, добытчик) сейчас задан кораблём. Чертежи по замыслу открывают новые модули, а в пуле все девять уже открыты.</p>
+        <div class="alt">Полка появится, когда в игре будет замена орудия на турели и закрытые модули.</div></div>
+    </div>
+    <div class="card">
+      <h2>Что куда идёт</h2>
+      <div class="flow">
+        <div><b>Копилка</b>кредиты и металл → корабли, модули. Кванты → премиум.</div>
+        <div class="good"><b>Купленное</b>корабль → парк. Модуль → запас корабля. Нанятые → казарма (отдельно).</div>
+        <div class="warn"><b>Проданное</b>модуль из запаса → 50% цены в копилку.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ цены -->
+  <section data-s="prices" class="stack" hidden>
+    <div class="row2">
+      <div class="card">
+        <h2>Модуль: цена по размеру и уровню</h2>
+        <p class="k">Формула из кода: ступень уровня × множитель размера <span class="cur">1 + 0,5 × (клетки − 1)</span>. Ступени кредитов 60, 140, 280, 520, металла 12, 30, 60, 110.</p>
+        <div class="sl"><label for="size">Размер модуля</label>
+          <select id="size"><option value="1">1×1, ×1</option><option value="1.5">2×1, ×1,5</option><option value="2.5" selected>2×2, ×2,5</option><option value="3.5">3×2, ×3,5</option><option value="5">3×3, ×5</option></select><output></output></div>
+        <div class="sl"><label for="disc">Скидка магазина</label><input id="disc" type="range" min="0" max="50" step="5" value="0"><output id="disc-o">0%</output></div>
+        <div class="tbl"><table id="ptab"></table></div>
+        <p class="hint" style="margin-top:10px">Скидку можно крутить: по умолчанию 0, потому что готовый уровень уже дешевле лестницы. Если сделать её больше, магазин станет выгоднее прокачки и копить на прокачку станет бессмысленно.</p>
+      </div>
+      <div class="stack">
+        <div class="card">
+          <h2>Корабли (предложение)</h2>
+          <div class="tbl"><table>
+            <tr><th>Корабль</th><th>Класс</th><th>Трюм</th><th>Цена</th></tr>
+            <tr><td>Истребитель</td><td>лёгкий</td><td>40</td><td class="k">со старта</td></tr>
+            <tr><td>Крейсер</td><td>средний</td><td>120</td><td><span class="cur cr">1800</span> + <span class="cur me">450</span></td></tr>
+            <tr><td>Линкор</td><td>тяжёлый</td><td>400</td><td><span class="cur cr">7200</span> + <span class="cur me">1800</span></td></tr>
+            <tr><td>Премиум-корпус</td><td>—</td><td>—</td><td><span class="cur qu">?</span> <span class="k">нет корпуса</span></td></tr>
+          </table></div>
+          <p class="hint" style="margin-top:8px">Ориентир: корабль стоит как десять-двадцать хороших модулей. Сколько кредитов приносит один забег, мы ещё не измеряли, поэтому цифры придётся подвинуть после замера.</p>
+        </div>
+        <div class="card">
+          <h2>Что уже стоит в игре</h2>
+          <div class="tbl"><table>
+            <tr><th>Что</th><th>Цена</th></tr>
+            <tr><td>Найм: обычный 1 ур.</td><td><span class="cur cr">60</span></td></tr>
+            <tr><td>Найм: редкий 3 ур.</td><td><span class="cur cr">396</span></td></tr>
+            <tr><td>Найм: легендарный 5 ур.</td><td><span class="cur cr">1800</span></td></tr>
+            <tr><td>Обновить кандидатов</td><td><span class="cur cr">25</span></td></tr>
+            <tr><td>Ускорить ремонт</td><td><span class="cur qu">6 кв.</span> за минуту</td></tr>
+            <tr><td>Торговец: модуль ×1,4</td><td>от <span class="cur cr">84</span> + <span class="cur me">17</span></td></tr>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ обновление -->
+  <section data-s="rotate" class="stack" hidden>
+    <div class="card">
+      <h2>Как меняется товар</h2>
+      <div class="flow">
+        <div><b>Новый вылет</b>после каждого возврата в док (сдача трюма, гибель, отступление) витрина собирается заново из нового зерна.</div>
+        <div><b>Внутри дока</b>товар стоит, пока не вылетишь: нельзя перекручивать витрину, пока не найдёшь нужное за бесплатно.</div>
+        <div class="warn"><b>Обновить за кредиты</b>25 кредитов, как у кандидатов в казарме. Каждое следующее обновление в этом доке дороже на 50%.</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>Что в витрине</h3>
+        <ul><li>6 модулей: разные типы, без повторов.</li><li>Уровень от 2 до потолка по прогрессу. Один из шести с шансом 30% на ступень выше.</li><li>Корабли не вращаются: полка постоянная.</li></ul></div>
+      <div class="q"><h3>Зерно витрины</h3>
+        <p class="k">Зерно хранится в кошельке, как зерно кандидатов в казарме. Возврат в док меняет его, обновление за кредиты меняет его. Тот же приём, что у торговца (там зерно у точки), только без привязки к точке.</p></div>
+      <div class="q"><h3>Реальное время <span class="tag later">после сервера</span></h3>
+        <p class="k">Когда появится сервер, витрину можно менять раз в несколько часов, как в мобильных играх. Пока всё локально, лучше привязка к вылетам.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ магазин и торговец -->
+  <section data-s="trader" class="stack" hidden>
+    <div class="card">
+      <h2>Две лавки с разным смыслом</h2>
+      <div class="tbl"><table>
+        <tr><th></th><th>Магазин дока</th><th>Торговец на дороге</th></tr>
+        <tr><td>Где</td><td>В доке, любой момент</td><td>Точка на карте, один раз</td></tr>
+        <tr><td>Чем платим</td><td>Копилка: кредиты, металл</td><td>Трюм: то, что добыто на дороге и ещё не сдано</td></tr>
+        <tr><td>Товар</td><td>Корабли, модули 2–5 уровня, всегда предсказуемо</td><td>Модули выше уровнем, космонавты, зерно точки</td></tr>
+        <tr><td>Цена</td><td>×1</td><td>×1,4 за модули, ×1 за людей</td></tr>
+        <tr><td>Зачем</td><td>План: накопил, пришёл, купил</td><td>Азарт: потратить добычу, пока её не взорвали</td></tr>
+      </table></div>
+    </div>
+    <div class="card">
+      <h2>Что из этого следует</h2>
+      <ul>
+        <li>Торговец продаёт на уровень-два выше, чем магазин: игрок идёт по дороге ради него.</li>
+        <li>Если магазин дока покажет такой же товар, торговец потеряет смысл. Поэтому потолок магазина по уровню ниже: 3, после босса 4, после третьего 5, а торговец с самого начала даёт 2–3 и дальше растёт быстрее.</li>
+        <li>Платёж трюмом превращает добычу в риск: можно потратить на месте, а можно довезти и сдать. Магазин дока этого риска не создаёт.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ решить -->
+  <section data-s="ask" class="stack" hidden>
+    <div class="q"><h3>1. С чем игрок начинает: только истребитель или все три корабля?</h3>
+      <div class="rec"><b>Предложение:</b> только запасной истребитель. Иначе корабли в магазине покупать нечего. Для разработки оставим переключатель «всё куплено».</div>
+      <div class="alt">Если оставить все три, на полке «Корабли» будут только премиум-корпуса и она почти пустая.</div></div>
+    <div class="q"><h3>2. Как считать размер модуля для цены, если запасной модуль не привязан к кораблю?</h3>
+      <div class="rec"><b>Предложение:</b> у каждого типа фиксированный множитель размера (пост орудий ×1,5, мастерская ×2,5, склад ×2,5, и так далее, как в макете). Цена не зависит от того, куда поставим.</div>
+      <div class="alt">Иначе цена должна была бы меняться при установке, что странно.</div></div>
+    <div class="q"><h3>3. Нанимать космонавтов в магазине или оставить казарму?</h3>
+      <div class="rec"><b>Предложение:</b> оставить казарму, в магазине одна карточка-ссылка.</div>
+      <div class="alt">Дублировать значит иметь два списка кандидатов и два обновления.</div></div>
+    <div class="q"><h3>4. Когда обновляется витрина?</h3>
+      <div class="rec"><b>Предложение:</b> при каждом возврате в док, плюс платное обновление за 25 кредитов с ростом цены.</div>
+      <div class="alt">Либо без платного обновления совсем, либо по реальному времени (после сервера).</div></div>
+    <div class="q"><h3>5. Продажа обратно: сколько и что?</h3>
+      <div class="rec"><b>Предложение:</b> модули из запаса за 50% цены магазина, корабли не продаются.</div>
+      <div class="alt">Можно 30% (сильнее отбивает охоту покупать лишнее) или не продавать совсем.</div></div>
+    <div class="q"><h3>6. Расходники нужны в первой версии?</h3>
+      <div class="rec"><b>Предложение:</b> нет. Сначала корабли, модули и продажа, потом смотрим, чего не хватает.</div></div>
+    <div class="q"><h3>7. Премиум-лавка в магазине</h3>
+      <div class="rec"><b>Предложение:</b> только премиум-корабли за кванты (когда будут корпуса) и ничего, что меняет кредиты на кванты. Ускорение ремонта остаётся в ремонтной.</div>
+      <div class="alt">Принцип из документа: премиум ускоряет и открывает альтернативу, но не даёт недостижимой мощи (лидерборд считается по силе корабля).</div></div>
+    <div class="q"><h3>8. Может ли магазин быть пуст?</h3>
+      <div class="rec"><b>Предложение:</b> нет, товар есть всегда. Если денег не хватает, кнопка серая, а цена красная. Игрок видит, сколько не хватает.</div></div>
+  </section>
+
+  <!-- ============================================================ план -->
+  <section data-s="plan" class="stack" hidden>
+    <div class="card">
+      <h2>План работ после ответов</h2>
+      <div class="tbl"><table>
+        <tr><th>Шаг</th><th>Что</th><th>Где</th></tr>
+        <tr><td>1</td><td><b>Парк по владению.</b> В сохранении список купленных кораблей, запасной истребитель всегда. Дальше парк и ремонтная показывают только их.</td><td><span class="cur">runSave.ts</span>, <span class="cur">dockScreen.ts</span></td></tr>
+        <tr><td>2</td><td><b>Логика магазина.</b> Витрина по зерну и прогрессу, цены, покупка (кредиты и металл из копилки), продажа, платное обновление. Всё без экрана, с тестами.</td><td><span class="cur">src/sim/shop.ts</span>, tests</td></tr>
+        <tr><td>3</td><td><b>Экран комнаты.</b> Полки «Корабли», «Модули», «Продажа», кошелёк, подсветка нехватки денег. Телефон и компьютер как в макете.</td><td><span class="cur">src/shopScreen.ts</span></td></tr>
+        <tr><td>4</td><td><b>Склад модулей в редакторе.</b> Купленное сразу видно в запасе корабля, с пометкой «новое».</td><td><span class="cur">modulesScreen.ts</span></td></tr>
+        <tr><td>5</td><td>Документы и замер дохода за забег, чтобы потом выставить цены.</td><td>GDD, BACKLOG</td></tr>
+      </table></div>
+      <p class="hint" style="margin-top:10px">Баланс цен остаётся на конец, как договорено. До этого цены берутся из таблицы выше.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  /* ---------- tabs ---------- */
+  var tabs = document.querySelectorAll('.tab'), secs = document.querySelectorAll('section[data-s]');
+  function open(t) {
+    tabs.forEach(function (b) { b.setAttribute('aria-selected', b.dataset.t === t ? 'true' : 'false'); });
+    secs.forEach(function (s) { s.hidden = s.dataset.s !== t; });
+    try { history.replaceState(null, '', '#' + t); } catch (e) {}
+  }
+  tabs.forEach(function (b) { b.addEventListener('click', function () { open(b.dataset.t); }); });
+  var h = (location.hash || '').slice(1);
+  if (h && document.querySelector('.tab[data-t="' + h + '"]')) open(h);
+
+  /* ---------- data (levels.ts, layout.ts, roster.ts) ---------- */
+  var CRED = [0, 60, 140, 280, 520], METAL = [0, 12, 30, 60, 110];
+  function step(f, lv) { return { c: Math.round(CRED[lv - 1] * f), m: Math.round(METAL[lv - 1] * f) }; }
+  var MODS = {
+    gun:   { n: 'Орудийный пост',      ab: 'ОП', f: 1.5, t: 'Орудия стреляют быстрее',          v: [0, 10, 20, 30, 45], u: '%' },
+    eng:   { n: 'Инженерный пост',     ab: 'ИП', f: 1.5, t: 'Раскрутка маршевых короче',        v: [0, 15, 30, 45, 60], u: '%' },
+    rcs:   { n: 'Манёвровый пост',     ab: 'МП', f: 1,   t: 'Поворот и сдвиг мощнее',           v: [0, 10, 20, 30, 40], u: '%' },
+    work:  { n: 'Мастерская',          ab: 'МС', f: 2.5, t: 'Инженеры чинят отсек быстрее',     v: [1, 1.25, 1.5, 1.75, 2], u: '×' },
+    med:   { n: 'Медотсек',            ab: 'МД', f: 1.5, t: 'Шанс пережить гибель модуля',      v: [0, 15, 30, 45, 60], u: '%' },
+    crew:  { n: 'Кубрик',              ab: 'КБ', f: 2.5, t: 'Мест для космонавтов',             v: [2, 3, 4, 5, 6], u: '+' },
+    store: { n: 'Склад',               ab: 'СК', f: 2.5, t: 'Трюм больше на',                   v: [50, 75, 100, 130, 170], u: '%' },
+    helm:  { n: 'Резервный пост пилота', ab: 'РП', f: 1, t: 'Пилот пересаживается за',          v: [6, 5, 4, 3, 2], u: ' с' },
+    pod:   { n: 'Спасательные капсулы', ab: 'КП', f: 1.5, t: 'Мест в капсулах',                 v: [3, 5, 7, 9, 11], u: '+' }
+  };
+  var POOL = ['gun', 'eng', 'rcs', 'work', 'med', 'crew', 'store', 'helm', 'pod'];
+  function eff(id, lv) {
+    var d = MODS[id], x = d.v[lv - 1];
+    if (d.u === '×') return d.t + ' ×' + String(x).replace('.', ',');
+    if (d.u === '+') return d.t + ' +' + x;
+    if (d.u === ' с') return d.t + ' ' + x + ' с';
+    return d.t + ' ' + (x ? '+' + x + '%' : '(база)');
+  }
+  var SHIPS = [
+    { id: 'fighter', n: 'Истребитель', cls: 'лёгкий', hold: 40, c: 0, m: 0, own: true },
+    { id: 'cruiser', n: 'Крейсер', cls: 'средний', hold: 120, c: 1800, m: 450 },
+    { id: 'battleship', n: 'Линкор', cls: 'тяжёлый', hold: 400, c: 7200, m: 1800 }
+  ];
+
+  /* ---------- the mock ---------- */
+  var REFRESH = 25, SELL = 0.5;
+  var S;
+  function fresh() {
+    S = { cr: 1840, me: 420, qu: 10, cap: +(document.getElementById('prog') ? document.getElementById('prog').value : 3), shelf: 'ships', seed: 7, refreshes: 0,
+          own: { fighter: true }, stock: [{ id: 1, type: 'gun', lv: 2 }, { id: 2, type: 'med', lv: 2 }], nextId: 3, msg: 'Добро пожаловать. Витрина собрана на этот вылет.' };
+  }
+  function rng(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function offers() {
+    var r = rng(S.seed * 9301 + 49297), types = POOL.slice(), out = [];
+    for (var i = 0; i < 6; i++) {
+      var type = types.splice(Math.floor(r() * types.length), 1)[0];
+      var lv = 2 + Math.floor(r() * 2);
+      if (r() < 0.3) lv++;
+      lv = Math.min(S.cap, lv);
+      var p = step(MODS[type].f, lv);
+      out.push({ id: 'o' + S.seed + '-' + i, type: type, lv: lv, c: p.c, m: p.m });
+    }
+    return out;
+  }
+  var bought = {};
+  var $shop = document.getElementById('shop');
+  function money(c, m, q) {
+    var h = '';
+    if (c) h += '<span class="' + (S.cr < c ? 'no' : '') + '"><span class="cur cr">' + c + '</span> кр</span>';
+    if (m) h += '<span class="' + (S.me < m ? 'no' : '') + '"><span class="cur me">' + m + '</span> мет</span>';
+    if (q) h += '<span><span class="cur qu">' + q + '</span> кв</span>';
+    return h || '<span class="k">бесплатно</span>';
+  }
+  function itemModule(o, sell) {
+    var p = sell ? { c: Math.round(step(MODS[o.type].f, o.lv).c * SELL), m: Math.round(step(MODS[o.type].f, o.lv).m * SELL) } : { c: o.c, m: o.m };
+    var done = !sell && bought[o.id];
+    var can = sell || (S.cr >= o.c && S.me >= o.m);
+    var d = MODS[o.type];
+    return '<div class="it lv' + o.lv + '"><div class="ic">' + d.ab + '<em>' + o.lv + ' ур</em></div><div><h5>' + d.n + '</h5><div class="ef">' + eff(o.type, o.lv) + '</div></div>' +
+      '<div class="buy"><div class="pr">' + (sell ? '<span class="k">за</span> ' : '') + money(p.c, p.m) + '</div>' +
+      (sell ? '<button class="btn sell" data-sell="' + o.id + '">Продать</button>' : '<button class="btn" data-buy="' + o.id + '"' + (done || !can ? ' disabled' : '') + '>' + (done ? 'Куплено' : 'Купить') + '</button>') + '</div></div>';
+  }
+  function draw() {
+    var phone = document.getElementById('m-phone').getAttribute('aria-pressed') === 'true';
+    $shop.className = 'shop' + (phone ? ' phone' : '');
+    var body = '', bar = '';
+    if (S.shelf === 'ships') {
+      body = SHIPS.map(function (s) {
+        var own = S.own[s.id], can = S.cr >= s.c && S.me >= s.m;
+        return '<div class="it' + (own ? ' own' : '') + '"><div class="ic" style="font-size:11px">' + s.cls.slice(0, 3).toUpperCase() + '</div><div><h5>' + s.n + '</h5><div class="ef">Класс: ' + s.cls + '. Трюм ' + s.hold + '.</div></div>' +
+          '<div class="buy"><div class="pr">' + (own ? '<span class="k">' + (s.id === 'fighter' ? 'запасной, всегда с вами' : 'в парке') + '</span>' : money(s.c, s.m)) + '</div>' +
+          (own ? '' : '<button class="btn" data-ship="' + s.id + '"' + (can ? '' : ' disabled') + '>Купить</button>') + '</div></div>';
+      }).join('') +
+      '<div class="it own"><div class="ic" style="font-size:18px">?</div><div><h5>Премиум-корпус</h5><div class="ef">Новый корпус за кванты. Корпусов пока нет.</div></div><div class="buy"><div class="pr"><span class="k">скоро</span></div></div></div>' +
+      '<div class="it"><div class="ic" style="font-size:11px">КАЗ</div><div><h5>Нужны люди?</h5><div class="ef">Космонавтов нанимают в казарме: пять кандидатов, цена зависит от уровня и редкости.</div></div><div class="buy"><div class="pr"></div><button class="btn" data-link="1">В казарму</button></div></div>';
+      bar = '<span>Новый корабль приходит без экипажа.</span>';
+    } else if (S.shelf === 'mods') {
+      var price = REFRESH + Math.round(REFRESH * 0.5 * S.refreshes);
+      body = offers().map(function (o) { return itemModule(o, false); }).join('');
+      bar = '<span>Товар на этот вылет. Потолок уровня: ' + S.cap + '.</span><button class="ghost" data-refresh="1"' + (S.cr < price ? ' disabled' : '') + '>Обновить · ' + price + ' кр</button>';
+    } else {
+      body = S.stock.length ? S.stock.map(function (o) { return itemModule(o, true); }).join('') : '<div class="empty">В запасе пусто. Модули, снятые с палуб или купленные, лежат здесь.</div>';
+      bar = '<span>Запас корабля. Продажа: ' + Math.round(SELL * 100) + '% цены магазина.</span>';
+    }
+    $shop.innerHTML =
+      '<div class="sh-top"><h4>Магазин</h4><div class="wallet"><span class="chip cr"><i></i>' + S.cr + '</span><span class="chip me"><i></i>' + S.me + '</span><span class="chip qu"><i></i>' + S.qu + '</span></div></div>' +
+      '<div class="shelves" role="tablist">' +
+      [['ships', 'Корабли'], ['mods', 'Модули'], ['sell', 'Продажа · ' + S.stock.length]].map(function (x) { return '<button class="shelf" role="tab" aria-selected="' + (S.shelf === x[0]) + '" data-shelf="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="sh-bar">' + bar + '</div><div class="sh-body">' + body + '</div><div class="toast">' + S.msg + '</div>';
+  }
+  $shop.addEventListener('click', function (e) {
+    var t = e.target.closest('button'); if (!t || t.disabled) return;
+    if (t.dataset.shelf) { S.shelf = t.dataset.shelf; S.msg = ''; }
+    else if (t.dataset.ship) {
+      var s = SHIPS.filter(function (x) { return x.id === t.dataset.ship; })[0];
+      if (S.cr >= s.c && S.me >= s.m) { S.cr -= s.c; S.me -= s.m; S.own[s.id] = true; S.msg = '<b>Куплено:</b> ' + s.n + '. Корабль стоит в парке без экипажа.'; }
+    } else if (t.dataset.buy) {
+      var o = offers().filter(function (x) { return x.id === t.dataset.buy; })[0];
+      if (o && !bought[o.id] && S.cr >= o.c && S.me >= o.m) { S.cr -= o.c; S.me -= o.m; bought[o.id] = true; S.stock.push({ id: S.nextId++, type: o.type, lv: o.lv }); S.msg = '<b>Куплено:</b> ' + MODS[o.type].n + ', ' + o.lv + ' ур. Лежит в запасе корабля.'; }
+    } else if (t.dataset.sell) {
+      var k = S.stock.filter(function (x) { return String(x.id) === t.dataset.sell; })[0];
+      if (k) { var p = step(MODS[k.type].f, k.lv); S.cr += Math.round(p.c * SELL); S.me += Math.round(p.m * SELL); S.stock = S.stock.filter(function (x) { return x !== k; }); S.msg = '<b>Продано:</b> ' + MODS[k.type].n + ', ' + k.lv + ' ур.'; }
+    } else if (t.dataset.refresh) {
+      var price = REFRESH + Math.round(REFRESH * 0.5 * S.refreshes);
+      if (S.cr >= price) { S.cr -= price; S.refreshes++; S.seed++; S.msg = 'Витрина обновлена за ' + price + ' кр.'; }
+    } else if (t.dataset.link) { S.msg = 'Здесь откроется казарма. В макете её нет.'; }
+    draw();
+  });
+  function mode(phone) {
+    document.getElementById('m-phone').setAttribute('aria-pressed', phone);
+    document.getElementById('m-desk').setAttribute('aria-pressed', !phone);
+    draw();
+  }
+  document.getElementById('m-phone').addEventListener('click', function () { mode(true); });
+  document.getElementById('m-desk').addEventListener('click', function () { mode(false); });
+  document.getElementById('prog').addEventListener('change', function () { S.cap = +this.value; S.seed++; S.msg = 'Прогресс изменён, витрина собрана заново.'; draw(); });
+  document.getElementById('reset').addEventListener('click', function () { bought = {}; fresh(); S.cap = +document.getElementById('prog').value; draw(); });
+  fresh(); draw();
+
+  /* ---------- the price table ---------- */
+  var size = document.getElementById('size'), disc = document.getElementById('disc'), dout = document.getElementById('disc-o');
+  function table() {
+    var f = +size.value, d = +disc.value / 100, rows = '<tr><th>Уровень</th><th>Кредиты</th><th>Металл</th><th>Вся лестница с 1-го</th></tr>', cc = 0, cm = 0;
+    for (var lv = 2; lv <= 5; lv++) {
+      var p = step(f, lv); cc += p.c; cm += p.m;
+      rows += '<tr><td>' + lv + '</td><td><span class="cur cr">' + Math.round(p.c * (1 - d)) + '</span></td><td><span class="cur me">' + Math.round(p.m * (1 - d)) + '</span></td><td class="k">' + cc + ' + ' + cm + '</td></tr>';
+    }
+    document.getElementById('ptab').innerHTML = rows;
+    dout.textContent = disc.value + '%';
+  }
+  size.addEventListener('change', table); disc.addEventListener('input', table); table();
+})();
+</script>

@@ -53,7 +53,7 @@ export interface DockLife {
   floor: Uint8Array;
   rng: () => number;
   /** Scratch space for finding a way. */
-  scratch: { g: Float32Array; from: Int32Array; seen: Uint32Array; stamp: number };
+  scratch: { g: Float64Array; from: Int32Array; seen: Uint32Array; stamp: number };
 }
 
 function mulberry32(seed: number): () => number {
@@ -168,7 +168,7 @@ export function makeLife(L: DockLayout, _shipW: number, shipH: number, seed = 7)
   }
   for (let i = 0; i < W * H; i++) if (comp[i] !== best) floor[i] = 0;
 
-  const life: DockLife = { W, H, props, walkers: [], stops: [], floor, rng, scratch: { g: new Float32Array(W * H), from: new Int32Array(W * H), seen: new Uint32Array(W * H), stamp: 0 } };
+  const life: DockLife = { W, H, props, walkers: [], stops: [], floor, rng, scratch: { g: new Float64Array(W * H), from: new Int32Array(W * H), seen: new Uint32Array(W * H), stamp: 0 } };
 
   // the stops: a spot beside every console and pile, and a few places to idle at
   for (const p of props) {
@@ -269,8 +269,10 @@ export function findRoute(life: DockLife, sx: number, sy: number, tx: number, ty
   from[s] = -1;
   push(h(s), s);
   while (open.length) {
-    const [, i] = pop();
+    const [f, i] = pop();
     if (i === t) break;
+    // an entry for a cell that has been reached a cheaper way since is stale
+    if (f > g[i] + h(i) + 1e-9) continue;
     const x = i % W;
     const y = (i - x) / W;
     for (let dy = -1; dy <= 1; dy++) {

@@ -108,3 +108,17 @@ describe('life on the walkway', () => {
     }
   });
 });
+
+describe('the crew finding their way', () => {
+  it('walks the biggest ship\'s walkway in a phone-shaped dock without stalling the frame', () => {
+    const g = SHIPS[SHIPS.length - 1].build();
+    const L = dockLayout(g.width, g.height, 390 / 844, true);
+    const life = makeLife(L, g.width, g.height);
+    const t0 = performance.now();
+    // a minute of life, a frame at a time: every walker picks places to go and finds the way there
+    for (let i = 0; i < 60 * 60; i++) stepLife(life, 1 / 60);
+    // searches that went over the same cells again and again made this take seconds (and froze the page)
+    expect(performance.now() - t0).toBeLessThan(1500);
+    for (const w of life.walkers) expect(w.route.length).toBeLessThan(life.W * life.H);
+  });
+});

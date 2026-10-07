@@ -200,6 +200,10 @@ export interface ArenaOptions {
   hole?: 'none' | 'small' | 'large';
   /** A small, gentle arena: the first fight of a run. */
   gentle?: boolean;
+  /** A mining arena: a rich field of rocks close to the start (no fight is set up there). */
+  mine?: boolean;
+  /** A signal arena: one or two wrecks to look over, a few hundred cells away. */
+  derelict?: boolean;
 }
 
 /** Spawn points the arena keeps clear: the player at the origin, the enemies straight above. */
@@ -370,7 +374,7 @@ export function buildArena(rng: Rng, sector: SectorId, opts: ArenaOptions = {}):
       }
     }
     // and now and then a wreck lying about, to fly round and look over
-    if (rng() < 0.4) {
+    if (!opts.mine && !opts.derelict && rng() < 0.4) {
       const w = wreckBody(0, 0, 1 + Math.floor(rng() * 99999), WRECK_KINDS[Math.floor(rng() * WRECK_KINDS.length)]);
       const ex = exclusionOf(w);
       for (let tries = 0; tries < 40; tries++) {
@@ -379,6 +383,38 @@ export function buildArena(rng: Rng, sector: SectorId, opts: ArenaOptions = {}):
         const wx = Math.cos(a) * d;
         const wy = Math.sin(a) * d;
         if (clearOf(out, wx, wy, ex) && clearOfSpawns(wx, wy, ex)) {
+          w.x = wx;
+          w.y = wy;
+          out.push(w);
+          break;
+        }
+      }
+    }
+  }
+  if (opts.mine) {
+    const radius = 430 + rng() * 140;
+    const fseed = 1 + Math.floor(rng() * 99999);
+    for (let tries = 0; tries < 60; tries++) {
+      const a = rng() * Math.PI * 2;
+      const d = radius + 160 + rng() * 260 + Math.floor(tries / 20) * 300;
+      const f: Celestial = { ...fieldBody(Math.cos(a) * d, Math.sin(a) * d, fseed, radius), rich: 0.75 + rng() * 0.25 };
+      if (clearOf(out, f.x, f.y, exclusionOf(f))) {
+        out.push(f);
+        break;
+      }
+    }
+  }
+  if (opts.derelict) {
+    const n = rng() < 0.4 ? 2 : 1;
+    for (let i = 0; i < n; i++) {
+      const w = wreckBody(0, 0, 1 + Math.floor(rng() * 99999), WRECK_KINDS[Math.floor(rng() * WRECK_KINDS.length)]);
+      const ex = exclusionOf(w);
+      for (let tries = 0; tries < 60; tries++) {
+        const a = rng() * Math.PI * 2;
+        const d = 380 + rng() * 520 + ex * 0.5 + Math.floor(tries / 20) * 300;
+        const wx = Math.cos(a) * d;
+        const wy = Math.sin(a) * d;
+        if (Math.hypot(wx, wy) - ex >= 120 && clearOf(out, wx, wy, ex)) {
           w.x = wx;
           w.y = wy;
           out.push(w);

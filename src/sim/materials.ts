@@ -20,6 +20,9 @@ export const Mat = {
   BRAKE: 18,
   TURN: 19,
   ROCK: 20,
+  /** Ore in a rock's vein (sim/mining.ts): gold gives metal, the violet one antimatter ore. */
+  ORE: 21,
+  ORE2: 22,
 } as const;
 
 export interface MaterialDef {
@@ -55,4 +58,6 @@ export const MATERIALS: MaterialDef[] = [
   { name: 'turn', hp: 22, mass: 0.8, color: 0xa362e8 },
   // Space rock: the asteroids (sim/rocks.ts); tough and heavy, and its veins are painted on it.
   { name: 'rock', hp: 45, mass: 1.6, color: 0x7a7064 },
+  { name: 'ore', hp: 22, mass: 1.7, color: 0xd9a830 },
+  { name: 'ore2', hp: 36, mass: 1.8, color: 0xc060e0 },
 ];

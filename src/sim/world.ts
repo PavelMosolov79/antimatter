@@ -13,9 +13,11 @@ import { applyPropulsion } from './propulsion';
 import { mulberry32, type Rng } from './rng';
 import { PULSAR, STORM, pulsarAngle, stormBolt, type SectorId } from './space';
 import { fieldRocks, makeRock } from './rocks';
+import { isOre, oreKind, stepCrystals, type Crystal } from './mining';
 import { WRECK, buildWreck, inspect, wreckSpec, type Find, type Trap } from './wrecks';
 import { KEEP, chunkIndex, chunkKey, genChunk } from './sky';
-import { SYSTEMS, absorbShield, createSys, updateSystems, type EnergyPriority, type Nav } from './systems';
+import { SYSTEMS, absorbShield, createSys, shieldActive, updateSystems, type EnergyPriority, type Nav } from './systems';
+import { shieldRadius } from './raycast';
 import { stepProjectiles, updateWeapons, type Beam, type Projectile } from './weapons';
 
 export type SimEvent =
@@ -56,7 +58,31 @@ export type WorldNote =
   | { type: 'find'; find: Find }
   | { type: 'salvage'; metal: number }
   | { type: 'trap'; trap: Trap; text: string }
-  | { type: 'ambush'; x: number; y: number; n: number };
+  | { type: 'ambush'; x: number; y: number; n: number }
+  /** A crystal of ore reached the ship (1: gold, metal; 2: violet, antimatter ore). */
+  | { type: 'ore'; kind: 1 | 2 }
+  /** The ship flew into a container: what was in it. */
+  | { type: 'loot'; credits: number; metal: number; task: boolean };
+
+/** A container floating where it was left (after a fight): the player's ship picks it up by flying into it. */
+export interface Loot {
+  id: number;
+  x: number;
+  y: number;
+  credits: number;
+  metal: number;
+  /** A container a task of the mission asks for (the extra «Подобрать контейнер»), not just one found on the way. */
+  task?: boolean;
+}
+
+/**
+ * A raised shield meets rocks and pieces of hull (not ships) at its edge and pushes them off instead of letting
+ * them strike the hull; each push costs it power, by the energy of the blow: half the reduced mass times the speed
+ * of closing squared, at this rate, and at least this much. An anchored rock cannot move: the ship bounces off it.
+ * Old mines go off when a ship comes this near (plus half its size). Not balanced.
+ */
+export const SHIELD_PUSH = { bounce: 0.35, drainPerEnergy: 1 / 8000, minDrain: 1, reach: 0.8 };
+export const MINE = { trigger: 26, blast: 13, fuse: 0.5, damage: 0.35 };
 
 interface PendingTrap {
   trap: 'mine' | 'reactor';
@@ -93,6 +119,12 @@ export class World implements DamageSink {
   time = 0;
   target: Target | null = null;
   autopilot = true;
+  /** The player has an order to come to a point and stay there (attack, mining, looking a wreck over): stop on it even with the autopilot off. */
+  hold = false;
+  /** A heading the player's ship holds for its order (nose to the rock it mines), over the one to the guns' target. */
+  holdFace: number | null = null;
+  /** The rock the player chose to mine (a body id): the beam takes its veins only. */
+  mineTarget: number | null = null;
   lockFace = true;
   private playerNav: Nav = { target: null, face: null };
   events: SimEvent[] = [];
@@ -118,6 +150,12 @@ export class World implements DamageSink {
   notes: WorldNote[] = [];
   /** The wreck the player is looking over now, and how far along it is (0…1), for the screen. */
   inspecting: { x: number; y: number; frac: number } | null = null;
+  /** Crystals of ore flying free, and how much room the hold has for them (the game keeps the second up to date). */
+  crystals: Crystal[] = [];
+  loot: Loot[] = [];
+  /** Old mines lying in space (the corridor's minefields). */
+  mines: Array<{ x: number; y: number }> = [];
+  holdRoom = Infinity;
   /** Ships with a module knocked out by lightning. */
   private stunned = new Set<GridBody>();
   /** The chunks of the sky that have been laid out (sim/sky.ts), and when the sky was last looked at. */
@@ -169,6 +207,94 @@ export class World implements DamageSink {
 
   private wreckKey(c: Celestial): string {
     return `${Math.round(c.x)},${Math.round(c.y)}`;
+  }
+
+  /** A mine a ship comes near goes off after a moment (a warning first). */
+  private stepMines(): void {
+    if (this.mines.length === 0) return;
+    this.mines = this.mines.filter((m) => {
+      for (const b of this.bodies) {
+        if (b.removed || b.kind !== 'ship') continue;
+        if (Math.hypot(b.x - m.x, b.y - m.y) > MINE.trigger + b.radius * 0.5) continue;
+        this.traps.push({ trap: 'mine', t: MINE.fuse, x: m.x, y: m.y, r: MINE.blast });
+        this.push({ t: 'warning', x: m.x, y: m.y });
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * A shield's push: a body that is not a ship inside a raised shield's reach is pushed off along the line between
+   * them (or the ship bounces off an anchored rock), the shield pays for it, and the hull is spared. True when the
+   * pair was handled here (no cell collision for it).
+   */
+  private deflect(s: GridBody, o: GridBody): boolean {
+    if (o.kind === 'ship' || !s.sys || !shieldActive(s.sys)) return false;
+    const R = shieldRadius(s);
+    const dx = o.x - s.x;
+    const dy = o.y - s.y;
+    const d = Math.hypot(dx, dy) || 0.01;
+    const reach = R + o.radius * SHIELD_PUSH.reach;
+    if (d >= reach) return false;
+    const nx = dx / d;
+    const ny = dy / d;
+    const vn = (o.vx - s.vx) * nx + (o.vy - s.vy) * ny;
+    const sOnly = o.anchored || o.invMass === 0;
+    if (vn < 0) {
+      const e = 1 + SHIELD_PUSH.bounce;
+      let mu: number;
+      if (sOnly) {
+        s.vx += nx * vn * e;
+        s.vy += ny * vn * e;
+        mu = s.mass;
+      } else {
+        const j = (-e * vn) / (s.invMass + o.invMass);
+        o.vx += nx * j * o.invMass;
+        o.vy += ny * j * o.invMass;
+        s.vx -= nx * j * s.invMass;
+        s.vy -= ny * j * s.invMass;
+        mu = 1 / (s.invMass + o.invMass);
+      }
+      const sys = s.sys;
+      const drain = Math.max(SHIELD_PUSH.minDrain, 0.5 * mu * vn * vn * SHIELD_PUSH.drainPerEnergy);
+      sys.shield -= drain;
+      sys.shieldFlash = 1;
+      if (sys.shield <= 0) {
+        sys.shield = 0;
+        sys.shieldDown = true;
+      }
+      if (vn < -3) this.push({ t: 'shield', x: s.x + nx * R, y: s.y + ny * R, shipId: s.shipId });
+    }
+    // out of the bubble, the light one moving
+    const over = reach - d;
+    if (sOnly) {
+      s.x -= nx * over;
+      s.y -= ny * over;
+    } else {
+      o.x += nx * over;
+      o.y += ny * over;
+    }
+    return true;
+  }
+
+  /** A container the player's ship touches is picked up: what was in it goes to the game as a note. */
+  private pickLoot(): void {
+    const p = this.player;
+    if (!p || p.removed || this.loot.length === 0) return;
+    this.loot = this.loot.filter((l) => {
+      if (Math.hypot(l.x - p.x, l.y - p.y) > p.radius * 0.7 + 12) return true;
+      this.notes.push({ type: 'loot', credits: l.credits, metal: l.metal, task: !!l.task });
+      this.push({ t: 'shot', x: l.x, y: l.y, color: 0xb06bff });
+      return false;
+    });
+  }
+
+  /** The wrecks still to be looked over, as bodies. */
+  inspectable(): GridBody[] {
+    const out: GridBody[] = [];
+    for (const [c, b] of this.wrecksOf) if (!b.removed && !this.spent.has(this.wreckKey(c))) out.push(b);
+    return out;
   }
 
   /** Whether a wreck still lies there to be looked over (not shot to pieces, not already looked over). */
@@ -238,7 +364,7 @@ export class World implements DamageSink {
   private spawnRocks(c: Celestial): void {
     const list: GridBody[] = [];
     for (const r of fieldRocks(c)) {
-      const b = this.spawn(makeRock(r.seed, r.r, r.ore), r.x, r.y, r.angle, 'debris');
+      const b = this.spawn(makeRock(r.seed, r.r, r.ore, 0.18 + 0.14 * (c.rich ?? 0)), r.x, r.y, r.angle, 'debris');
       b.anchored = true;
       list.push(b);
     }
@@ -497,6 +623,13 @@ export class World implements DamageSink {
     this.push({ t: 'impact', x: wx, y: wy, energy });
   }
 
+  /** A cell of ore is gone: its crystal comes out and drifts. */
+  private dropOre(mat: number, x: number, y: number): void {
+    const a = this.rng() * Math.PI * 2;
+    const sp = 6 + this.rng() * 14;
+    this.crystals.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, kind: oreKind(mat), age: 0 });
+  }
+
   private flushDestroyed(body: GridBody): void {
     const buf = this.buf;
     if (this.salvage.has(body) && buf.length > 0) {
@@ -510,6 +643,7 @@ export class World implements DamageSink {
     for (let k = 0; k < buf.length; k += 4) {
       const p = body.localToWorld(buf[k] + 0.5, buf[k + 1] + 0.5, tmpPt);
       this.push({ t: 'cell', x: p.x, y: p.y, color: MATERIALS[buf[k + 3]].color });
+      if (isOre(buf[k + 3])) this.dropOre(buf[k + 3], p.x, p.y);
     }
   }
 
@@ -535,6 +669,7 @@ export class World implements DamageSink {
         destroyedAny = true;
         const p = body.localToWorld(body.grid.xOf(i) + 0.5, body.grid.yOf(i) + 0.5, tmpPt);
         this.push({ t: 'cell', x: p.x, y: p.y, color: MATERIALS[before].color });
+        if (isOre(before)) this.dropOre(before, p.x, p.y);
       }
     }
     if (destroyedAny) this.damaged.add(body);
@@ -658,12 +793,13 @@ export class World implements DamageSink {
       if (b.removed) continue;
       if (b.isPlayer) {
         this.playerNav.target = this.target;
-        this.playerNav.face = this.lockFace ? this.faceAngleTo(b) : null;
+        this.playerNav.face = this.holdFace ?? (this.lockFace ? this.faceAngleTo(b) : null);
         // Autopilot on: fly to the point and stop there. Off: fly to it, then the point
         // is gone and the ship keeps its speed.
-        const ctl = this.drive(b, this.playerNav, pilotAvailable(b), dt, this.autopilot ? 'stop' : 'pass');
+        const stop = this.autopilot || this.hold;
+        const ctl = this.drive(b, this.playerNav, pilotAvailable(b), dt, stop ? 'stop' : 'pass');
         Object.assign(this.playerControl, ctl);
-        if (!this.autopilot && ctl.arrived) this.target = null;
+        if (!stop && ctl.arrived) this.target = null;
       }
       else if (b.sys && !b.sys.dead) this.drive(b, b.sys.nav, true, dt);
     }
@@ -673,6 +809,9 @@ export class World implements DamageSink {
 
     this.hazards(dt);
     this.wrecks(dt);
+    stepCrystals(this, dt);
+    this.pickLoot();
+    this.stepMines();
     this.skyClock += dt;
     if (this.streaming && this.skyClock >= 0.5) {
       this.skyClock = 0;
@@ -745,6 +884,7 @@ export class World implements DamageSink {
         const b = bodies[j];
         if (b.removed) continue;
         if (a.splitTag !== 0 && a.splitTag === b.splitTag && this.time - Math.max(a.splitTime, b.splitTime) < GHOST_TIME) continue;
+        if (this.deflect(a, b) || this.deflect(b, a)) continue;
         collideGridGrid(this, a, b);
       }
     }

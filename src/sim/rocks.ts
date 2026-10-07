@@ -13,7 +13,7 @@ const ROCK = [0x3a3531, 0x57504a, 0x7a7064, 0xa09483].map((h) => [(h >> 16) & 25
 const LIGHT = [-0.55, -0.6, 0.58];
 
 /** A rock of radius r (cells) from a seed; ore 1 has gold veins, 2 purple ones. */
-export function makeRock(seed: number, r: number, ore: 0 | 1 | 2): ShipGrid {
+export function makeRock(seed: number, r: number, ore: 0 | 1 | 2, density = 0.18): ShipGrid {
   const rng = mulberry32(seed * 7919 + 13);
   const p1 = rng() * 6.28;
   const p2 = rng() * 6.28;
@@ -38,8 +38,10 @@ export function makeRock(seed: number, r: number, ore: 0 | 1 | 2): ShipGrid {
       const li = Math.max(0, Math.min(3, Math.floor(lam * 3.3 + hash2(x, y, seed) - 0.3)));
       let col = ROCK[li];
       if (r > 8 && hash2(Math.floor(x * 0.5), Math.floor(y * 0.5), seed + 5) < 0.1) col = [col[0] * 0.62, col[1] * 0.62, col[2] * 0.62];
-      const vein = ore && r > 6 && d < rr * 0.8 && hash2(Math.floor(x * 0.5), Math.floor(y * 0.5), seed + 90) < 0.18;
+      const vein = ore && r > 6 && d < rr * 0.8 && hash2(Math.floor(x * 0.5), Math.floor(y * 0.5), seed + 90) < density;
       if (vein) {
+        // the vein is ore itself (it can be burned out with the mining beam, see sim/mining.ts)
+        g.setCell(x, y, 0, ore === 1 ? Mat.ORE : Mat.ORE2);
         const c = ore === 1 ? [255, 207, 90] : [255, 79, 216];
         g.setPaint(g.idx(x, y, 0), c[0], c[1], c[2], true);
       } else g.setPaint(g.idx(x, y, 0), col[0], col[1], col[2], false);
@@ -60,7 +62,8 @@ export interface RockSpec {
 /** Where the rocks of a field lie and what each is like; the same field is always the same. */
 export function fieldRocks(field: Celestial): RockSpec[] {
   const rng = mulberry32(field.seed * 104729 + 7);
-  const n = 16 + Math.floor(rng() * 14);
+  const rich = field.rich ?? 0;
+  const n = 16 + Math.floor(rng() * 14) + Math.round(rich * 18);
   const out: RockSpec[] = [];
   for (let i = 0; i < n; i++) {
     const t = rng();
@@ -71,7 +74,7 @@ export function fieldRocks(field: Celestial): RockSpec[] {
       const x = field.x + Math.cos(a) * d;
       const y = field.y + Math.sin(a) * d;
       if (out.some((o) => Math.hypot(o.x - x, o.y - y) < (o.r + r) * 1.7 + 14)) continue;
-      const ore: 0 | 1 | 2 = r > 8 && rng() < 0.4 ? (rng() < 0.5 ? 1 : 2) : 0;
+      const ore: 0 | 1 | 2 = r > 6 && rng() < 0.4 + rich * 0.5 ? (rng() < 0.5 + rich * 0.1 ? 1 : 2) : 0;
       out.push({ seed: Math.floor(rng() * 1e6), r, ore, x, y, angle: rng() * Math.PI * 2 });
       break;
     }

@@ -279,7 +279,7 @@ function tuneDrives(grid: ShipGrid, t: { accel: number; turnPerThrust: number; b
 
 let nextWeaponId = 1;
 
-const WEAPON_SHORT: Record<WeaponType, string> = { pulse: 'ИМП', heavy: 'ТЯЖ', beam: 'ЛУЧ' };
+const WEAPON_SHORT: Record<WeaponType, string> = { pulse: 'ИМП', heavy: 'ТЯЖ', beam: 'ЛУЧ', miner: 'ДОБ' };
 
 function addTurret(grid: ShipGrid, x0: number, y0: number, size: 2 | 3, type: WeaponType, arcCenter: number, arcHalf: number): void {
   const cells: Array<[number, number, number]> = [];
@@ -446,7 +446,8 @@ export function buildCruiser(): ShipGrid {
   addTurret(g, 18, 26, 3, 'heavy', -0.15, 1.2);
   addTurret(g, 28, 26, 3, 'heavy', 0.15, 1.2);
   addTurret(g, 15, 34, 2, 'pulse', -0.3, 1.75);
-  addTurret(g, 32, 34, 2, 'pulse', 0.3, 1.75);
+  // the mining beam: a weak turret on the right of the bow (sim/mining.ts)
+  addTurret(g, 32, 34, 2, 'miner', 0.3, 1.75);
   addTurret(g, 11, 56, 2, 'pulse', Math.PI, 1.6);
   addTurret(g, 36, 56, 2, 'pulse', Math.PI, 1.6);
   addTurret(g, 23, 40, 3, 'beam', 0, 1.5);
@@ -502,7 +503,7 @@ export function buildCruiser(): ShipGrid {
  * The manoeuvring thrusters aren't in the drawing; they sit hidden under the painted
  * hull at the nose and flanks, so the ship can still brake and turn.
  */
-export function buildBattleship(): ShipGrid {
+export function buildBattleship(miner = true): ShipGrid {
   const art = buildBattleshipArt();
   const g = new ShipGrid(art.w, art.h, art.layers.length);
   art.layers.forEach((layer, z) => {
@@ -520,12 +521,18 @@ export function buildBattleship(): ShipGrid {
 
   const cx = art.w / 2;
   const turrets = art.modules.filter((m) => m.kind === 'turret');
+  let minerGiven = false;
   turrets.forEach((t, n) => {
     const [tx, ty] = t.core;
     // Forward third fires pulse cannons, middle third heavy guns, aft third beams; each
     // turret covers its own flank, swinging further aft the further back it sits.
-    const type: WeaponType = ty < 70 ? 'pulse' : ty < 130 ? 'heavy' : 'beam';
     const side = Math.abs(tx + 0.5 - cx) < 4 ? 0 : Math.sign(tx + 0.5 - cx);
+    let type: WeaponType = ty < 70 ? 'pulse' : ty < 130 ? 'heavy' : 'beam';
+    // the first bow turret on the right is the mining beam (not on the boss's twin)
+    if (miner && type === 'pulse' && side > 0 && !minerGiven) {
+      type = 'miner';
+      minerGiven = true;
+    }
     const arcCenter = side === 0 ? (n % 2 === 0 ? 0 : Math.PI) : side * (0.35 + (1.9 * ty) / art.h);
     g.addModule('turret', t.cells, { core: t.core, weapon: makeWeapon(g, type, arcCenter, side === 0 ? 1.9 : 1.4) });
   });
@@ -559,7 +566,7 @@ export function buildBattleship(): ShipGrid {
 export const BOSS = { shieldShare: 0.5 };
 
 export function buildBossBattleship(): ShipGrid {
-  const g = buildBattleship();
+  const g = buildBattleship(false);
   g.modules
     .filter((m) => m.kind === 'turret')
     .forEach((m, i) => {
@@ -608,6 +615,38 @@ export function buildFreighter(): ShipGrid {
   addBlock(g, 8, 10, 10, 6, 1);
   addBlock(g, 8, 20, 10, 10, 1);
   addBlock(g, 10, 22, 6, 6, 2);
+  // slow drives at the stern and a few nozzles, so a freighter can be led to the beacon (an escort)
+  addEngine(g, 8, 35, 4, 4);
+  addEngine(g, 14, 35, 4, 4);
+  addNoseThruster(g, 10);
+  addNoseThruster(g, 15);
+  for (const y of [14, 26]) {
+    addSideThruster(g, y, 'left');
+    addSideThruster(g, y, 'right');
+  }
+  tuneShip(g, { accel: 12, rcsPerThrust: 8, backShare: 0.5, sideShare: 0.25 });
+  return g;
+}
+
+/**
+ * An enemy outpost: an octagonal station with no drives (it is anchored where it stands), a turret on each side
+ * (heavy guns fore and aft, pulse guns to the sides) with wide arcs, a strong shield generator and a reactor
+ * inside, and its store. Its shield must come down before its hull can be broken (sim/mission.ts, «Аванпост»).
+ */
+export function buildOutpost(): ShipGrid {
+  const g = hullShip(40, 40, 2, [
+    [0, 8],
+    [8, 20],
+    [32, 20],
+    [40, 8],
+  ]);
+  addTurret(g, 18, 2, 3, 'heavy', 0, 1.9);
+  addTurret(g, 18, 35, 3, 'heavy', Math.PI, 1.9);
+  addTurret(g, 2, 18, 3, 'pulse', -Math.PI / 2, 1.9);
+  addTurret(g, 35, 18, 3, 'pulse', Math.PI / 2, 1.9);
+  addBlock(g, 11, 11, 5, 5, 1);
+  addShieldGen(g, 19, 13, 1, 600, 22);
+  addReactor(g, 18, 23, 1, 3, 40, 220, 60);
   return g;
 }
 
@@ -649,7 +688,7 @@ function playerFighterHull(): ShipGrid {
   for (const p of art.parts) {
     const cells = p.cells.map(([x, y]): [number, number, number] => [x, y, 0]);
     if (p.kind === 'turret') {
-      const weapon = p.heavy ? makeWeapon(g, 'heavy', 0, 1.2) : makeWeapon(g, 'pulse', pulses++ === 0 ? -0.2 : 0.2, 1.75);
+      const weapon = p.heavy ? makeWeapon(g, 'heavy', 0, 1.2) : pulses++ === 0 ? makeWeapon(g, 'pulse', -0.2, 1.75) : makeWeapon(g, 'miner', 0.2, 1.75);
       g.addModule('turret', cells, { core: centre(p.cells), weapon });
     } else if (p.drive) {
       const spec = DRIVES[p.drive];

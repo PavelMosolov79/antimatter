@@ -1,10 +1,12 @@
 import type { GridBody } from './body';
+import { MINER_DPS, MINING, mineStep } from './mining';
 import { shipEffects } from './effects';
 import { creditGunner, creditShield, mannedBy } from './crew';
 import { moduleEfficiency, type TargetRef, type WeaponType } from './grid';
 import { segmentVsCells, segmentVsShield } from './raycast';
 import { absorbShield, shieldActive, spendEnergy } from './systems';
 import type { World } from './world';
+import { engaged } from './ai';
 
 export interface WeaponDef {
   type: WeaponType;
@@ -55,6 +57,22 @@ export const WEAPONS: Record<WeaponType, WeaponDef> = {
     pen: 1,
     dps: 0,
     energyPerSec: 0,
+  },
+  miner: {
+    type: 'miner',
+    label: 'Добывающий луч',
+    short: 'ДОБ',
+    color: 0x4ff0d0,
+    range: MINING.range,
+    turnRate: 3,
+    rof: 0,
+    energy: 0,
+    speed: 0,
+    damage: 0,
+    radius: 1,
+    pen: 0,
+    dps: MINER_DPS,
+    energyPerSec: MINING.energyPerSec,
   },
   beam: {
     type: 'beam',
@@ -257,6 +275,8 @@ export function updateWeapons(world: World, dt: number): void {
   for (const b of world.bodies) {
     const sys = b.sys;
     if (b.removed || !sys || sys.dead) continue;
+    // a patrol that has not seen anyone holds its fire
+    if (sys.ai && !engaged(sys.ai)) continue;
     if (world.time - sys.autoTime > 0.3) {
       sys.autoTime = world.time;
       sys.autoTarget = nearestHostile(world, b);
@@ -290,6 +310,10 @@ export function updateWeapons(world: World, dt: number): void {
       if (n === 0) continue;
       const mount = b.localToWorld(sx / n, sy / n, { x: 0, y: 0 });
 
+      if (w.type === 'miner') {
+        mineStep(world, b, m, w, mount, def.range, dt, eff, rate);
+        continue;
+      }
       let tp = resolveTarget(world, w.target);
       if (!tp) tp = resolveTarget(world, sys.focus);
       if (!tp) tp = resolveTarget(world, sys.autoTarget);

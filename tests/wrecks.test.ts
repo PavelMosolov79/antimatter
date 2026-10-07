@@ -191,6 +191,8 @@ describe('wrecks in the game', () => {
     g.screen = 'game';
     g.startRun();
     g.travel(1);
+    // the briefing stands the world still; close it as the player would
+    g.endBriefing();
     const before = { ...g.run!.cargo };
     g.world.notes.push({ type: 'find', find: { type: 'metal', amount: 5, text: 'm' } }, { type: 'find', find: { type: 'credits', amount: 40, text: 'c' } }, { type: 'salvage', metal: 2 });
     g.tick(DT);
@@ -210,6 +212,7 @@ describe('wrecks in the game', () => {
     g.screen = 'game';
     g.startRun();
     g.travel(1);
+    g.endBriefing();
     const enemies = () => g.world.bodies.filter((b) => b.kind === 'ship' && b.sys?.team === 1).length;
     const n = enemies();
     g.world.notes.push({ type: 'ambush', x: 800, y: 800, n: 2 });

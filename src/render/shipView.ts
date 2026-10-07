@@ -154,8 +154,10 @@ export class BodyView {
     this.sprite = new Sprite(this.texture);
   }
 
-  update(layer: number, time = 0): void {
+  update(viewLayer: number, time = 0): void {
     const b = this.body;
+    // a body with fewer decks than the one on view (a rock, a wreck, a small ship) stays seen from outside rather than vanishing
+    const layer = viewLayer >= b.grid.depth ? -1 : viewLayer;
     const look = (b.team + 1) * 2 + (b.sys?.dead ? 1 : 0);
     const rooms = layer >= 0 ? (b.sys?.rooms ?? null) : null;
     const live = rooms !== null;

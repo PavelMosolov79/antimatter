@@ -1,9 +1,12 @@
 import { Game, SCENARIOS, type Tool } from './game';
 import { OUTER_VIEW } from './render/shipView';
 import { RunScreen } from './runScreen';
+import { TraderScreen } from './traderScreen';
 import { BattleHud } from './hud/battleHud';
+import { Briefing } from './hud/briefing';
 
 import { SHIPS, shipHoldCap } from './sim/ships';
+import { holdUsed } from './sim/cargo';
 import { SECTOR_IDS, SECTORS } from './sim/space';
 import { moduleEfficiency } from './sim/grid';
 import { WEAPONS } from './sim/weapons';
@@ -227,6 +230,7 @@ export class Hud {
   private game: Game;
   private root: HTMLElement;
   private battle: BattleHud;
+  private brief: Briefing;
   private stats: HTMLDivElement;
   private toolBtns = new Map<Tool, HTMLButtonElement>();
   private layerBtns: HTMLButtonElement[] = [];
@@ -248,6 +252,7 @@ export class Hud {
   private sandboxButtons = document.createElement('div');
   private runButton = document.createElement('button');
   private runScreen: RunScreen;
+  private trader: TraderScreen;
   private compartBody = document.createElement('div');
   private compartKey = '';
   private roomEls: RoomEls[] = [];
@@ -437,6 +442,7 @@ export class Hud {
     this.overlay.appendChild(box);
     root.appendChild(this.overlay);
     this.runScreen = new RunScreen(game, root);
+    this.trader = new TraderScreen(game, root);
 
     const toggle = document.createElement('button');
     toggle.id = 'panelToggle';
@@ -447,6 +453,7 @@ export class Hud {
     if (isTouchLayout()) this.buildPhoneLayout(root, { left, toggle, combat, ship, controls, hint, button });
 
     this.battle = new BattleHud(game, root);
+    this.brief = new Briefing(game, document.body);
     this.setTool('fly');
   }
 
@@ -764,6 +771,7 @@ export class Hud {
     const g = this.game;
     this.root.classList.toggle('newhud', g.useNewHud);
     this.battle.update(now);
+    this.brief.update(now);
     this.updateToasts();
     g.scene.craterPreview = g.tool === 'crater' ? g.crater.radius : 0;
     for (const [t, b] of this.toolBtns) b.classList.toggle('on', g.tool === t);
@@ -787,14 +795,35 @@ export class Hud {
     this.overlay.style.display = over ? 'flex' : 'none';
     if (over) {
       const boss = g.run?.fighting?.kind === 'boss';
-      this.overlayTitle.textContent = !inRun ? (g.state === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ') : g.state === 'won' ? (boss ? 'РУБЕЖ ВЗЯТ' : 'БОЙ ВЫИГРАН') : 'КОРАБЛЬ УНИЧТОЖЕН';
+      this.overlayTitle.textContent = !inRun ? (g.state === 'won' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ') : g.state === 'won' ? (g.retreated ? 'ОТСТУПЛЕНИЕ' : g.plan?.failed ? 'ЗАДАНИЕ ПРОВАЛЕНО' : boss ? 'РУБЕЖ ВЗЯТ' : 'МИССИЯ ВЫПОЛНЕНА') : 'КОРАБЛЬ УНИЧТОЖЕН';
       this.overlayTitle.className = g.state;
       this.sandboxButtons.style.display = inRun ? 'none' : '';
       this.runButton.style.display = inRun ? '' : 'none';
       this.runButton.textContent = g.state === 'won' ? 'На карту ▸' : 'Итоги забега';
       this.overlayReward.replaceChildren();
       const reward = inRun && g.state === 'won' ? g.pendingReward() : null;
-      if (reward && g.run) {
+      const k = g.run?.fighting?.kind;
+      if (inRun && g.state === 'won' && g.run && (g.retreated || g.plan?.failed)) {
+        const hold = g.run.cargo;
+        const add = (html: string) => {
+          const d = document.createElement('div');
+          d.innerHTML = html;
+          this.overlayReward.appendChild(d);
+        };
+        add(`<span class="lost">Награда за задание не выдана</span>`);
+        add(`В трюме: <b>${hold.credits} кр. · ${hold.metal} мет.${hold.ore ? ` · ${hold.ore} руды` : ''}</b>`);
+        add(`<small>Груз станет вашим, когда вы сдадите его в доке.</small>`);
+      } else if (inRun && g.state === 'won' && g.run && (k === 'mining' || k === 'event') && !reward) {
+        const hold = g.run.cargo;
+        const add = (html: string) => {
+          const d = document.createElement('div');
+          d.innerHTML = html;
+          this.overlayReward.appendChild(d);
+        };
+        add(`В трюме: <b>${hold.credits} кр. · ${hold.metal} мет.${hold.ore ? ` · ${hold.ore} руды` : ''}</b>`);
+        add(`<small>Занято ${holdUsed(hold)} из ${shipHoldCap(g.run.shipId)} мест.</small>`);
+        add(`<small>Груз станет вашим, когда вы сдадите его в доке.</small>`);
+      } else if (reward && g.run) {
         const hold = g.run.cargo;
         const cap = shipHoldCap(g.run.shipId);
         const add = (html: string) => {
@@ -809,6 +838,7 @@ export class Hud {
       }
     }
     this.runScreen.update();
+    this.trader.update();
     // The dock and the sector map are full screens of their own: no battle bar under them.
     if (this.mbar && this.mstatus) {
       const offScreen = g.mode === 'run' && g.runPhase !== 'battle';

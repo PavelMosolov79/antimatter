@@ -2,9 +2,10 @@ import { Container, Sprite, Texture } from 'pixi.js';
 import type { CrewRole } from '../sim/crew';
 import type { World } from '../sim/world';
 import { ASTRO_H, ASTRO_W, astronautCanvas } from './astronaut';
+import { CREW_LOOK, facing, turnToward } from './crewMotion';
 
 /** How wide an astronaut is on the deck, in cells of the ship (the drawing is 41×20 pixels, arms spread). */
-const ASTRO_CELLS = 3.2;
+const ASTRO_CELLS = 2;
 
 /**
  * One texture per profession, made once: the astronaut seen from above, the suit in the colour of the
@@ -21,22 +22,21 @@ function getTexture(role: CrewRole): Texture {
   return tex;
 }
 
-/** The turn (in radians, clockwise) that makes the downward-facing drawing look along (dx, dy) in ship coordinates, snapped to a quarter turn. */
-function quarterTurn(dx: number, dy: number): number {
-  if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? Math.PI / 2 : -Math.PI / 2;
-  return dy < 0 ? Math.PI : 0;
-}
-
 interface Seen {
   x: number;
   y: number;
   turn: number;
+  /** Where the step is (radians), whether it was walking last frame, and when it was last drawn (s). */
+  phase: number;
+  walking: boolean;
+  t: number;
 }
 
 /**
- * Crew on the deck being viewed, drawn as astronauts. They hop from cell to cell with the rest of the
- * ship's blocky art (never glide), turn to face where they walk, and stand facing the consoles (up)
- * when they are at their post. The sprite does not inherit the ship's rotation, so it is added here.
+ * Crew on the deck being viewed, drawn as astronauts. They glide with the simulation from cell to cell, turn
+ * smoothly to where they walk (any angle, the helmet is round from above), sway a little with each step, and
+ * stand facing the consoles (up) when they are at their post. The sprite does not inherit the ship's rotation,
+ * so it is added here.
  */
 export class CrewView {
   readonly container = new Container();
@@ -65,30 +65,33 @@ export class CrewView {
       }
       s.visible = true;
       s.texture = getTexture(c.role);
-      // Snap to the exact ship cell the crew member currently occupies rather than the
-      // smooth sub-cell position the simulation moves through — the badge should hop
-      // pixel to pixel with the rest of the ship's own blocky art, not glide.
-      const cx = Math.floor(c.x) + 0.5;
-      const cy = Math.floor(c.y) + 0.5;
-      const wp = body.localToWorld(cx, cy, { x: 0, y: 0 });
+      const wp = body.localToWorld(c.x, c.y, { x: 0, y: 0 });
       s.position.set(wp.x, wp.y);
-      // The badge's position already orbits with the hull via localToWorld, but the
-      // sprite itself doesn't inherit the ship's rotation the way BodyView's hull
-      // sprite does — without this it stays screen-upright while the ship turns under
-      // it, reading as pinned to the screen instead of standing on the deck.
+      const now = performance.now() / 1000;
       let st = this.seen.get(c.id);
       if (!st) {
-        st = { x: c.x, y: c.y, turn: Math.PI };
+        st = { x: c.x, y: c.y, turn: Math.PI, phase: 0, walking: false, t: now };
         this.seen.set(c.id, st);
       }
+      const dt = Math.min(0.1, Math.max(0, now - st.t));
+      st.t = now;
       const mx = c.x - st.x;
       const my = c.y - st.y;
-      if (Math.hypot(mx, my) > 0.02) {
-        st.turn = quarterTurn(mx, my);
-        st.x = c.x;
-        st.y = c.y;
-      } else if (c.task === 'atPost') st.turn = Math.PI;
-      s.rotation = body.angle + st.turn;
+      const moved = Math.hypot(mx, my);
+      st.x = c.x;
+      st.y = c.y;
+      st.walking = moved > 0.002;
+      let want = st.turn;
+      if (st.walking) {
+        want = facing(mx, my);
+        st.phase += moved * CREW_LOOK.stridePerCell * Math.PI;
+      } else if (c.task === 'atPost') want = Math.PI;
+      st.turn = turnToward(st.turn, want, CREW_LOOK.turnRate * dt);
+      // a step: the shoulders sway and the body dips a little; standing still, neither
+      const step = st.walking ? Math.sin(st.phase) : 0;
+      s.rotation = body.angle + st.turn + step * CREW_LOOK.sway;
+      s.width = ASTRO_CELLS;
+      s.height = ((ASTRO_CELLS * ASTRO_H) / ASTRO_W) * (1 - CREW_LOOK.bob * Math.abs(step));
     }
     for (const [id, s] of this.sprites) {
       if (!seen.has(id)) s.visible = false;

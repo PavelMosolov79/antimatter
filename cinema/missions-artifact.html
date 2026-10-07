@@ -1,0 +1,920 @@
+<title>Путь миссии Antimatter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Unbounded:wght@500;700;900&display=swap">
+<style>
+/* Layout: a design document with tabs; live mocks (mission intro, a training ground with patrols, astronauts) inside. Dark, the game's own night. */
+:root {
+  --bg: #05070d;
+  --panel: #0a0f1c;
+  --panel2: #0d1424;
+  --line: #2c3d63;
+  --line-soft: #1c2742;
+  --fg: #cfe0ff;
+  --dim: #7f95bf;
+  --faint: #4d5f86;
+  --cyan: #59e6ff;
+  --violet: #b06bff;
+  --magenta: #ff5fd8;
+  --amber: #ffd24a;
+  --red: #ff6a5a;
+  --green: #63e07a;
+  --teal: #4ff0d0;
+  --display: 'Unbounded', 'Arial Black', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { margin: 0; padding-inline: 16px; padding-block: 24px 56px; color: var(--fg); font: 400 13.5px/1.6 var(--mono); }
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { margin: 0; font: 900 clamp(24px, 4vw, 38px)/1.05 var(--display); letter-spacing: .04em; color: #fff; text-wrap: balance; }
+h1 span { color: var(--cyan); }
+.lead { margin: 10px 0 0; color: var(--dim); max-width: 74ch; }
+h2 { margin: 0 0 12px; font: 700 12px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--cyan); }
+h3 { margin: 0 0 6px; font: 700 15px/1.25 var(--display); letter-spacing: .02em; color: #fff; text-wrap: balance; }
+p { margin: 0 0 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; }
+.tab { background: var(--panel); border: 1px solid var(--line); color: var(--dim); border-radius: 9px; padding: 10px 13px; font: 700 12px/1 var(--mono); letter-spacing: .05em; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--cyan); border-color: var(--cyan); color: #04202a; }
+.tab:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+section[hidden] { display: none; }
+.stack { display: flex; flex-direction: column; gap: 18px; }
+.card { border: 1px solid var(--line-soft); border-radius: 12px; padding: 16px; background: rgba(10, 15, 28, .7); min-width: 0; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.row2 { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 900px) { .row2 { grid-template-columns: minmax(0, 1fr); } }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font: 700 10.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--c); color: var(--c); margin-left: 4px; vertical-align: middle; }
+.tag.have { --c: var(--green); } .tag.todo { --c: var(--amber); } .tag.ask { --c: var(--magenta); } .tag.later { --c: var(--faint); } .tag.bug { --c: var(--red); } .tag.dec { --c: var(--cyan); }
+ul, ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+li::marker { color: var(--faint); }
+.k { color: var(--dim); }
+b { color: #eef5ff; font-weight: 700; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { color: var(--faint); font: 700 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.tbl { overflow-x: auto; }
+.hint { color: var(--faint); font-size: 12px; }
+.q { border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; background: rgba(10, 15, 28, .7); }
+.q h3 { font-size: 14px; }
+.q .rec { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--green); background: rgba(99, 224, 122, .06); font-size: 12.5px; }
+.q .alt { color: var(--dim); font-size: 12.5px; margin-top: 6px; }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.flow > div { flex: 1 1 150px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel2); font-size: 12.5px; }
+.flow > div b { display: block; margin-bottom: 3px; color: var(--cyan); font: 700 11px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.flow > div.opt b { color: var(--violet); } .flow > div.fight b { color: var(--red); } .flow > div.end b { color: var(--green); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { background: var(--panel); color: var(--dim); border: 0; padding: 9px 13px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--cyan); color: #04202a; }
+.ghost { background: var(--panel); border: 1px solid var(--line); color: var(--fg); border-radius: 9px; padding: 9px 13px; font: 700 12px/1 var(--mono); cursor: pointer; }
+.big { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.big strong { font: 700 22px/1 var(--display); color: #fff; font-variant-numeric: tabular-nums; }
+canvas.fig { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); background: #03050b; }
+
+/* ---------- intro mock ---------- */
+.stage { position: relative; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #000; container-type: inline-size; user-select: none; }
+.stage.phone { max-width: 360px; aspect-ratio: 9 / 19; margin: 0 auto; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ov { position: absolute; inset: 0; background: rgba(2, 4, 9, .92); opacity: 0; transition: opacity .5s; pointer-events: none; }
+.ov.on { opacity: 1; }
+.mt { position: absolute; left: 0; right: 0; top: 34%; text-align: center; pointer-events: none; }
+.mt .n { font: 900 clamp(22px, 7cqw, 64px)/1 var(--display); letter-spacing: .18em; color: #fff; opacity: 0; transform: scale(1.25); filter: blur(8px); transition: all .7s cubic-bezier(.2, .8, .2, 1); }
+.mt .ln { height: 2px; width: 0; margin: 14px auto; background: linear-gradient(90deg, transparent, var(--cyan), transparent); transition: width .7s .3s; }
+.mt .ty { font: 700 clamp(11px, 2.2cqw, 18px)/1 var(--mono); letter-spacing: .4em; color: var(--cyan); opacity: 0; transform: translateY(8px); transition: all .5s .55s; }
+.mt .sub { margin-top: 10px; font: 400 clamp(10px, 1.5cqw, 13px)/1 var(--mono); letter-spacing: .14em; color: var(--dim); opacity: 0; transition: opacity .5s .8s; }
+.mt.on .n { opacity: 1; transform: none; filter: none; }
+.mt.on .ln { width: min(60%, 420px); }
+.mt.on .ty, .mt.on .sub { opacity: 1; transform: none; }
+.mt.up { transition: transform .6s, opacity .6s; transform: translateY(-40%); opacity: 0; }
+.gen { position: absolute; left: 4%; right: 4%; bottom: 6%; max-width: 640px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, rgba(13, 22, 42, .97), rgba(7, 11, 22, .97)); box-shadow: 0 0 0 1px rgba(89, 230, 255, .08), 0 20px 50px rgba(0, 0, 0, .6); opacity: 0; transform: translateY(30px); transition: all .45s cubic-bezier(.2, .8, .2, 1); }
+.gen.on { opacity: 1; transform: none; }
+.gen .pf { width: clamp(64px, 12cqw, 104px); aspect-ratio: 1; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; position: relative; background: #0b1428; }
+.gen .pf canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+.gen .pf::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .04) 0 1px, transparent 1px 3px); pointer-events: none; }
+.gen .who { font: 700 10.5px/1 var(--mono); letter-spacing: .16em; color: var(--amber); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+.gen .who i { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: rec 1s infinite alternate; }
+@keyframes rec { to { opacity: .2; } }
+.gen .tx { margin-top: 8px; font: 400 clamp(11px, 1.7cqw, 14px)/1.55 var(--mono); color: #e6efff; min-height: 4.6em; }
+.gen .tx::after { content: '▍'; color: var(--cyan); animation: rec .5s infinite alternate; }
+.gen.done .tx::after { content: ''; }
+.gen .go { margin-top: 8px; display: flex; gap: 8px; justify-content: flex-end; }
+.gen .go button { background: var(--cyan); color: #04202a; border: 0; border-radius: 8px; padding: 8px 14px; font: 700 11.5px/1 var(--mono); cursor: pointer; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.gen.done .go button { opacity: 1; pointer-events: auto; }
+.skip { position: absolute; right: 12px; bottom: 10px; font: 700 10.5px/1 var(--mono); letter-spacing: .1em; color: var(--faint); background: none; border: 0; cursor: pointer; padding: 6px; }
+/* the battle HUD bits that come in after the briefing */
+.hud-stats { position: absolute; left: 2.4%; top: 4%; width: 22%; min-width: 110px; padding: 6px; border-radius: 9px; border: 1px solid var(--line); background: rgba(8, 12, 22, .85); display: grid; gap: 4px; opacity: 0; transition: opacity .5s; }
+.hud-stats i { display: block; height: clamp(5px, 1cqw, 9px); border-radius: 3px; background: var(--c); }
+.route { position: absolute; left: 50%; top: 4%; transform: translate(-50%, -12px); width: 40%; min-width: 180px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(8, 12, 22, .88); opacity: 0; transition: all .5s .2s; }
+.route .rl { display: flex; justify-content: space-between; font: 700 clamp(9px, 1.25cqw, 11px)/1 var(--mono); color: var(--dim); letter-spacing: .08em; }
+.route .rl b { color: var(--cyan); }
+.route .track { position: relative; height: 14px; margin-top: 7px; }
+.route .track::before { content: ''; position: absolute; left: 4px; right: 4px; top: 6px; height: 2px; background: repeating-linear-gradient(90deg, var(--line) 0 6px, transparent 6px 10px); }
+.route .done { position: absolute; left: 4px; top: 6px; height: 2px; width: 12%; background: var(--cyan); }
+.route .pin { position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--c); background: var(--bg); transform: translateX(-50%); }
+.route .ship { position: absolute; top: 0; left: 12%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 13px solid var(--cyan); rotate: 90deg; }
+.obj { position: absolute; right: 2.4%; top: 4%; width: 30%; min-width: 170px; max-width: 300px; display: flex; flex-direction: column; gap: 8px; }
+.obj .box { padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line); background: rgba(8, 12, 22, .9); opacity: 0; transform: translateX(20px); transition: all .45s; }
+.obj .box.on { opacity: 1; transform: none; }
+.obj h5 { margin: 0 0 6px; font: 700 clamp(9px, 1.2cqw, 10.5px)/1 var(--mono); letter-spacing: .2em; color: var(--cyan); display: flex; justify-content: space-between; }
+.obj h5 span { color: var(--faint); letter-spacing: .08em; }
+.task { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 7px; align-items: start; font: 400 clamp(9.5px, 1.3cqw, 12px)/1.35 var(--mono); color: var(--fg); padding: 3px 0; opacity: 0; transform: translateX(10px); transition: all .35s; }
+.task.on { opacity: 1; transform: none; }
+.task .cb { width: 11px; height: 11px; margin-top: 2px; border: 1.5px solid var(--cyan); border-radius: 3px; }
+.task.opt .cb { border-color: var(--violet); transform: rotate(45deg) scale(.85); border-radius: 2px; }
+.task.opt { color: #d9c4ff; }
+.task.wait { color: var(--faint); } .task.wait .cb { border-color: var(--faint); }
+.task.ok { color: var(--green); text-decoration: line-through; text-decoration-color: rgba(99, 224, 122, .5); } .task.ok .cb { background: var(--green); border-color: var(--green); }
+.task small { display: block; color: var(--faint); font-size: .9em; text-decoration: none; }
+.disp { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); border-left: 3px solid var(--amber); background: rgba(8, 12, 22, .9); font: 400 clamp(9.5px, 1.25cqw, 11.5px)/1.35 var(--mono); opacity: 0; transition: opacity .4s; }
+.disp b { display: block; color: var(--amber); font-weight: 700; }
+.on1 { opacity: 1 !important; }
+.stage.phone .route { top: 11%; width: 92%; }
+.stage.phone .hud-stats { width: 60%; }
+.stage.phone .obj { right: 4%; top: 18%; width: 62%; }
+.stage.phone .obj .t-more { display: none; }
+.stage.phone .gen { grid-template-columns: minmax(0, 1fr); }
+.stage.phone .gen .pf { width: 72px; }
+
+/* ---------- training ground ---------- */
+.poly { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 14px; align-items: start; }
+@media (max-width: 860px) { .poly { grid-template-columns: minmax(0, 1fr); } }
+.pg { position: relative; }
+.pg canvas { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #03050b; cursor: crosshair; touch-action: manipulation; }
+.pg .cur { position: absolute; pointer-events: none; font: 700 10.5px/1 var(--mono); padding: 4px 7px; border-radius: 6px; background: rgba(8, 12, 22, .92); border: 1px solid var(--c, var(--cyan)); color: var(--c, var(--cyan)); white-space: nowrap; display: none; }
+.side { display: flex; flex-direction: column; gap: 10px; }
+.side .box { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel); }
+.side .task { opacity: 1; transform: none; font-size: 12px; }
+.stat { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed var(--line-soft); }
+.stat:last-child { border: 0; }
+.stat b { font-variant-numeric: tabular-nums; }
+.chk { display: flex; gap: 8px; align-items: center; font-size: 12px; cursor: pointer; padding: 3px 0; }
+.chk input { accent-color: var(--cyan); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--dim); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--c); }
+
+/* ---------- controls ---------- */
+.ctl { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.cc { border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px; background: var(--panel); display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: center; }
+.cc svg { width: 70px; height: 70px; border-radius: 10px; background: #060a14; border: 1px solid var(--line); }
+.cc h4 { margin: 0 0 3px; font: 700 12.5px/1.25 var(--display); color: #fff; }
+.cc p { margin: 0; font-size: 12px; color: var(--dim); }
+.kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; font: 700 11px/1.4 var(--mono); color: #fff; background: var(--panel2); }
+@media (prefers-reduced-motion: reduce) { .gen .who i, .gen .tx::after { animation: none; } * { transition-duration: .01s !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Путь <span>миссии</span></h1>
+    <p class="lead">Как сделать миссию дорогой вглубь космоса, а не пустой ареной. Здесь шесть замечаний: насыщенный космос, вступление с генералом и списком задач, разные задания с обнаружением врага, враги не врезаются друг в друга, управление мышью и пальцем, космонавты на палубе. Каждое замечание описано и нарисовано. Ответы на вопросы от 6 октября внесены: они во вкладке «Решения» и в тексте разделов. Все числа здесь предложения, баланс подбираем в конце.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Разделы">
+    <button class="tab" role="tab" aria-selected="true" data-t="intro">Вступление</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="space">Космос гуще</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="missions">Задания</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="poly">Полигон</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="controls">Управление</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="crew">Космонавты</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="ask">Решения</button>
+    <button class="tab" role="tab" aria-selected="false" data-t="plan">План работ</button>
+  </nav>
+
+  <!-- ============================================================ intro -->
+  <section data-s="intro" class="stack">
+    <div class="card">
+      <div class="bar">
+        <div class="seg" role="group" aria-label="Экран">
+          <button id="i-desk" aria-pressed="true">Компьютер</button>
+          <button id="i-phone" aria-pressed="false">Телефон</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select id="i-kind" aria-label="Тип миссии">
+            <option value="hunt">Бой: перехват патруля</option>
+            <option value="mine">Добыча: план по руде</option>
+            <option value="signal">Сигнал бедствия: эскорт</option>
+            <option value="boss">Босс: флагман</option>
+          </select>
+          <button class="ghost" id="i-play">▶ Проиграть заново</button>
+        </div>
+      </div>
+      <p class="hint" style="margin:10px 0 0">Космос загрузился, мир на паузе. Экран темнеет, появляются номер и тип миссии. Потом выходит табличка генерала, и он говорит цель. После «Принято» справа появляются задачи, сверху маршрут до точки выхода. Сообщения диспетчера идут под задачами.</p>
+    </div>
+    <div class="stage" id="stage">
+      <canvas id="i-bg"></canvas>
+      <div class="hud-stats" id="i-stats"><i style="--c:var(--green);width:92%"></i><i style="--c:#4f7bff;width:80%"></i><i style="--c:var(--amber);width:66%"></i></div>
+      <div class="route" id="i-route">
+        <div class="rl"><span>МАРШРУТ</span><span id="i-dist"><b>3 400</b> кл до маяка</span></div>
+        <div class="track"><span class="done"></span><span class="pin" style="left:4px;--c:var(--faint)"></span><span class="pin" style="left:46%;--c:var(--violet)"></span><span class="pin" style="left:calc(100% - 4px);--c:var(--green)"></span><span class="ship"></span></div>
+      </div>
+      <div class="obj" id="i-obj">
+        <div class="box" id="i-box"><h5>ЗАДАЧИ <span id="i-cnt">0/3</span></h5><div id="i-tasks"></div></div>
+        <div class="disp" id="i-disp"><b>Диспетчер</b><span id="i-dtext">Сканер поймал след двигателей: 1 800 кл, курс 40°.</span></div>
+      </div>
+      <div class="ov" id="i-ov"></div>
+      <div class="mt" id="i-mt"><div class="n" id="i-n">МИССИЯ 3</div><div class="ln"></div><div class="ty" id="i-ty">ПЕРЕХВАТ</div><div class="sub" id="i-sub">ЗВЕНО 1 · БОЙ · ФИОЛЕТОВЫЙ СЕКТОР</div></div>
+      <div class="gen" id="i-gen" role="dialog" aria-label="Брифинг">
+        <div class="pf"><canvas id="i-pf" width="40" height="40"></canvas></div>
+        <div>
+          <div class="who"><i></i><span id="i-who">Генерал Стоун · штаб флота</span></div>
+          <div class="tx" id="i-tx"></div>
+          <div class="go"><button id="i-ok">Принято ▸</button></div>
+        </div>
+      </div>
+      <button class="skip" id="i-skip">пропустить ▸▸</button>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>Последовательность</h3>
+        <ol><li>Мир загружен и стоит на паузе, пока табличка на экране <span class="tag dec">решено</span>. Экран темнеет за 0,5 с.</li><li>Номер миссии проявляется из размытия, под ним тип миссии и звено. Около 2 с.</li><li>Табличка генерала: портрет моргает и шевелит губами, пока печатается текст. Две-три короткие фразы.</li><li>«Принято»: затемнение уходит, справа по одной въезжают задачи, сверху маршрут. Мир снимается с паузы.</li></ol>
+        <div class="alt">Тап по экрану ускоряет текст, второй тап закрывает табличку. «Пропустить» сразу ведёт к задачам. Кнопка «Цель» в бою открывает текст ещё раз, без паузы.</div></div>
+      <div class="q"><h3>Задачи на экране</h3>
+        <ul><li><b>Главные</b> (квадрат): по порядку. Следующая серая, пока не открыта.</li><li><b>Дополнительные</b> (ромб, фиолетовые): награда сверху, на исход миссии не влияют.</li><li>Выполненная зачёркивается зелёным, счётчик у заголовка растёт.</li><li>На телефоне видна только текущая задача, остальные раскрываются тапом.</li></ul></div>
+      <div class="q"><h3>Маршрут</h3>
+        <p class="k">У каждой миссии есть <b>точка выхода</b> (маяк прыжка). Полоса сверху показывает, сколько пройдено и сколько клеток до маяка. Отметки на полосе: место задания (фиолетовая) и маяк (зелёная).</p>
+        <div class="alt">На краю экрана у маяка своя метка, как у остальных объектов.</div></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ space -->
+  <section data-s="space" class="stack" hidden>
+    <div class="card">
+      <h2>Почему космос пустой</h2>
+      <div class="row2">
+        <div>
+          <p>На экране компьютера видно примерно <b>270 × 170 клеток</b> (масштаб боя 4,8 пикселя на клетку). А небо вокруг арены раскладывается квадратами по <b>16 000 клеток</b>, и в каждом квадрате <b>один</b> объект: планета, поле астероидов, остов, буря. В самой арене 3–5 объектов. В последнем замере до ближайшего поля камней было 2 300–3 300 клеток, это 10–12 экранов пустоты.</p>
+          <p class="k">Объекты крупные и красивые, но между ними нечего делать. Получается: вылетел, долго летишь, встретил.</p>
+        </div>
+        <div class="big"><strong>1</strong><span class="k">объект на 16 000 × 16 000 клеток неба</span><strong>~11</strong><span class="k">экранов до ближайшего поля в последнем замере</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Было и будет (схема одной миссии, вид сверху)</h2>
+      <canvas class="fig" id="dens" width="1080" height="440"></canvas>
+      <p class="hint" style="margin-top:8px">Слева сейчас: арена и редкие крупные тела. Справа предложение: миссия становится коридором от старта до маяка, вдоль него места событий, а между ними мелочь. Белая рамка показывает размер экрана.</p>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>Коридор маршрута <span class="tag todo">основа</span></h3>
+        <p class="k">Миссия идёт от старта к маяку: 2 500–4 000 клеток. Вдоль коридора шириной ~1 200 клеток 4–7 <b>мест событий</b> через 500–800 клеток. Задание миссии стоит на одном из них.</p></div>
+      <div class="q"><h3>Мелочь между местами</h3>
+        <ul><li>Россыпи камней по 3–12 штук (с рудой и без).</li><li>Обломки боя: куски корпусов, контейнеры с ресурсами (подобрать по пути).</li><li>Буи и маячки на маршруте, мигают огнями.</li><li>Мины у старых полей боя, заметные вблизи.</li></ul>
+        <div class="alt">Правило: на каждом экране пути есть хотя бы 2–3 вещи.</div></div>
+      <div class="q"><h3>Что бьёт по корпусу <span class="tag dec">решено</span></h3>
+        <ul><li>Пыль и мелочь фона без физики.</li><li>Россыпи камней и куски корпусов настоящие, бьют по корпусу.</li><li><b>Щит отталкивает</b> камни и обломки, пока он поднят, и на каждый толчок тратит мощность: чем тяжелее и быстрее предмет, тем больше.</li></ul>
+        <div class="alt">Щит упал: удар идёт в корпус, как сейчас.</div></div>
+      <div class="q"><h3>Живой фон <span class="tag todo">без физики</span></h3>
+        <ul><li>Пыль и мелкие камешки на трёх слоях параллакса, видна скорость полёта.</li><li>Далёкие корабли и конвои пролетают по фону, в бой не вступают.</li><li>Туманности и газ сектора как полупрозрачные облака: красиво и не мешает.</li></ul></div>
+      <div class="q"><h3>Зоны с правилами <span class="tag later">потом</span></h3>
+        <ul><li>Газовое облако: скрывает корабль, радиус обнаружения врагов меньше.</li><li>Ионная буря: щит не восстанавливается.</li><li>Метеоритный дождь: проходит через путь, надо переждать или обойти.</li></ul></div>
+      <div class="q"><h3>Случайные встречи по пути</h3>
+        <p class="k">Не задание, а происшествие у одного из мест событий: засада в обломках, сигнал бедствия, груз дрейфует, на остове кто-то живой. Выпадает по зерну миссии, 1–2 за миссию.</p></div>
+      <div class="q"><h3>Что уже есть</h3>
+        <ul><li>Поля камней с рудой, остовы, кометы, бури, дыры, пульсары, врата <span class="tag have">есть</span></li><li>Подгрузка неба квадратами по мере полёта <span class="tag have">есть</span></li><li>Метки по краям экрана <span class="tag have">есть</span></li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ missions -->
+  <section data-s="missions" class="stack" hidden>
+    <div class="card">
+      <h2>Каждая миссия: путь, задание, выход</h2>
+      <div class="flow">
+        <div><b>1. Брифинг</b>Генерал говорит цель, на экране задачи и маршрут.</div>
+        <div><b>2. Путь</b>Летим по коридору. По пути места событий и находки.</div>
+        <div class="fight"><b>3. Задание</b>Главное: выследить, отбиться, добыть, спасти.</div>
+        <div class="opt"><b>Доп.</b>Контейнер, остов, лишняя руда. Награда сверху.</div>
+        <div class="end"><b>4. Маяк</b>Долетели до маяка прыжка: миссия выполнена, награда в трюм.</div>
+      </div>
+      <p class="hint" style="margin-top:10px">Сейчас бой кончается, когда враги уничтожены, а добыча и сигнал кончаются кнопкой «Улететь» в любом месте. <b>Решено:</b> у всех типов один конец, миссия выполнена, когда корабль на маяке. Кнопка «Улететь» есть всегда, но это отступление: награда за задание не выдаётся, трюм сохраняется. Средняя длина миссии около 10 минут, главное, чтобы было интересно.</p>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>Бой · Перехват <span class="tag dec">первый заход</span></h3>
+        <ol><li><b>Найти патруль.</b> Сканер даёт след: направление и примерную дальность. Метка следа на краю экрана, а не точка врага.</li><li><b>Уничтожить патруль 0/3.</b> Враги летают своим маршрутом и не видят вас, пока вы не вошли в их радиус обнаружения.</li><li><b>Доп.:</b> на месте боя контейнер со снаряжением.</li><li><b>Дойти до маяка.</b></li></ol>
+        <div class="alt">Можно напасть первым из-за радиуса, тогда первый залп ваш.</div></div>
+      <div class="q"><h3>Бой · Засада на конвой <span class="tag todo">второй заход</span></h3>
+        <ol><li>Догнать грузовой конвой (2 медленных грузовика и 2 охранника).</li><li>Грузовики разворачиваются и уходят к своему маяку. Уничтожить или вывести из строя до того, как дойдут.</li><li>Груз из обломков в трюм.</li></ol></div>
+      <div class="q"><h3>Бой · Аванпост <span class="tag todo">второй заход</span></h3>
+        <ol><li>Подойти к станции врага: неподвижные турели с большим радиусом.</li><li>Разбить генератор щита станции, потом турели.</li><li>Доп.: обыскать склад станции.</li></ol></div>
+      <div class="q"><h3>Элитный бой · Охота на аса <span class="tag todo">второй заход</span></h3>
+        <p class="k">Сильный одиночка с двумя ведомыми. Он сам выслеживает вас: в середине пути приходит сообщение «Вас ищут», и метка охотника сжимается к вам. Можно спрятаться в камнях и встретить его там.</p></div>
+      <div class="q"><h3>Добыча · План по руде <span class="tag dec">первый заход</span></h3>
+        <ol><li>Долететь до богатого поля.</li><li><b>Добыть 40 единиц руды.</b> Счётчик в задаче, сверх плана руда остаётся в трюме.</li><li>Патрули приходят волнами, как сейчас, но идут по маршруту и могут не заметить вас.</li><li>Доп.: фиолетовая жила антиматерии.</li><li>Дойти до маяка.</li></ol></div>
+      <div class="q"><h3>Сигнал · Бедствие и эскорт <span class="tag dec">первый заход</span></h3>
+        <ol><li>Найти источник сигнала.</li><li>Отбить нападающих на союзника.</li><li><b>Довести союзника до маяка:</b> он летит медленно, надо держаться рядом.</li></ol>
+        <div class="alt">Сигнал-остов: осмотреть остов (облёт), выбрать, что забрать. Ловушки остаются.</div></div>
+      <div class="q"><h3>Босс · Флагман</h3>
+        <ol><li>Прорваться через заслон.</li><li>Флагман: сначала сбить щит (генераторы на корпусе), потом орудия, потом ядро.</li><li>После победы маяк открывается не сразу: подкрепление врага, надо продержаться 30 с.</li></ol></div>
+    </div>
+    <div class="card">
+      <h2>Обнаружение врагом</h2>
+      <div class="tbl"><table>
+        <tr><th>Состояние</th><th>Что делает враг</th><th>Что видит игрок</th></tr>
+        <tr><td><b>Патруль</b></td><td>Летит по маршруту строем или стоит на посту.</td><td>Когда вы ближе двух радиусов, вокруг врага пунктирный круг обнаружения (жёлтый). Метка на краю серая.</td></tr>
+        <tr><td><b>Тревога</b></td><td>Вы вошли в круг. Вся группа поворачивает к вам, 1 с на разворот.</td><td>Круг вспыхивает красным, над врагом «!», диспетчер: «Вас заметили: патруль, 3 корабля». Метки красные.</td></tr>
+        <tr><td><b>Бой</b></td><td>Держит свою дистанцию, расходится по своим местам вокруг вас.</td><td>Как сейчас. Круг гаснет, чтобы не мешать.</td></tr>
+        <tr><td><b>Потеря</b></td><td>Вы дальше 1,7 радиуса дольше 6 с: ищет 5 с у последнего места, потом возвращается на маршрут.</td><td>Метка мигает, диспетчер: «Патруль потерял вас».</td></tr>
+      </table></div>
+      <p class="hint" style="margin-top:8px">Радиус по виду врага (числа предложения): разведчик 600, рейдер 420, охотник 380, турель станции 700 клеток. <b>Решено:</b> сначала только радиус по виду врага. Шум двигателей и укрытие в газе потом, вместе с зонами. Попробовать можно на вкладке «Полигон».</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ poly -->
+  <section data-s="poly" class="stack" hidden>
+    <div class="card">
+      <h2>Полигон: обнаружение, расхождение и управление</h2>
+      <p class="k" style="margin:0">Это схема, а не игра. Щёлкните по космосу, корабль полетит туда. Щёлкните по врагу, он станет целью орудий: корабль продолжит лететь, куда вели. Двойной щелчок по врагу: атака, корабль держится рядом. Щелчок по камню с рудой: цель добычи, корабль подойдёт на дальность луча и встанет. Подлетите к патрулю, он вас заметит.</p>
+    </div>
+    <div class="poly">
+      <div class="pg"><canvas id="pg" width="1200" height="720"></canvas><div class="cur" id="pg-cur"></div></div>
+      <div class="side">
+        <div class="box"><h5 style="margin:0 0 8px;font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--cyan)">ЗАДАЧИ</h5><div id="pg-tasks"></div></div>
+        <div class="box">
+          <label class="chk"><input type="checkbox" id="pg-sep" checked> Враги расходятся</label>
+          <label class="chk"><input type="checkbox" id="pg-rings"> Круги обнаружения всегда</label>
+          <div style="margin-top:8px">
+            <div class="stat"><span>Патруль</span><b id="pg-state">патруль</b></div>
+            <div class="stat"><span>Столкновения врагов</span><b id="pg-hits">0</b></div>
+            <div class="stat"><span>Руда в трюме</span><b id="pg-ore">0</b></div>
+            <div class="stat"><span>Щит</span><b id="pg-sh">100%</b></div>
+          </div>
+          <button class="ghost" id="pg-reset" style="margin-top:10px;width:100%">Начать заново</button>
+        </div>
+        <div class="box" style="font-size:12px" id="pg-log"><b style="color:var(--amber)">Диспетчер</b><div id="pg-msg" class="k">Сканер поймал след патруля к востоку.</div></div>
+      </div>
+    </div>
+    <div class="legend"><span><i style="--c:var(--cyan)"></i>ваш корабль</span><span><i style="--c:var(--red)"></i>враг</span><span><i style="--c:var(--amber)"></i>круг обнаружения</span><span><i style="--c:var(--violet)"></i>контейнер</span><span><i style="--c:#d9a830"></i>руда</span><span><i style="--c:var(--green)"></i>маяк выхода</span></div>
+    <div class="card">
+      <h2>Почему враги врезаются и что меняем</h2>
+      <div class="row2">
+        <div>
+          <p>Сейчас каждый враг каждые 0,2 с выбирает точку вокруг ближайшего противника: его дистанция плюс угол облёта, а сторона облёта случайная. Друг о друге враги не знают. Двое одного вида хотят одну и ту же точку и врезаются, особенно когда корабль игрока стоит (добыча, осмотр). Снимите галочку «Враги расходятся», чтобы это увидеть.</p>
+        </div>
+        <ul>
+          <li><b>Места вокруг цели.</b> Группа делит круг: у каждого свой угол (360° / число), а не общий.</li>
+          <li><b>Отталкивание.</b> Ближе суммы радиусов плюс запас: сила от соседа, растёт к нулю.</li>
+          <li><b>Прогноз столкновения.</b> Если через 1,5 с корпуса сойдутся, младший уступает: сдвигается вбок и сбрасывает скорость.</li>
+          <li><b>Камни и остовы</b> тоже обходятся (уже есть для автопилота игрока, переносим врагам).</li>
+          <li><b>Линия огня</b> <span class="tag later">потом</span>: не стрелять через своего.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ controls -->
+  <section data-s="controls" class="stack" hidden>
+    <div class="card">
+      <h2>Правило одно: щелчок по вещи = цель, щелчок по пустоте = лететь</h2>
+      <p class="k" style="margin:0">Под курсором всегда подсказка: что будет, если щёлкнуть (кольцо вокруг объекта и подпись «Атаковать», «Добывать», «Осмотреть», «Лететь»). На телефоне то же самое тапом, а подпись выходит на долгое нажатие.</p>
+    </div>
+    <div class="ctl">
+      <div class="cc"><svg viewBox="0 0 70 70"><circle cx="35" cy="35" r="2" fill="#59e6ff"/><circle cx="35" cy="35" r="10" fill="none" stroke="#59e6ff" stroke-dasharray="3 3"/><path d="M14 56 L24 46" stroke="#4d5f86" stroke-width="2"/><polygon points="12,58 18,50 20,56" fill="#59e6ff"/></svg><div><h4><span class="kbd">ЛКМ</span> по космосу</h4><p>Лететь в точку. Метка точки остаётся, пока не долетели. Цель орудий не сбрасывается.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><polygon points="35,22 46,46 35,41 24,46" fill="#ff6a5a"/><path d="M20 20h6M20 20v6M50 20h-6M50 20v6M20 50h6M20 50v-6M50 50h-6M50 50v-6" stroke="#ff6a5a" stroke-width="2"/></svg><div><h4><span class="kbd">ЛКМ</span> по врагу</h4><p>Цель орудий: рамка, полоска корпуса. Корабль летит, куда летел.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><polygon points="35,24 44,44 35,40 26,44" fill="#ff6a5a"/><circle cx="35" cy="35" r="20" fill="none" stroke="#ff6a5a" stroke-dasharray="4 3"/><text x="35" y="66" fill="#ff6a5a" font-size="9" text-anchor="middle" font-family="monospace">×2</text></svg><div><h4>Двойной <span class="kbd">ЛКМ</span> по врагу</h4><p>Атака: цель и автопилот держит дистанцию орудий вокруг неё.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><path d="M22 30l10-10 14 4 6 14-6 12-16 2-10-10z" fill="#7a7064"/><rect x="33" y="30" width="5" height="5" fill="#d9a830"/><rect x="40" y="38" width="4" height="4" fill="#d9a830"/><circle cx="37" cy="35" r="22" fill="none" stroke="#d9a830" stroke-dasharray="3 3"/></svg><div><h4><span class="kbd">ЛКМ</span> по руде</h4><p>Цель добычи, как цель орудий. Корабль подходит на дальность луча и встаёт, луч жжёт жилу. Новый щелчок по космосу снимает стоянку, цель остаётся.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><rect x="20" y="26" width="30" height="18" fill="#4a5568"/><rect x="26" y="20" width="10" height="8" fill="#3a4252"/><circle cx="35" cy="35" r="22" fill="none" stroke="#b06bff" stroke-dasharray="3 3"/></svg><div><h4><span class="kbd">ЛКМ</span> по остову, контейнеру</h4><p>Осмотреть или подобрать: корабль сам подлетает и облетает остов. Контейнер подбирается касанием.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><rect x="14" y="20" width="42" height="30" rx="4" fill="none" stroke="#4d5f86"/><path d="M24 35h22M35 24v22" stroke="#59e6ff" stroke-width="2"/><path d="M24 35l4-3v6zM46 35l-4-3v6zM35 24l-3 4h6zM35 46l-3-4h6z" fill="#59e6ff"/></svg><div><h4><span class="kbd">ПКМ</span> тянуть, колесо</h4><p>Камера: тянуть правой кнопкой, колесо приближает. На телефоне двумя пальцами.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><text x="35" y="42" fill="#cfe0ff" font-size="13" text-anchor="middle" font-family="monospace" font-weight="700">Esc</text><rect x="16" y="24" width="38" height="24" rx="5" fill="none" stroke="#4d5f86"/></svg><div><h4><span class="kbd">Esc</span>, <span class="kbd">Пробел</span></h4><p>Esc: сбросить цель (сначала добычу или орудий, потом точку полёта). Пробел: пауза.</p></div></div>
+      <div class="cc"><svg viewBox="0 0 70 70"><circle cx="35" cy="35" r="12" fill="none" stroke="#59e6ff"/><circle cx="35" cy="35" r="20" fill="none" stroke="#59e6ff" stroke-opacity=".4"/><circle cx="35" cy="35" r="4" fill="#59e6ff"/></svg><div><h4>Долгое нажатие (телефон)</h4><p>Подпись «что будет» и меню: «лететь сюда», «атаковать», «добывать», «отмена». Отпустил на пункте, и он выполнен.</p></div></div>
+    </div>
+    <div class="card">
+      <h2>Сейчас и как будет</h2>
+      <div class="tbl"><table>
+        <tr><th>Действие</th><th>Сейчас</th><th>Будет</th></tr>
+        <tr><td>ЛКМ по космосу</td><td>Лететь в точку</td><td>Так же</td></tr>
+        <tr><td>ЛКМ по врагу</td><td>Цель</td><td>Цель орудий, полёт не меняется; двойной щелчок: атака</td></tr>
+        <tr><td>ЛКМ по камню, по руде</td><td>Лететь в эту точку (луч жжёт ближайшую жилу сам)</td><td>Цель добычи: подойти на дальность, встать, жечь выбранную жилу</td></tr>
+        <tr><td>ЛКМ по остову</td><td>Лететь в точку; осмотр, если облетать рядом</td><td>Осмотреть: подлёт и облёт сам</td></tr>
+        <tr><td>Подсказка под курсором</td><td>Нет</td><td>Кольцо и подпись действия</td></tr>
+        <tr><td>Esc</td><td>Нет</td><td>Сбросить цель, потом точку</td></tr>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ crew -->
+  <section data-s="crew" class="stack" hidden>
+    <div class="card">
+      <h2>Космонавты на палубе: меньше и плавнее</h2>
+      <canvas class="fig" id="astro" width="1080" height="360"></canvas>
+      <p class="hint" style="margin-top:8px">Слева как сейчас: шириной 3,2 клетки, прыгают с клетки на клетку и поворачиваются рывком на четверть оборота. Справа предложение: 2 клетки, плавный шаг, поворот за 0,15 с, руки и ноги качаются в такт шагу.</p>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>Размер</h3><p class="k">2 клетки вместо 3,2: в коридор шириной 5 клеток влезают двое рядом, человек меньше модуля и не закрывает пульты.</p><div class="alt">При сильном отдалении камеры рисуем точку цвета профессии, чтобы люди не терялись.</div></div>
+      <div class="q"><h3>Движение</h3><p class="k">Позиция скользит между клетками (сейчас прыжок). Скорость та же, меняется только картинка. На старте и при остановке короткое ускорение.</p></div>
+      <div class="q"><h3>Поворот</h3><p class="k">Направление плавно догоняет направление шага на любой угол <span class="tag dec">решено</span>, не быстрее 2 оборотов в секунду. Рисунок сверху с круглым шлемом смотрится ровно при любом повороте. У пульта человек поворачивается к нему лицом.</p></div>
+      <div class="q"><h3>Шаг</h3><p class="k">Два кадра ног и покачивание рук сверху. Раненый идёт медленнее и с наклоном, бегущий к пожару инженер чаще перебирает ногами.</p></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ ask -->
+  <section data-s="ask" class="stack" hidden>
+    <div class="card">
+      <h2>Решения от 6 октября</h2>
+      <p class="k" style="margin:0">Ответы на десять вопросов. Они уже внесены в разделы выше.</p>
+    </div>
+    <div class="grid">
+      <div class="q"><h3>1. Генерал</h3><div class="rec"><b>Генерал Стоун</b>, один постоянный персонаж штаба на всю игру. Портрет в стиле портретов экипажа.</div><div class="alt">Других командиров добавим вместе с историей.</div></div>
+      <div class="q"><h3>2. Пауза на брифинге</h3><div class="rec">Мир стоит, пока табличка на экране. Кнопка «Цель» в бою открывает текст ещё раз, без паузы.</div></div>
+      <div class="q"><h3>3. Конец миссии</h3><div class="rec">Всегда на маяке, у всех типов. «Улететь» доступно в любой момент, но это отступление: награда за задание не выдаётся, трюм сохраняется.</div></div>
+      <div class="q"><h3>4. Обнаружение</h3><div class="rec">Сначала только радиус по виду врага. Шум двигателей и укрытия в газе потом, когда будут зоны.</div></div>
+      <div class="q"><h3>5. Щелчок по врагу</h3><div class="rec">Одиночный: только цель орудий. Двойной: атака с подлётом. Так можно стрелять, уходя от погони.</div></div>
+      <div class="q"><h3>6. Щелчок по руде</h3><div class="rec">Корабль сам подлетает на дальность луча и встаёт.</div></div>
+      <div class="q"><h3>7. Порядок заданий</h3><div class="rec">Первый заход: перехват, план по руде, эскорт. Второй заход: засада на конвой, аванпост, охота на аса. <b>Оба захода до следующих задач</b> (до насыщенного космоса).</div></div>
+      <div class="q"><h3>8. Столкновения</h3><div class="rec">Пыль и мелочь фона без физики. Россыпи камней и куски корпусов настоящие, бьют по корпусу. <b>Поднятый щит отталкивает</b> их и теряет на этом мощность.</div></div>
+      <div class="q"><h3>9. Поворот космонавтов</h3><div class="rec">Плавный, на любой угол. Рисунок сверху, круглый шлем.</div></div>
+      <div class="q"><h3>10. Длина миссии</h3><div class="rec">В среднем около 10 минут, главное, чтобы было интересно. Коридор 2 500–4 000 клеток.</div><div class="alt">При обычной скорости 4 000 клеток пролетаются за пару минут. Остальное время уходит на места событий, бой и добычу. Если в игре миссия выйдет короче, сначала добавим мест событий, а длину коридора менять не будем.</div></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ plan -->
+  <section data-s="plan" class="stack" hidden>
+    <div class="card">
+      <h2>Порядок работ</h2>
+      <div class="tbl"><table>
+        <tr><th>Шаг</th><th>Что</th><th>Размер</th></tr>
+        <tr><td>1</td><td><b>Враги расходятся.</b> Места вокруг цели, отталкивание, прогноз столкновения. Тест: двое у неподвижной цели не касаются за минуту.</td><td>S</td></tr>
+        <tr><td>2</td><td><b>Управление.</b> Цель добычи и осмотра щелчком, двойной щелчок «атака», подсказка под курсором, Esc, долгое нажатие на телефоне.</td><td>M</td></tr>
+        <tr><td>3</td><td><b>Космонавты.</b> 2 клетки, плавный шаг и поворот, кадры шага.</td><td>S–M</td></tr>
+        <tr><td>4</td><td><b>Каркас миссии.</b> Задачи (главные и доп.) в логике, маяк выхода, маршрут, панель задач над диспетчером, вступление и табличка генерала.</td><td>L</td></tr>
+        <tr><td>5</td><td><b>Обнаружение.</b> Патруль, тревога, бой, потеря; круги и «!», сообщения диспетчера; след на сканере.</td><td>M</td></tr>
+        <tr><td>6</td><td><b>Варианты заданий, первый заход:</b> перехват, план по руде, эскорт.</td><td>L</td></tr>
+        <tr><td>6б</td><td><b>Второй заход:</b> засада на конвой, аванпост, охота на аса. Обязательно до шага 7.</td><td>L</td></tr>
+        <tr><td>7</td><td><b>Насыщенный космос.</b> Коридор, места событий, россыпи, контейнеры, буи, фон. Щит отталкивает камни и обломки, теряя мощность. Потом зоны с правилами, шум двигателей и укрытия.</td><td>L</td></tr>
+      </table></div>
+      <p class="hint" style="margin-top:10px">Шаги 1–3 не зависят от остальных и сразу улучшают ощущение от боя. Каждый шаг: тесты, живая проверка, документы.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* ================= tabs ================= */
+  var tabs = document.querySelectorAll('.tab'), secs = document.querySelectorAll('section[data-s]');
+  var onTab = {};
+  function open(t) {
+    tabs.forEach(function (b) { b.setAttribute('aria-selected', b.dataset.t === t ? 'true' : 'false'); });
+    secs.forEach(function (s) { s.hidden = s.dataset.s !== t; });
+    try { history.replaceState(null, '', '#' + t); } catch (e) {}
+    if (onTab[t]) onTab[t]();
+  }
+  tabs.forEach(function (b) { b.addEventListener('click', function () { open(b.dataset.t); }); });
+  function rng(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+  /* ================= 1. intro ================= */
+  var stage = document.getElementById('stage'), bg = document.getElementById('i-bg'), bctx = bg.getContext('2d');
+  var stars = (function () { var r = rng(11), a = []; for (var i = 0; i < 220; i++) a.push([r(), r(), r() * 1.6 + .3, r()]); return a; })();
+  var bgT = 0;
+  function drawBg() {
+    var w = bg.clientWidth, h = bg.clientHeight, d = Math.min(2, window.devicePixelRatio || 1);
+    if (bg.width !== Math.round(w * d)) { bg.width = Math.round(w * d); bg.height = Math.round(h * d); }
+    bctx.setTransform(d, 0, 0, d, 0, 0);
+    var g = bctx.createRadialGradient(w * .7, h * .3, 0, w * .7, h * .3, w * .9);
+    g.addColorStop(0, '#2a1048'); g.addColorStop(.45, '#0d0a24'); g.addColorStop(1, '#03040a');
+    bctx.fillStyle = g; bctx.fillRect(0, 0, w, h);
+    stars.forEach(function (s) { bctx.fillStyle = 'rgba(220,235,255,' + (.35 + .5 * Math.abs(Math.sin(bgT * .8 + s[3] * 9))) + ')'; bctx.fillRect(((s[0] * w - bgT * 6 * s[2]) % w + w) % w, s[1] * h, s[2], s[2]); });
+    // a rock field and the ship
+    var r = rng(5);
+    for (var i = 0; i < 9; i++) { var x = w * (.62 + r() * .3), y = h * (.55 + r() * .35), s = 6 + r() * 18; bctx.fillStyle = '#5c544b'; bctx.beginPath(); bctx.arc(x, y, s, 0, 7); bctx.fill(); bctx.fillStyle = '#d9a830'; bctx.fillRect(x - s * .2, y - s * .3, s * .25, s * .25); }
+    var cx = w * .42, cy = h * .58, k = Math.min(w, h) / 360;
+    bctx.save(); bctx.translate(cx, cy); bctx.rotate(-0.35);
+    bctx.fillStyle = '#8c96a8'; bctx.beginPath(); bctx.moveTo(0, -34 * k); bctx.lineTo(16 * k, 18 * k); bctx.lineTo(0, 10 * k); bctx.lineTo(-16 * k, 18 * k); bctx.closePath(); bctx.fill();
+    bctx.fillStyle = '#ffd24a'; bctx.fillRect(-7 * k, 14 * k, 4 * k, 5 * k + Math.sin(bgT * 20) * k); bctx.fillRect(3 * k, 14 * k, 4 * k, 5 * k + Math.cos(bgT * 20) * k);
+    bctx.restore();
+  }
+  // the general's portrait, 40×40, drawn with blocks; blinks and speaks
+  var pf = document.getElementById('i-pf').getContext('2d');
+  var talking = false, blinkAt = 1.5;
+  function px(c, x, y, w, h) { pf.fillStyle = c; pf.fillRect(x, y, w, h); }
+  function drawGeneral(t) {
+    px('#0b1428', 0, 0, 40, 40);
+    for (var y = 0; y < 40; y += 4) px('rgba(89,230,255,0.035)', 0, y, 40, 1);
+    // shoulders and coat
+    px('#1b2a4a', 4, 31, 32, 9); px('#24365e', 8, 30, 24, 3); px('#ffd24a', 5, 31, 6, 2); px('#ffd24a', 29, 31, 6, 2);
+    px('#c94040', 17, 33, 2, 4); px('#59e6ff', 21, 33, 2, 4); px('#ffd24a', 25, 34, 2, 2);
+    px('#0f1a30', 18, 30, 4, 10);
+    // neck and head
+    px('#b98a6c', 17, 26, 6, 5);
+    px('#c99a7a', 12, 12, 16, 15); px('#b98a6c', 12, 22, 16, 5); px('#c99a7a', 11, 15, 1, 6); px('#c99a7a', 28, 15, 1, 6);
+    // grey temples
+    px('#9aa3b2', 12, 12, 2, 6); px('#9aa3b2', 26, 12, 2, 6);
+    // cap
+    px('#16223e', 10, 7, 20, 6); px('#1f3058', 11, 5, 18, 3); px('#ffd24a', 10, 11, 20, 1); px('#0b1220', 9, 12, 22, 2);
+    px('#ffd24a', 18, 6, 4, 3); px('#59e6ff', 19, 7, 2, 1);
+    // brows and eyes
+    px('#5a4a40', 14, 15, 4, 1); px('#5a4a40', 22, 15, 4, 1);
+    var blink = (t % 4) > 3.86;
+    if (blink) { px('#8a6a58', 15, 17, 3, 1); px('#8a6a58', 22, 17, 3, 1); }
+    else { px('#eef2f6', 15, 16, 3, 2); px('#eef2f6', 22, 16, 3, 2); px('#1d2b44', 16, 16, 2, 2); px('#1d2b44', 23, 16, 2, 2); }
+    // scar, nose
+    px('#a87660', 25, 19, 1, 4); px('#b98a6c', 19, 18, 2, 4);
+    // mouth
+    var open = talking && Math.sin(t * 22) > -0.2;
+    if (open) { px('#5a2c2c', 17, 23, 6, 2 + (Math.sin(t * 13) > 0.3 ? 1 : 0)); px('#eee', 18, 23, 4, 1); }
+    else px('#7a4a40', 17, 24, 6, 1);
+    // comms light
+    px(Math.sin(t * 6) > 0 ? '#63e07a' : '#1f5a2a', 34, 3, 3, 3);
+  }
+  var KINDS = {
+    hunt: { n: 'МИССИЯ 3', ty: 'ПЕРЕХВАТ', sub: 'ЗВЕНО 1 · БОЙ · ФИОЛЕТОВЫЙ СЕКТОР', text: 'Пилот, в секторе ходит патруль рейдеров: три корабля. Сканер держит след их двигателей. Найдите их и уничтожьте, потом уходите к маяку прыжка.',
+      tasks: [['m', 'Найти патруль', 'след: 1 800 кл, курс 40°'], ['w', 'Уничтожить патруль 0/3', ''], ['o', 'Подобрать контейнер', 'на месте боя'], ['w', 'Дойти до маяка', '3 400 кл']], disp: 'Сканер поймал след двигателей: 1 800 кл, курс 40°.' },
+    mine: { n: 'МИССИЯ 2', ty: 'ДОБЫЧА', sub: 'ЗВЕНО 1 · ДОБЫЧА · ФИОЛЕТОВЫЙ СЕКТОР', text: 'Флоту нужен металл. В поле впереди богатые жилы. Добудьте сорок единиц руды и не задерживайтесь: на шум луча слетаются патрули.',
+      tasks: [['m', 'Долететь до поля', '1 200 кл'], ['w', 'Добыть руду 0/40', ''], ['o', 'Жила антиматерии', 'фиолетовая'], ['w', 'Дойти до маяка', '2 900 кл']], disp: 'Поле на сканере: 14 камней, жилы золотые и одна фиолетовая.' },
+    signal: { n: 'МИССИЯ 4', ty: 'СИГНАЛ БЕДСТВИЯ', sub: 'ЗВЕНО 1 · СОБЫТИЕ · ФИОЛЕТОВЫЙ СЕКТОР', text: 'Грузовик союзников подаёт сигнал, на него напали. Отбейте нападающих и доведите грузовик до маяка. Он медленный, держитесь рядом.',
+      tasks: [['m', 'Найти источник сигнала', '900 кл'], ['w', 'Отбить нападение 0/2', ''], ['w', 'Довести союзника до маяка', ''], ['o', 'Союзник цел больше чем на 50%', '']], disp: 'Сигнал бедствия: грузовик «Корма-3», корпус 64%.' },
+    boss: { n: 'МИССИЯ 10', ty: 'ФЛАГМАН', sub: 'ЗВЕНО 1 · БОСС · ФИОЛЕТОВЫЙ СЕКТОР', text: 'Это их флагман. Сначала генераторы щита на корпусе, потом орудия, потом ядро. После победы держитесь до открытия маяка. Удачи.',
+      tasks: [['m', 'Прорваться через заслон', ''], ['w', 'Сбить щит флагмана 0/3', ''], ['w', 'Уничтожить флагман', ''], ['w', 'Продержаться 30 с', ''], ['w', 'Дойти до маяка', '']], disp: 'Флагман на сканере: 5 200 кл. Заслон из четырёх кораблей.' }
+  };
+  var $ = function (id) { return document.getElementById(id); };
+  var timers = [];
+  function later(ms, f) { timers.push(setTimeout(f, reduce ? Math.min(ms, 50) : ms)); }
+  var typing = null;
+  function reset() {
+    timers.forEach(clearTimeout); timers = []; if (typing) clearInterval(typing); typing = null; talking = false;
+    ['i-ov', 'i-mt', 'i-gen', 'i-box'].forEach(function (id) { $(id).classList.remove('on', 'up', 'done'); });
+    $('i-route').style.opacity = 0; $('i-route').style.transform = 'translate(-50%,-12px)';
+    $('i-stats').style.opacity = 0; $('i-disp').classList.remove('on1');
+    $('i-tasks').innerHTML = ''; $('i-tx').textContent = '';
+  }
+  function finish() {
+    if (typing) clearInterval(typing); typing = null; talking = false;
+    var K = KINDS[$('i-kind').value];
+    $('i-mt').classList.remove('on'); $('i-gen').classList.remove('on'); $('i-ov').classList.remove('on');
+    $('i-stats').style.opacity = 1;
+    $('i-route').style.opacity = 1; $('i-route').style.transform = 'translate(-50%,0)';
+    $('i-box').classList.add('on');
+    var main = K.tasks.filter(function (t) { return t[0] !== 'o'; }).length;
+    $('i-cnt').textContent = '0/' + main;
+    K.tasks.forEach(function (t, i) {
+      var d = document.createElement('div');
+      d.className = 'task ' + (t[0] === 'o' ? 'opt' : t[0] === 'w' ? 'wait' : '') + (i > 1 ? ' t-more' : '');
+      d.innerHTML = '<span class="cb"></span><span>' + t[1] + (t[2] ? '<small>' + t[2] + '</small>' : '') + '</span>';
+      $('i-tasks').appendChild(d);
+      later(350 + i * 260, function () { d.classList.add('on'); });
+    });
+    $('i-dtext').textContent = K.disp;
+    later(450 + K.tasks.length * 260, function () { $('i-disp').classList.add('on1'); });
+    // a little later the first task is done, to show how it looks
+    later(2600 + K.tasks.length * 260, function () { var f = $('i-tasks').firstChild; if (f) { f.classList.remove('wait'); f.classList.add('ok'); var nx = f.nextSibling; if (nx && !nx.classList.contains('opt')) nx.classList.remove('wait'); $('i-cnt').textContent = '1/' + main; } });
+  }
+  function play() {
+    reset();
+    var K = KINDS[$('i-kind').value];
+    $('i-n').textContent = K.n; $('i-ty').textContent = K.ty; $('i-sub').textContent = K.sub;
+    later(150, function () { $('i-ov').classList.add('on'); });
+    later(650, function () { $('i-mt').classList.add('on'); });
+    later(2900, function () { $('i-mt').classList.add('up'); });
+    later(3300, function () {
+      $('i-gen').classList.add('on');
+      var i = 0, s = K.text; talking = true;
+      if (reduce) { $('i-tx').textContent = s; talking = false; $('i-gen').classList.add('done'); return; }
+      typing = setInterval(function () {
+        i += 2; $('i-tx').textContent = s.slice(0, i);
+        if (i >= s.length) { clearInterval(typing); typing = null; talking = false; $('i-gen').classList.add('done'); }
+      }, 45);
+    });
+  }
+  $('i-ok').addEventListener('click', function (e) { e.stopPropagation(); finish(); });
+  $('i-skip').addEventListener('click', function (e) { e.stopPropagation(); reset(); finish(); });
+  $('i-gen').addEventListener('click', function () {
+    if (typing) { clearInterval(typing); typing = null; talking = false; $('i-tx').textContent = KINDS[$('i-kind').value].text; $('i-gen').classList.add('done'); }
+  });
+  $('i-play').addEventListener('click', play);
+  $('i-kind').addEventListener('change', play);
+  function mode(phone) { $('i-phone').setAttribute('aria-pressed', phone); $('i-desk').setAttribute('aria-pressed', !phone); stage.classList.toggle('phone', phone); play(); }
+  $('i-phone').addEventListener('click', function () { mode(true); });
+  $('i-desk').addEventListener('click', function () { mode(false); });
+  onTab.intro = play;
+
+  /* ================= 2. density figure ================= */
+  function drawDensity() {
+    var c = $('dens'), x = c.getContext('2d'), W = c.width, H = c.height, half = W / 2 - 10;
+    x.fillStyle = '#03050b'; x.fillRect(0, 0, W, H);
+    function panel(ox, title) {
+      x.strokeStyle = '#1c2742'; x.strokeRect(ox + .5, .5, half - 1, H - 1);
+      x.fillStyle = '#7f95bf'; x.font = '700 13px JetBrains Mono, monospace'; x.fillText(title, ox + 14, 24);
+      var r = rng(ox + 3); x.fillStyle = 'rgba(200,220,255,.35)'; for (var i = 0; i < 90; i++) x.fillRect(ox + r() * half, r() * H, 1, 1);
+    }
+    function rocks(cx, cy, n, spread, s, seed) { var r = rng(seed); for (var i = 0; i < n; i++) { var a = r() * 7, d = r() * spread; x.fillStyle = '#6a6258'; x.beginPath(); x.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, s * (.4 + r()), 0, 7); x.fill(); if (r() < .4) { x.fillStyle = '#d9a830'; x.fillRect(cx + Math.cos(a) * d - 1, cy + Math.sin(a) * d - 1, 2.5, 2.5); } } }
+    function ship(cx, cy, col) { x.fillStyle = col; x.beginPath(); x.moveTo(cx + 9, cy); x.lineTo(cx - 6, cy - 6); x.lineTo(cx - 3, cy); x.lineTo(cx - 6, cy + 6); x.closePath(); x.fill(); }
+    function screen(cx, cy) { x.strokeStyle = 'rgba(255,255,255,.75)'; x.setLineDash([]); x.strokeRect(cx - 13, cy - 8, 26, 16); }
+    function label(t, cx, cy, col) { x.fillStyle = col || '#7f95bf'; x.font = '400 11px JetBrains Mono, monospace'; x.fillText(t, cx, cy); }
+    // left: now
+    panel(0, 'СЕЙЧАС');
+    x.fillStyle = '#2d3a5c'; x.beginPath(); x.arc(110, 380, 120, 0, 7); x.fill(); label('планета', 60, 300);
+    x.fillStyle = '#5a5f6e'; x.beginPath(); x.arc(250, 205, 10, 0, 7); x.fill(); label('луна', 236, 228);
+    rocks(400, 120, 16, 34, 3, 3); label('поле камней', 360, 172);
+    rocks(470, 330, 10, 26, 3, 9); label('поле', 455, 372);
+    ship(250, 250, '#59e6ff'); screen(250, 250); label('экран', 236, 274, '#ffffff');
+    x.strokeStyle = 'rgba(127,149,191,.35)'; x.setLineDash([4, 5]); x.beginPath(); x.moveTo(264, 245); x.lineTo(372, 140); x.stroke(); x.setLineDash([]);
+    label('2 300–3 300 кл пустоты', 300, 186, '#ffd24a');
+    // right: proposed
+    var ox = W / 2 + 10;
+    panel(ox, 'ПРЕДЛАГАЮ: КОРИДОР МИССИИ');
+    x.save(); x.beginPath(); x.rect(ox, 0, half, H); x.clip();
+    var pts = [[ox + 40, 360], [ox + 140, 300], [ox + 230, 320], [ox + 320, 220], [ox + 410, 170], [ox + 490, 90]];
+    x.strokeStyle = 'rgba(89,230,255,.08)'; x.lineWidth = 110; x.lineCap = 'round'; x.lineJoin = 'round'; x.beginPath(); pts.forEach(function (p, i) { i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1]); }); x.stroke();
+    x.lineWidth = 1.5; x.strokeStyle = 'rgba(89,230,255,.5)'; x.setLineDash([6, 6]); x.beginPath(); pts.forEach(function (p, i) { i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1]); }); x.stroke(); x.setLineDash([]); x.lineWidth = 1;
+    // dust everywhere along the corridor
+    var r = rng(77); for (var i = 0; i < 260; i++) { var t = r() * (pts.length - 1), k = Math.floor(t), f = t - k, p0 = pts[k], p1 = pts[k + 1]; var px0 = p0[0] + (p1[0] - p0[0]) * f + (r() - .5) * 120, py0 = p0[1] + (p1[1] - p0[1]) * f + (r() - .5) * 120; x.fillStyle = 'rgba(160,150,140,.55)'; x.fillRect(px0, py0, 1.6, 1.6); }
+    // places of events
+    var places = [[1, 'россыпь', 'rocks'], [2, 'обломки', 'wreck'], [3, 'ЗАДАНИЕ', 'task'], [4, 'буи, мины', 'buoy']];
+    places.forEach(function (p) {
+      var q = pts[p[0]];
+      if (p[2] === 'rocks') rocks(q[0], q[1], 9, 22, 2.6, 21);
+      if (p[2] === 'wreck') { x.fillStyle = '#4a5568'; x.fillRect(q[0] - 10, q[1] - 6, 18, 9); x.fillRect(q[0] + 4, q[1] + 6, 8, 5); x.fillStyle = '#b06bff'; x.fillRect(q[0] - 16, q[1] + 8, 5, 5); }
+      if (p[2] === 'task') { rocks(q[0], q[1] + 6, 6, 30, 2.5, 31); [[-14, -10], [10, -16], [16, 8]].forEach(function (o) { x.fillStyle = '#ff6a5a'; x.beginPath(); x.moveTo(q[0] + o[0] - 6, q[1] + o[1]); x.lineTo(q[0] + o[0] + 4, q[1] + o[1] - 5); x.lineTo(q[0] + o[0] + 4, q[1] + o[1] + 5); x.fill(); }); x.strokeStyle = 'rgba(255,210,74,.6)'; x.setLineDash([3, 4]); x.beginPath(); x.arc(q[0], q[1], 46, 0, 7); x.stroke(); x.setLineDash([]); }
+      if (p[2] === 'buoy') { [[-18, 10], [14, -8], [22, 18]].forEach(function (o) { x.fillStyle = '#63e07a'; x.fillRect(q[0] + o[0], q[1] + o[1], 3, 3); }); x.fillStyle = '#ff6a5a'; x.fillRect(q[0] - 2, q[1] - 2, 3, 3); }
+      label(p[1], q[0] + 14, q[1] - 22, p[2] === 'task' ? '#ffd24a' : '#7f95bf');
+    });
+    ship(pts[0][0], pts[0][1], '#59e6ff'); screen(pts[0][0], pts[0][1]); label('старт', pts[0][0] - 14, pts[0][1] + 26, '#ffffff');
+    var e = pts[pts.length - 1]; x.strokeStyle = '#63e07a'; x.lineWidth = 2; x.beginPath(); x.arc(e[0], e[1], 12, 0, 7); x.stroke(); x.beginPath(); x.arc(e[0], e[1], 4, 0, 7); x.stroke(); x.lineWidth = 1; label('маяк', e[0] - 46, e[1] + 4, '#63e07a');
+    // far traffic
+    x.strokeStyle = 'rgba(176,107,255,.35)'; x.setLineDash([2, 6]); x.beginPath(); x.moveTo(ox + 20, 60); x.lineTo(ox + 300, 30); x.stroke(); x.setLineDash([]); label('конвой на фоне', ox + 120, 56, '#b06bff');
+    label('2 500–4 000 кл, 4–7 мест событий', ox + 160, H - 18);
+    x.restore();
+  }
+  onTab.space = drawDensity;
+
+  /* ================= 3. training ground ================= */
+  var pg = $('pg'), g = pg.getContext('2d'), cur = $('pg-cur');
+  var WW = 1600, WH = 960, S;
+  var R_PATROL = 230, R_SENTRY = 170;
+  function newWorld() {
+    var r = rng(4);
+    S = {
+      t: 0, hits: 0, ore: 0, crate: true, done: false, msg: 'Сканер поймал след патруля к востоку.', msgT: 0,
+      p: { x: 120, y: 760, vx: 0, vy: 0, a: -0.6, sh: 100, fire: 0 },
+      dest: null, target: null, attack: false, mine: null, beam: 0, lostT: 0,
+      rocks: [], enemies: [], bolts: [], booms: [], seen: false,
+      beacon: { x: 1490, y: 150 },
+      crateAt: { x: 1060, y: 470 },
+      patrol: [{ x: 820, y: 620 }, { x: 1150, y: 480 }, { x: 1180, y: 260 }, { x: 880, y: 300 }], leg: 0, state: 'patrol', lastSeen: null, searchT: 0
+    };
+    [[430, 470, 46, 6], [560, 600, 30, 3], [390, 640, 26, 2], [660, 420, 22, 0], [1320, 640, 38, 5]].forEach(function (q, i) { S.rocks.push({ x: q[0], y: q[1], r: q[2], ore: q[3] * 4, spots: (function () { var a = [], rr = rng(i + 9); for (var k = 0; k < q[3]; k++) a.push([(rr() - .5) * q[2] * 1.1, (rr() - .5) * q[2] * 1.1]); return a; })() }); });
+    for (var i = 0; i < 3; i++) S.enemies.push({ x: 820 - i * 30, y: 620 + i * 26, vx: 0, vy: 0, a: 0, hp: 100, R: R_PATROL, slot: i, group: 'patrol', fire: r() * 1.2, alive: true, flash: 0 });
+    S.enemies.push({ x: 1380, y: 240, vx: 0, vy: 0, a: Math.PI, hp: 100, R: R_SENTRY, slot: 0, group: 'sentry', fire: 0, alive: true, flash: 0, post: { x: 1380, y: 240 }, state: 'patrol' });
+    S.sentryState = 'patrol';
+  }
+  newWorld();
+  function say(m) { S.msg = m; S.msgT = S.t; $('pg-msg').textContent = m; }
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function steer(o, tx, ty, speed, accel, dt, arrive) {
+    var dx = tx - o.x, dy = ty - o.y, d = Math.hypot(dx, dy) || 1;
+    var want = arrive ? Math.min(speed, d * 1.6) : speed;
+    var wx = dx / d * want, wy = dy / d * want;
+    var ax = wx - o.vx, ay = wy - o.vy, am = Math.hypot(ax, ay) || 1, k = Math.min(1, accel * dt / am);
+    o.vx += ax * k; o.vy += ay * k;
+  }
+  function groupAlive(gr) { return S.enemies.filter(function (e) { return e.alive && e.group === gr; }); }
+  function alert(gr) {
+    if (gr === 'patrol' && S.state !== 'fight') { S.state = 'fight'; S.lostT = 0; groupAlive('patrol').forEach(function (e) { e.flash = 1.2; }); say('Вас заметили: патруль, ' + groupAlive('patrol').length + ' корабля.'); S.seen = true; }
+    if (gr === 'sentry' && S.sentryState !== 'fight') { S.sentryState = 'fight'; groupAlive('sentry').forEach(function (e) { e.flash = 1.2; }); say('Часовой у маяка вас заметил.'); }
+  }
+  function step(dt) {
+    S.t += dt;
+    var p = S.p;
+    // the player
+    if (S.mine && S.mine.ore <= 0) { S.mine = null; S.beam = 0; }
+    if (S.attack && S.target && S.target.alive) {
+      var ang = Math.atan2(p.y - S.target.y, p.x - S.target.x) + 0.35 * dt;
+      S.dest = { x: S.target.x + Math.cos(ang) * 150, y: S.target.y + Math.sin(ang) * 150 };
+    }
+    if (S.mine) { var dm = dist(p, S.mine), stand = S.mine.r + 60; if (dm > stand + 6) { var ux = (p.x - S.mine.x) / dm, uy = (p.y - S.mine.y) / dm; S.dest = { x: S.mine.x + ux * stand, y: S.mine.y + uy * stand, mine: true }; } }
+    if (S.dest) { steer(p, S.dest.x, S.dest.y, 130, 160, dt, true); if (dist(p, S.dest) < 6 && !S.attack) { p.vx *= .9; p.vy *= .9; if (!S.dest.mine) S.dest = null; } }
+    else { p.vx *= Math.pow(.4, dt); p.vy *= Math.pow(.4, dt); }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.x = Math.max(20, Math.min(WW - 20, p.x)); p.y = Math.max(20, Math.min(WH - 20, p.y));
+    if (S.target && S.target.alive) p.a = Math.atan2(S.target.y - p.y, S.target.x - p.x);
+    else if (Math.hypot(p.vx, p.vy) > 8) p.a = Math.atan2(p.vy, p.vx);
+    p.sh = Math.min(100, p.sh + 4 * dt);
+    // mining
+    S.beam = 0;
+    if (S.mine && dist(p, S.mine) < S.mine.r + 80 && Math.hypot(p.vx, p.vy) < 30) { S.beam = 1; S.mineAcc = (S.mineAcc || 0) + dt; if (S.mineAcc > .35) { S.mineAcc = 0; S.mine.ore--; S.ore++; if (S.mine.ore % 4 === 0 && S.mine.spots.length) S.mine.spots.pop(); } }
+    // crate
+    if (S.crate && dist(p, S.crateAt) < 26) { S.crate = false; say('Контейнер подобран: 40 кр, 12 мет.'); if (S.dest && S.dest.crate) S.dest = null; }
+    // the player's guns
+    p.fire -= dt;
+    if (S.target && S.target.alive && dist(p, S.target) < 330 && p.fire <= 0) { p.fire = .35; S.bolts.push({ x: p.x, y: p.y, tx: S.target, team: 0, t: 0 }); }
+    // the patrol
+    var pa = groupAlive('patrol');
+    var leaderT = S.patrol[S.leg];
+    pa.forEach(function (e) {
+      if (S.state !== 'fight' && dist(e, p) < e.R) alert('patrol');
+    });
+    if (S.state === 'fight' && pa.length) {
+      var near = pa.some(function (e) { return dist(e, p) < e.R * 1.7; });
+      S.lostT = near ? 0 : S.lostT + dt;
+      if (S.lostT > 4) { S.state = 'search'; S.searchT = 3; S.lastSeen = { x: p.x, y: p.y }; say('Патруль потерял вас и ищет.'); }
+    }
+    if (S.state === 'search') { S.searchT -= dt; pa.forEach(function (e) { if (dist(e, p) < e.R) alert('patrol'); }); if (S.searchT <= 0 && S.state === 'search') { S.state = 'patrol'; say('Патруль вернулся на маршрут.'); } }
+    var sep = $('pg-sep').checked;
+    pa.forEach(function (e, i) {
+      var tx, ty, spd = 70;
+      if (S.state === 'fight') {
+        var base = sep ? (i / pa.length) * Math.PI * 2 : 0;
+        var orb = base + S.t * 0.35;
+        tx = p.x + Math.cos(orb) * 150; ty = p.y + Math.sin(orb) * 150; spd = 115;
+      } else if (S.state === 'search') { tx = S.lastSeen.x; ty = S.lastSeen.y; spd = 90; }
+      else {
+        if (i === 0 && dist(e, leaderT) < 40) { S.leg = (S.leg + 1) % S.patrol.length; leaderT = S.patrol[S.leg]; }
+        var lead = pa[0];
+        if (i === 0) { tx = leaderT.x; ty = leaderT.y; }
+        else { var back = lead.a + Math.PI; tx = lead.x + Math.cos(back + (i === 1 ? .5 : -.5)) * 40; ty = lead.y + Math.sin(back + (i === 1 ? .5 : -.5)) * 40; }
+      }
+      steer(e, tx, ty, i === 0 && S.state === 'patrol' ? 60 : spd, 140, dt, S.state === 'search' || (S.state === 'patrol' && i > 0));
+    });
+    // the sentry
+    groupAlive('sentry').forEach(function (e) {
+      if (S.sentryState !== 'fight' && dist(e, p) < e.R) alert('sentry');
+      if (S.sentryState === 'fight') { var o = Math.atan2(e.y - p.y, e.x - p.x) + .4 * dt; steer(e, p.x + Math.cos(o) * 170, p.y + Math.sin(o) * 170, 100, 140, dt, false); if (dist(e, p) > e.R * 2.2) { S.sentryState = 'patrol'; } }
+      else steer(e, e.post.x, e.post.y, 60, 100, dt, true);
+    });
+    // separation and bumps between enemies
+    var all = S.enemies.filter(function (e) { return e.alive; });
+    for (var a = 0; a < all.length; a++) for (var b = a + 1; b < all.length; b++) {
+      var A = all[a], B = all[b], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 0.01;
+      if (sep && d < 80) { var f = (80 - d) / 80 * 520 * dt; A.vx -= dx / d * f; A.vy -= dy / d * f; B.vx += dx / d * f; B.vy += dy / d * f; }
+      if (d < 26) {
+        if (!A.bumpWith || A.bumpWith !== B || S.t - A.bumpT > 1) { S.hits++; S.booms.push({ x: (A.x + B.x) / 2, y: (A.y + B.y) / 2, t: 0, k: 'bump' }); A.hp -= 3; B.hp -= 3; }
+        A.bumpWith = B; A.bumpT = S.t;
+        var push = (26 - d) / 2; A.x -= dx / d * push; A.y -= dy / d * push; B.x += dx / d * push; B.y += dy / d * push;
+        var rv = (B.vx - A.vx) * dx / d + (B.vy - A.vy) * dy / d; if (rv < 0) { A.vx += rv * dx / d * .8; A.vy += rv * dy / d * .8; B.vx -= rv * dx / d * .8; B.vy -= rv * dy / d * .8; }
+      }
+    }
+    all.forEach(function (e) {
+      e.x += e.vx * dt; e.y += e.vy * dt; e.flash = Math.max(0, e.flash - dt);
+      if (Math.hypot(e.vx, e.vy) > 5) e.a = Math.atan2(e.vy, e.vx);
+      var fighting = (e.group === 'patrol' ? S.state : S.sentryState) === 'fight';
+      e.fire -= dt;
+      if (fighting) { e.a = Math.atan2(p.y - e.y, p.x - e.x); if (dist(e, p) < 260 && e.fire <= 0) { e.fire = 1.3; S.bolts.push({ x: e.x, y: e.y, tx: p, team: 1, t: 0 }); } }
+      if (e.hp <= 0 && e.alive) { e.alive = false; S.booms.push({ x: e.x, y: e.y, t: 0, k: 'kill' }); if (S.target === e) { S.target = null; S.attack = false; S.dest = null; } var left = groupAlive('patrol').length; if (e.group === 'patrol') say(left ? 'Противник уничтожен. Осталось ' + left + '.' : 'Патруль уничтожен. Курс на маяк.'); }
+    });
+    // bolts
+    S.bolts = S.bolts.filter(function (b) {
+      var tx = b.tx.x, ty = b.tx.y, dx = tx - b.x, dy = ty - b.y, d = Math.hypot(dx, dy);
+      if (d < 10) { if (b.team === 0) { b.tx.hp -= 18; } else { p.sh = Math.max(0, p.sh - 7); } return false; }
+      b.x += dx / d * 520 * dt; b.y += dy / d * 520 * dt; b.t += dt; return b.t < 1.5;
+    });
+    S.booms = S.booms.filter(function (b) { b.t += dt; return b.t < .8; });
+    if (!S.done && !groupAlive('patrol').length && dist(p, S.beacon) < 50) { S.done = true; say('Маяк захвачен. Миссия выполнена.'); }
+    paintTasks();
+  }
+  function paintTasks() {
+    var killed = 3 - groupAlive('patrol').length;
+    var list = [
+      [S.seen || killed > 0 ? 'ok' : '', 'Найти патруль', S.seen || killed > 0 ? '' : 'след к востоку'],
+      [killed >= 3 ? 'ok' : S.seen ? '' : 'wait', 'Уничтожить патруль ' + killed + '/3', ''],
+      [S.crate ? 'opt' : 'opt ok', 'Подобрать контейнер', ''],
+      [S.ore >= 20 ? 'opt ok' : 'opt', 'Добыть руду ' + Math.min(S.ore, 20) + '/20', ''],
+      [S.done ? 'ok' : killed >= 3 ? '' : 'wait', 'Дойти до маяка', killed >= 3 && !S.done ? Math.round(dist(S.p, S.beacon)) + ' кл' : '']
+    ];
+    var h = list.map(function (t) { return '<div class="task ' + t[0] + '"><span class="cb"></span><span>' + t[1] + (t[2] ? '<small>' + t[2] + '</small>' : '') + '</span></div>'; }).join('');
+    var box = $('pg-tasks'); if (box._h !== h) { box.innerHTML = h; box._h = h; }
+    $('pg-state').textContent = { patrol: 'патруль', fight: 'бой', search: 'ищет' }[S.state] + (groupAlive('patrol').length ? '' : ' (уничтожен)');
+    $('pg-hits').textContent = S.hits; $('pg-ore').textContent = S.ore; $('pg-sh').textContent = Math.round(S.p.sh) + '%';
+  }
+  var view = { k: 1 };
+  function ship(x, y, a, s, col) { g.save(); g.translate(x, y); g.rotate(a); g.fillStyle = col; g.beginPath(); g.moveTo(s, 0); g.lineTo(-s * .7, -s * .65); g.lineTo(-s * .35, 0); g.lineTo(-s * .7, s * .65); g.closePath(); g.fill(); g.restore(); }
+  var hover = null;
+  function paint() {
+    var W = pg.width, H = pg.height; view.k = W / WW;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#03050b'; g.fillRect(0, 0, W, H);
+    g.setTransform(view.k, 0, 0, view.k, 0, 0);
+    var r = rng(2); g.fillStyle = 'rgba(200,220,255,.35)'; for (var i = 0; i < 160; i++) g.fillRect(r() * WW, r() * WH, 1.5, 1.5);
+    // route
+    g.strokeStyle = 'rgba(89,230,255,.18)'; g.setLineDash([10, 10]); g.lineWidth = 2; g.beginPath(); g.moveTo(120, 760); g.lineTo(S.beacon.x, S.beacon.y); g.stroke(); g.setLineDash([]);
+    // patrol route (faint)
+    if (S.state === 'patrol') { g.strokeStyle = 'rgba(255,106,90,.12)'; g.beginPath(); S.patrol.forEach(function (q, i) { i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); }); g.closePath(); g.stroke(); }
+    // beacon
+    var bp = .5 + .5 * Math.sin(S.t * 3); g.strokeStyle = '#63e07a'; g.lineWidth = 3; g.beginPath(); g.arc(S.beacon.x, S.beacon.y, 22 + bp * 6, 0, 7); g.stroke(); g.beginPath(); g.arc(S.beacon.x, S.beacon.y, 7, 0, 7); g.stroke(); g.lineWidth = 1;
+    g.fillStyle = '#63e07a'; g.font = '700 18px JetBrains Mono, monospace'; g.fillText('МАЯК', S.beacon.x - 24, S.beacon.y + 52);
+    // rocks
+    S.rocks.forEach(function (k) { g.fillStyle = '#5c544b'; g.beginPath(); g.arc(k.x, k.y, k.r, 0, 7); g.fill(); g.fillStyle = '#6e665b'; g.beginPath(); g.arc(k.x - k.r * .25, k.y - k.r * .25, k.r * .55, 0, 7); g.fill(); g.fillStyle = '#d9a830'; k.spots.forEach(function (s) { g.fillRect(k.x + s[0] - 4, k.y + s[1] - 4, 8, 8); }); if (S.mine === k) { g.strokeStyle = '#d9a830'; g.setLineDash([6, 5]); g.beginPath(); g.arc(k.x, k.y, k.r + 12, 0, 7); g.stroke(); g.setLineDash([]); } });
+    // crate
+    if (S.crate) { var c = S.crateAt; g.fillStyle = '#b06bff'; g.fillRect(c.x - 9, c.y - 9, 18, 18); g.strokeStyle = 'rgba(176,107,255,.5)'; g.beginPath(); g.arc(c.x, c.y, 18 + 4 * Math.sin(S.t * 4), 0, 7); g.stroke(); }
+    // detection rings
+    var always = $('pg-rings').checked;
+    S.enemies.forEach(function (e) {
+      if (!e.alive) return;
+      var st = e.group === 'patrol' ? S.state : S.sentryState, d = dist(e, S.p);
+      if (st === 'fight') { if (e.flash > 0) { g.strokeStyle = 'rgba(255,106,90,' + e.flash / 1.2 + ')'; g.lineWidth = 3; g.beginPath(); g.arc(e.x, e.y, e.R, 0, 7); g.stroke(); g.lineWidth = 1; } return; }
+      if (!always && d > e.R * 2) return;
+      var near = Math.max(0, Math.min(1, (e.R * 2 - d) / e.R));
+      g.strokeStyle = 'rgba(255,210,74,' + (always ? .35 : .15 + .55 * near) + ')'; g.setLineDash([8, 8]); g.lineWidth = 2; g.beginPath(); g.arc(e.x, e.y, e.R, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+    });
+    // destination
+    if (S.dest && !S.attack) { g.strokeStyle = 'rgba(89,230,255,.7)'; g.beginPath(); g.arc(S.dest.x, S.dest.y, 10, 0, 7); g.stroke(); g.beginPath(); g.moveTo(S.p.x, S.p.y); g.setLineDash([4, 6]); g.lineTo(S.dest.x, S.dest.y); g.stroke(); g.setLineDash([]); }
+    // beam
+    if (S.beam && S.mine) { g.strokeStyle = 'rgba(255,210,74,' + (.6 + .4 * Math.sin(S.t * 30)) + ')'; g.lineWidth = 4; g.beginPath(); g.moveTo(S.p.x, S.p.y); g.lineTo(S.mine.x, S.mine.y); g.stroke(); g.lineWidth = 1; }
+    // enemies
+    S.enemies.forEach(function (e) {
+      if (!e.alive) return;
+      ship(e.x, e.y, e.a, e.group === 'sentry' ? 20 : 16, '#ff6a5a');
+      if (e.flash > 0) { g.fillStyle = '#ffd24a'; g.font = '900 26px Unbounded, sans-serif'; g.fillText('!', e.x - 6, e.y - 26); }
+      g.fillStyle = 'rgba(255,255,255,.15)'; g.fillRect(e.x - 16, e.y + 22, 32, 4); g.fillStyle = '#ff6a5a'; g.fillRect(e.x - 16, e.y + 22, 32 * Math.max(0, e.hp) / 100, 4);
+      if (S.target === e) { g.strokeStyle = '#ff6a5a'; g.lineWidth = 2; var s = 26; [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(function (q) { g.beginPath(); g.moveTo(e.x + q[0] * s, e.y + q[1] * (s - 8)); g.lineTo(e.x + q[0] * s, e.y + q[1] * s); g.lineTo(e.x + q[0] * (s - 8), e.y + q[1] * s); g.stroke(); }); g.lineWidth = 1; }
+    });
+    // player
+    var p = S.p; g.strokeStyle = 'rgba(79,123,255,' + (.2 + p.sh / 200) + ')'; g.beginPath(); g.arc(p.x, p.y, 26, 0, 7); g.stroke();
+    ship(p.x, p.y, p.a, 20, '#59e6ff');
+    // bolts and booms
+    S.bolts.forEach(function (b) { g.fillStyle = b.team ? '#ff9a8a' : '#bff6ff'; g.fillRect(b.x - 3, b.y - 3, 6, 6); });
+    S.booms.forEach(function (b) { var k = b.t / .8; g.strokeStyle = b.k === 'bump' ? 'rgba(255,210,74,' + (1 - k) + ')' : 'rgba(255,140,90,' + (1 - k) + ')'; g.lineWidth = 3; g.beginPath(); g.arc(b.x, b.y, 8 + k * (b.k === 'bump' ? 26 : 50), 0, 7); g.stroke(); g.lineWidth = 1; if (b.k === 'bump') { g.fillStyle = 'rgba(255,210,74,' + (1 - k) + ')'; g.font = '700 16px JetBrains Mono, monospace'; g.fillText('бум', b.x + 12, b.y - 12); } });
+    // hover ring
+    if (hover && hover.o) { g.strokeStyle = hover.col; g.setLineDash([4, 4]); g.beginPath(); g.arc(hover.o.x, hover.o.y, (hover.o.r || 18) + 16, 0, 7); g.stroke(); g.setLineDash([]); }
+    if (S.done) { g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = 'rgba(3,5,11,.7)'; g.fillRect(0, 0, W, H); g.fillStyle = '#63e07a'; g.font = '900 ' + Math.round(W / 26) + 'px Unbounded, sans-serif'; g.textAlign = 'center'; g.fillText('МИССИЯ ВЫПОЛНЕНА', W / 2, H / 2); g.textAlign = 'left'; }
+  }
+  function toWorld(ev) { var b = pg.getBoundingClientRect(); return { x: (ev.clientX - b.left) / b.width * WW, y: (ev.clientY - b.top) / b.height * WH }; }
+  function pick(w) {
+    var e = S.enemies.filter(function (e) { return e.alive && Math.hypot(e.x - w.x, e.y - w.y) < 34; })[0];
+    if (e) return { kind: 'enemy', o: e, label: 'Цель орудий · ×2 атака', col: '#ff6a5a' };
+    var k = S.rocks.filter(function (k) { return Math.hypot(k.x - w.x, k.y - w.y) < k.r + 6; })[0];
+    if (k) return k.ore > 0 ? { kind: 'rock', o: k, label: 'Добывать · ' + k.ore + ' ед.', col: '#d9a830' } : { kind: 'space', o: null, label: 'Камень пуст · лететь', col: '#59e6ff' };
+    if (S.crate && Math.hypot(S.crateAt.x - w.x, S.crateAt.y - w.y) < 26) return { kind: 'crate', o: S.crateAt, label: 'Подобрать', col: '#b06bff' };
+    return { kind: 'space', o: null, label: 'Лететь сюда', col: '#59e6ff' };
+  }
+  var lastClick = 0;
+  pg.addEventListener('click', function (ev) {
+    if (S.done) return;
+    var w = toWorld(ev), h = pick(w), now = performance.now(), dbl = now - lastClick < 320; lastClick = now;
+    if (h.kind === 'enemy') { S.target = h.o; if (dbl) { S.attack = true; say('Атака: держусь на дистанции орудий.'); } else say('Цель орудий выбрана.'); }
+    else if (h.kind === 'rock') { S.mine = h.o; S.attack = false; say('Цель добычи: подхожу на дальность луча.'); }
+    else if (h.kind === 'crate') { S.dest = { x: S.crateAt.x, y: S.crateAt.y, crate: true }; S.attack = false; S.mine = null; }
+    else { S.dest = { x: w.x, y: w.y }; S.attack = false; S.mine = null; }
+  });
+  pg.addEventListener('mousemove', function (ev) {
+    var w = toWorld(ev); hover = pick(w);
+    var b = pg.getBoundingClientRect();
+    cur.style.display = 'block'; cur.textContent = hover.label; cur.style.setProperty('--c', hover.col);
+    cur.style.left = Math.min(b.width - 150, ev.clientX - b.left + 14) + 'px'; cur.style.top = (ev.clientY - b.top + 14) + 'px';
+  });
+  pg.addEventListener('mouseleave', function () { cur.style.display = 'none'; hover = null; });
+  $('pg-reset').addEventListener('click', function () { newWorld(); say(S.msg); });
+  var running = false, lastT = 0;
+  function loop(t) {
+    if (!running) return;
+    var dt = Math.max(0, Math.min(.05, (t - lastT) / 1000 || 0)); lastT = t;
+    step(dt); paint();
+    requestAnimationFrame(loop);
+  }
+  onTab.poly = function () { if (!running) { running = true; lastT = performance.now(); requestAnimationFrame(loop); } };
+
+  /* ================= 4. astronauts ================= */
+  var ac = $('astro'), ax = ac.getContext('2d');
+  var CELL = 9, path = [];
+  (function () { var x = 6, y = 6, i; for (i = 0; i < 40; i++) path.push([x + i, y]); for (i = 1; i < 18; i++) path.push([x + 39, y + i]); for (i = 1; i < 40; i++) path.push([x + 39 - i, y + 17]); for (i = 1; i < 17; i++) path.push([x, y + 17 - i]); })();
+  function drawAstro(cx, cy, ang, size, phase, suit) {
+    ax.save(); ax.translate(cx, cy); ax.rotate(ang); var u = size / 20;
+    // feet (alternate)
+    var sw = Math.sin(phase) * 3 * u;
+    ax.fillStyle = '#3a4252'; ax.fillRect(-4 * u + sw, -5 * u, 4 * u, 3.5 * u); ax.fillRect(-4 * u - sw, 1.5 * u, 4 * u, 3.5 * u);
+    // backpack
+    ax.fillStyle = '#5b6478'; ax.fillRect(-9 * u, -5 * u, 5 * u, 10 * u);
+    // shoulders
+    ax.fillStyle = suit; ax.beginPath(); ax.ellipse(-1 * u, 0, 5 * u, 9 * u, 0, 0, 7); ax.fill();
+    // arms swing
+    ax.fillStyle = suit; ax.fillRect(-2 * u - sw * .8, -10.5 * u, 6 * u, 3 * u); ax.fillRect(-2 * u + sw * .8, 7.5 * u, 6 * u, 3 * u);
+    // helmet and visor
+    ax.fillStyle = '#e8eef6'; ax.beginPath(); ax.arc(0, 0, 5 * u, 0, 7); ax.fill();
+    ax.fillStyle = '#2b5f88'; ax.beginPath(); ax.arc(2 * u, 0, 3 * u, -1.2, 1.2); ax.fill();
+    ax.restore();
+  }
+  function deck(ox) {
+    ax.fillStyle = '#0c1220'; ax.fillRect(ox, 30, 520, 300);
+    for (var y = 0; y < 30; y++) for (var x = 0; x < 52; x++) { var gx = ox + 20 + x * CELL, gy = 40 + y * CELL; var floor = (x >= 4 && x <= 49 && y >= 4 && y <= 26) && !(x >= 9 && x <= 42 && y >= 9 && y <= 21); ax.fillStyle = floor ? ((x + y) % 2 ? '#6b6456' : '#736b5c') : '#3a4252'; ax.fillRect(gx, gy, CELL - 1, CELL - 1); }
+    ax.fillStyle = '#1d6f63'; ax.fillRect(ox + 20 + 12 * CELL, 40 + 12 * CELL, 26 * CELL, 7 * CELL);
+    ax.fillStyle = '#cfe0ff'; ax.font = '700 11px JetBrains Mono, monospace'; ax.fillText('МОДУЛЬ', ox + 20 + 22 * CELL, 40 + 16 * CELL);
+  }
+  var aT = 0, aRun = false, aLast = 0, people = [
+    { k: 0, f: 0, ang: 0, ph: 0, suit: '#ff8a3a', off: 0 }, { k: 0, f: 0, ang: 0, ph: 0, suit: '#4fae7a', off: 50 },
+    { k: 0, f: 0, ang: 0, ph: 0, suit: '#ff8a3a', off: 0 }, { k: 0, f: 0, ang: 0, ph: 0, suit: '#4fae7a', off: 50 }
+  ];
+  function quarter(dx, dy) { return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : Math.PI) : (dy > 0 ? Math.PI / 2 : -Math.PI / 2); }
+  function aStep(dt) {
+    aT += dt;
+    ax.fillStyle = '#03050b'; ax.fillRect(0, 0, ac.width, ac.height);
+    ax.fillStyle = '#7f95bf'; ax.font = '700 13px JetBrains Mono, monospace'; ax.fillText('СЕЙЧАС · 3,2 клетки, рывки', 14, 20); ax.fillText('БУДЕТ · 2 клетки, плавно', 554, 20);
+    deck(0); deck(540);
+    var speed = 6; // cells a second
+    people.forEach(function (q, i) {
+      var newer = i >= 2, ox = newer ? 540 : 0;
+      var s = (aT * speed + q.off) % path.length, k = Math.floor(s), f = s - k;
+      var a = path[k], b = path[(k + 1) % path.length];
+      var x, y;
+      if (newer) { x = a[0] + (b[0] - a[0]) * f; y = a[1] + (b[1] - a[1]) * f; var want = Math.atan2(b[1] - a[1], b[0] - a[0]); var d = Math.atan2(Math.sin(want - q.ang), Math.cos(want - q.ang)); var mx = 12 * dt; q.ang += Math.max(-mx, Math.min(mx, d)); q.ph += dt * 14; }
+      else { x = a[0]; y = a[1]; q.ang = quarter(b[0] - a[0], b[1] - a[1]); q.ph = 0; }
+      drawAstro(ox + 20 + x * CELL + CELL / 2, 40 + y * CELL + CELL / 2, q.ang, (newer ? 2 : 3.2) * CELL, q.ph, q.suit);
+    });
+  }
+  function aLoop(t) { if (!aRun) return; var dt = Math.max(0, Math.min(.05, (t - aLast) / 1000 || 0)); aLast = t; aStep(dt); requestAnimationFrame(aLoop); }
+  onTab.crew = function () { if (!aRun) { aRun = true; aLast = performance.now(); requestAnimationFrame(aLoop); } };
+
+  /* ================= background loop for the intro ================= */
+  var introRun = true, last = performance.now();
+  function iLoop(t) { bgT += Math.max(0, Math.min(.05, (t - last) / 1000)); last = t; drawBg(); drawGeneral(bgT); requestAnimationFrame(iLoop); }
+  requestAnimationFrame(iLoop);
+  // still frames for everything, so a tab looks right before it is opened
+  drawDensity(); step(0); paint(); aStep(0);
+  var h = (location.hash || '').slice(1);
+  if (h && document.querySelector('.tab[data-t="' + h + '"]')) open(h); else play();
+})();
+</script>

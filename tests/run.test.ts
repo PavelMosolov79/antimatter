@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ensureRooms } from '../src/sim/compartments';
 import { splitBody } from '../src/sim/fragment';
 import { RUN, repairShip, restAfterBattle } from '../src/sim/run';
-import { ENABLED, ROAD, Road, encounterFor, genLink, sectorOfLink } from '../src/sim/road';
+import { ENABLED, ROAD, Road, encounterFor, genLink, sectorOfLink, signalKind } from '../src/sim/road';
 import { BOSS, ENEMIES, buildBattleship, buildBossBattleship, buildFighter } from '../src/sim/ships';
 import { World } from '../src/sim/world';
 
@@ -91,11 +91,18 @@ describe('campaign road', () => {
         const enc = encounterFor(p);
         if (p.kind === 'boss') expect(enc.enemies[0]).toBe('boss');
         else if (p.kind === 'combat' || p.kind === 'elite') expect(enc.enemies.length).toBeGreaterThan(0);
+        else if (p.kind === 'event' && signalKind(p) === 'distress') expect(enc.enemies.length).toBeGreaterThan(1);
         else expect(enc.enemies).toEqual([]);
+        const fight = p.kind === 'combat' || p.kind === 'elite' || p.kind === 'boss' || enc.enemies.length > 0;
         for (const id of enc.enemies) expect(ENEMIES.some((e) => e.id === id)).toBe(true);
         expect(enc.celestials.some((c) => c.kind === 'planet')).toBe(true);
         // Nothing sits on top of where the player or the enemies (boss furthest, straight up) spawn.
         for (const c of enc.celestials) {
+          // (a mining field and the wrecks of a signal come close, there is no fight there)
+          if (!fight && (c.kind === 'asteroids' || c.kind === 'wreck')) {
+            expect(Math.hypot(c.x, c.y) - c.radius).toBeGreaterThan(100);
+            continue;
+          }
           expect(Math.hypot(c.x, c.y) - c.radius).toBeGreaterThan(420);
           expect(Math.hypot(c.x, c.y + 520) - c.radius).toBeGreaterThan(400);
         }

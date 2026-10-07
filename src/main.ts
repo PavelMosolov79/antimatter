@@ -7,6 +7,8 @@ import { Game } from './game';
 import { Scene } from './render/scene';
 import { TitleScreen } from './title/titleScreen';
 import { Hud } from './ui';
+import { PointerHint } from './hud/pointerHint';
+import type { Pick } from './sim/orders';
 
 /** Lets the loading screen draw a frame between two pieces of work. */
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
@@ -75,6 +77,59 @@ async function main(): Promise<void> {
   const touches = new Map<number, { x: number; y: number; sx: number; sy: number; t: number }>();
   let tapCandidate = false;
   let pinch: { dist: number; zoom: number; mx: number; my: number } | null = null;
+  // What a click would do, by what is under the pointer (the hint next to it, and the long-press menu).
+  const hint = new PointerHint(document.body);
+  const LONG_PRESS = 500;
+  const DOUBLE_TIME = 350;
+  const DOUBLE_SLOP = 14;
+  let longTimer = 0;
+  let lastClick = { t: 0, x: 0, y: 0 };
+  const inBattle = () => game.screen === 'game' && game.tool === 'fly' && (game.mode === 'sandbox' || game.runPhase === 'battle');
+  /** A second click at once, close to the first: a double click (an attack on an enemy). */
+  const isDouble = (x: number, y: number): boolean => {
+    const now = performance.now();
+    const dbl = now - lastClick.t < DOUBLE_TIME && Math.hypot(x - lastClick.x, y - lastClick.y) < DOUBLE_SLOP;
+    lastClick = { t: dbl ? 0 : now, x, y };
+    return dbl;
+  };
+  const SAY: Record<Pick['kind'], { text: string; sub: string; color: string }> = {
+    enemy: { text: 'Цель орудий', sub: 'двойной щелчок: атака', color: '#ff6a5a' },
+    ore: { text: 'Добывать', sub: 'подлететь и встать', color: '#ffd24a' },
+    wreck: { text: 'Осмотреть', sub: 'подлететь и облететь', color: '#b06bff' },
+    space: { text: '', sub: '', color: '#59e6ff' },
+  };
+  let hoverAt = 0;
+  const hover = (e: PointerEvent, x: number, y: number) => {
+    if (!inBattle() || hint.menuOpen) {
+      hint.hide();
+      game.hover = null;
+      return;
+    }
+    const now = performance.now();
+    if (now - hoverAt < 60) return;
+    hoverAt = now;
+    const w = scene.screenToWorld(x, y);
+    const pick = game.hoverAt(w.x, w.y);
+    game.hover = pick.kind === 'space' ? null : pick;
+    const say = SAY[pick.kind];
+    if (say.text) hint.show(say.text, say.sub, say.color, e.clientX, e.clientY);
+    else hint.hide();
+  };
+  const longPress = (cx: number, cy: number, x: number, y: number) => {
+    if (!inBattle()) return;
+    const w = scene.screenToWorld(x, y);
+    const pick = game.hoverAt(w.x, w.y);
+    const fly = { label: 'Лететь сюда', color: '#59e6ff', run: () => game.act(pick, w.x, w.y, 'fly') };
+    if (pick.kind === 'enemy') {
+      hint.menu(cx, cy, pick.body.sys?.name ?? 'Противник', [
+        { label: 'Цель орудий', color: '#ff6a5a', run: () => game.act(pick, w.x, w.y) },
+        { label: 'Атаковать', color: '#ff6a5a', run: () => game.act(pick, w.x, w.y, 'attack') },
+        fly,
+      ]);
+    } else if (pick.kind === 'ore') hint.menu(cx, cy, 'Камень с рудой', [{ label: 'Добывать', color: '#ffd24a', run: () => game.act(pick, w.x, w.y) }, fly]);
+    else if (pick.kind === 'wreck') hint.menu(cx, cy, 'Остов', [{ label: 'Осмотреть', color: '#b06bff', run: () => game.act(pick, w.x, w.y) }, fly]);
+    else hint.menu(cx, cy, 'Космос', [fly]);
+  };
   const pinchState = () => {
     const [a, b] = [...touches.values()];
     return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
@@ -91,8 +146,18 @@ async function main(): Promise<void> {
       }
       touches.set(e.pointerId, { x: p.x, y: p.y, sx: p.x, sy: p.y, t: performance.now() });
       scene.cursor = scene.screenToWorld(p.x, p.y);
-      if (touches.size === 1) tapCandidate = true;
-      else {
+      clearTimeout(longTimer);
+      if (touches.size === 1) {
+        tapCandidate = true;
+        const cx = e.clientX;
+        const cy = e.clientY;
+        // held still: the menu of what can be done here
+        longTimer = window.setTimeout(() => {
+          if (!tapCandidate || touches.size !== 1) return;
+          tapCandidate = false;
+          longPress(cx, cy, p.x, p.y);
+        }, LONG_PRESS);
+      } else {
         tapCandidate = false;
         if (touches.size === 2) pinch = { ...pinchState(), zoom: scene.zoom };
       }
@@ -100,7 +165,7 @@ async function main(): Promise<void> {
     }
     if (e.button === 0) {
       const w = scene.screenToWorld(p.x, p.y);
-      game.pointerAction(w.x, w.y);
+      game.pointerAction(w.x, w.y, isDouble(p.x, p.y));
     } else if (e.button === 2) {
       panning = true;
       lastX = e.clientX;
@@ -121,6 +186,7 @@ async function main(): Promise<void> {
       if (touches.size === 1) {
         if (tapCandidate && Math.hypot(p.x - t.sx, p.y - t.sy) < TAP_SLOP) return;
         tapCandidate = false;
+        clearTimeout(longTimer);
         scene.follow = false;
         scene.camX -= dx / scene.scale;
         scene.camY -= dy / scene.scale;
@@ -142,6 +208,8 @@ async function main(): Promise<void> {
       return;
     }
     scene.cursor = scene.screenToWorld(p.x, p.y);
+    if (!panning) hover(e, p.x, p.y);
+    else hint.hide();
     if (panning) {
       const s = scene.scale;
       scene.camX -= (e.clientX - lastX) / s;
@@ -154,13 +222,18 @@ async function main(): Promise<void> {
     const t = touches.get(e.pointerId);
     if (!t) return;
     touches.delete(e.pointerId);
+    clearTimeout(longTimer);
     if (!cancelled && tapCandidate && touches.size === 0 && performance.now() - t.t < TAP_TIME) {
       const w = scene.screenToWorld(t.x, t.y);
-      game.pointerAction(w.x, w.y);
+      game.pointerAction(w.x, w.y, isDouble(t.x, t.y));
     }
     if (touches.size < 2) pinch = null;
     if (touches.size === 0) tapCandidate = false;
   };
+  canvas.addEventListener('pointerleave', () => {
+    hint.hide();
+    game.hover = null;
+  });
   canvas.addEventListener('pointerup', (e) => {
     if (e.pointerType !== 'mouse') touchEnd(e, false);
     else if (e.button === 2) panning = false;
@@ -179,7 +252,10 @@ async function main(): Promise<void> {
   );
   window.addEventListener('keydown', (e) => {
     if (game.screen === 'title') return;
-    if (e.code === 'Space') {
+    if (e.code === 'Escape') {
+      if (hint.menuOpen) hint.closeMenu();
+      else game.cancel();
+    } else if (e.code === 'Space') {
       game.paused = !game.paused;
       e.preventDefault();
     } else if (e.code === 'KeyR' && game.mode === 'sandbox') game.reset();

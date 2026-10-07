@@ -1,8 +1,9 @@
 import type { Game } from './game';
 import { KIND_LOOK, Px, SECTOR_LOOK, clamp, fbm, hashInt, makePointIcon, mulberry, playerMarker, rampPick } from './render/pointArt';
 
-import { ROAD, sectorOfLink, type RoadPoint } from './sim/road';
+import { ROAD, sectorOfLink, signalKind, type RoadPoint } from './sim/road';
 import { SHIPS, shipHoldCap } from './sim/ships';
+import { holdUsed } from './sim/cargo';
 import { ROLE_NAMES } from './sim/roster';
 
 /**
@@ -186,9 +187,9 @@ function describe(p: RoadPoint): { title: string; sub: string } {
     case 'shop':
       return { title: 'Торговец', sub: 'уникальные модули и космонавты' };
     case 'mining':
-      return { title: 'Добыча', sub: 'жила металла в астероидах' };
+      return { title: 'Добыча', sub: 'поле астероидов с жилами' };
     default:
-      return { title: 'Сигнал', sub: 'неизвестный сигнал' };
+      return signalKind(p) === 'distress' ? { title: 'Сигнал бедствия', sub: 'грузовик под обстрелом' } : { title: 'Сигнал', sub: 'обломки: осмотреть и поднять находки' };
   }
 }
 
@@ -304,7 +305,7 @@ export class RoadScreen {
       return;
     }
     const run = g.run!;
-    const key = [run.cleared, run.road.links, g.shipId, window.innerWidth, window.innerHeight, run.note, run.cargo.credits, run.cargo.metal, g.wallet.credits, g.wallet.metal, run.road.regens.length].join('|');
+    const key = [run.cleared, run.road.links, g.shipId, window.innerWidth, window.innerHeight, run.note, run.cargo.credits, run.cargo.metal, run.cargo.ore ?? 0, g.wallet.credits, g.wallet.metal, run.road.regens.length].join('|');
     if (!this.root.hidden && key === this.key) return;
     const wasHidden = this.root.hidden;
     const fresh = this.key.split('|')[0] !== String(run.cleared) || wasHidden;
@@ -570,13 +571,14 @@ export class RoadScreen {
     stat('Металл', String(g.wallet.metal), 'safe');
     const cap = shipHoldCap(run.shipId);
     const c = run.cargo;
-    const full = c.metal >= cap;
+    const used = holdUsed(c);
+    const full = used >= cap;
     const holdChip = document.createElement('span');
-    holdChip.className = full ? 'full' : c.credits + c.metal > 0 ? 'risk' : '';
+    holdChip.className = full ? 'full' : c.credits + c.metal + (c.ore ?? 0) > 0 ? 'risk' : '';
     holdChip.title = 'Пропадёт, если корабль погибнет, пока не сдан в доке';
     const hb = document.createElement('b');
-    hb.textContent = `${c.credits} кр. · ${c.metal}/${cap}${full ? ' · полон' : ''}`;
-    holdChip.append(document.createTextNode(c.credits + c.metal > 0 ? '⚠ Трюм' : 'Трюм'), hb);
+    hb.textContent = `${c.credits} кр. · ${used}/${cap}${c.ore ? ` · руда ${c.ore}` : ''}${full ? ' · полон' : ''}`;
+    holdChip.append(document.createTextNode(c.credits + c.metal + (c.ore ?? 0) > 0 ? '⚠ Трюм' : 'Трюм'), hb);
     this.stats.appendChild(holdChip);
     this.stats.append(button('Меню', () => (g.screen = 'title'), 'small'));
   }
@@ -603,10 +605,10 @@ export class RoadScreen {
     const stLabel = { done: 'пройдена', current: 'текущая миссия', next: 'следующая', far: 'впереди' }[st];
     chips.append(div('rd-chip k', look.name), div('rd-chip' + (st === 'current' ? ' cur' : ''), stLabel));
     if (p.tier) chips.append(div('rd-chip', `угроза ${p.tier}`));
-    const risky = p.kind === 'combat' || p.kind === 'elite' || p.kind === 'boss';
+    const risky = p.kind === 'combat' || p.kind === 'elite' || p.kind === 'boss' || p.kind === 'mining';
     const cg = run.cargo;
-    if (risky && st === 'current' && cg.credits + cg.metal > 0) {
-      chips.append(div('rd-chip risk', `⚠ Под угрозой ${cg.credits} кр. · ${cg.metal} мет.`));
+    if (risky && st === 'current' && cg.credits + cg.metal + (cg.ore ?? 0) > 0) {
+      chips.append(div('rd-chip risk', `⚠ Под угрозой ${cg.credits} кр. · ${cg.metal} мет.${cg.ore ? ` · ${cg.ore} руды` : ''}`));
       const back = g.pointsToDock();
       if (back > 0) chips.append(div('rd-chip', `последний док ${back} ${back === 1 ? 'точка' : back < 5 ? 'точки' : 'точек'} назад`));
     }
@@ -719,7 +721,7 @@ export class RoadScreen {
       d.append(x, y);
       return d;
     };
-    box.append(ln('Сдать', c.credits + c.metal > 0 ? `+${c.credits} кр. · +${c.metal} мет.` : 'трюм пуст'));
+    box.append(ln('Сдать', c.credits + c.metal + (c.ore ?? 0) > 0 ? `+${c.credits} кр. · +${c.metal} мет.${c.ore ? ` · ${c.ore} руды` : ''}` : 'трюм пуст'));
     if (lost.length) box.append(ln('Не засчитаются', lost.length > 3 ? `миссии ${lost[0]}–${lost[lost.length - 1]}` : `миссии ${lost.join(', ')}`));
     box.append(div('hint', 'Участок дороги после дока соберётся заново.'));
     const btns = div('btns', '');

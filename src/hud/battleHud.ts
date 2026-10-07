@@ -5,8 +5,12 @@ import { isSolid, type Celestial } from '../sim/gravity';
 import { moduleEfficiency, type Module } from '../sim/grid';
 import { DISPATCH, roomLabel, type DispatchMsg, type Severity } from '../sim/dispatch';
 import { MODULE_INFO } from '../sim/layout';
+import { holdUsed } from '../sim/cargo';
+import { shipHoldCap } from '../sim/ships';
 import { WEAPONS } from '../sim/weapons';
 import { BATTLE_CSS } from './battleHud.css';
+import { beaconOpen } from '../sim/mission';
+import { engaged } from '../sim/ai';
 import { placeMarkers, type MarkerKind, type MarkerObj } from './markers';
 
 /**
@@ -18,6 +22,10 @@ import { placeMarkers, type MarkerKind, type MarkerObj } from './markers';
 
 const ICONS: Record<string, string> = {
   foe: '<path d="M12 3l8 5v8l-8 5-8-5V8z"/><path d="M8.5 10.5L12 8l3.5 2.5M9 14l3-2 3 2"/>',
+  foeidle: '<path d="M12 3l8 5v8l-8 5-8-5V8z"/><path d="M8 12h8"/>',
+  foeexit: '<path d="M12 3v18M7 8l5-5 5 5"/><circle cx="12" cy="14" r="6" stroke-dasharray="3 2.4"/>',
+  trail: '<path d="M3 17c3-1 4-5 7-5s4 4 7 3 3-6 4-8"/><circle cx="20" cy="6" r="1.4"/>',
+  crate: '<rect x="4" y="7" width="16" height="12" rx="1.5"/><path d="M4 11h16M12 7v12M9 4h6"/>',
   big: '<circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="10" ry="3.4" transform="rotate(-18 12 12)"/>',
   hole: '<circle cx="12" cy="12" r="3.4"/><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/>',
   wreck: '<path d="M4 15l5-8 3 3 3-6 5 11z"/><path d="M4 19h16"/>',
@@ -25,6 +33,7 @@ const ICONS: Record<string, string> = {
   rocks: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="8" r="2"/><circle cx="14" cy="16" r="3.4"/><circle cx="6" cy="17" r="1.6"/>',
   comet: '<circle cx="17" cy="7" r="3"/><path d="M14.6 9.4L4 20M16 11L8 21M12.6 7L3 14"/>',
   hazard: '<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>',
+  ally: '<path d="M12 2.5l6.5 5.5v8.5L15.5 21h-7L5.5 16.5V8z"/><path d="M9 12l2 2 4-4"/>',
   module: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9l6 6M15 9l-6 6"/>',
   killed: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/><path d="M3 3l4 4M21 3l-4 4"/>',
   hurt: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/><path d="M17 3v5M14.5 5.5h5"/>',
@@ -50,6 +59,9 @@ const ICONS: Record<string, string> = {
   crew: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>',
   store: '<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/>',
   menu: '<path d="M5 7h14M5 12h14M5 17h9"/>',
+  beacon: '<path d="M12 3v18M7 8l5-5 5 5"/><circle cx="12" cy="14" r="6" stroke-dasharray="3 2.4"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
+  exit: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
 };
 const svg = (n: string): string => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] ?? ''}</svg>`;
 
@@ -95,6 +107,16 @@ const EXTRA_CSS = `
 #bh .look { position: absolute; left: 50%; transform: translateX(-50%); top: calc(11 * var(--u)); padding: calc(1.2 * var(--u)) calc(2.8 * var(--u)); background: var(--panel); border: 1px solid var(--amber); border-radius: 99px; color: var(--amber); font: 700 calc(2.4 * var(--u))/1 var(--mono); letter-spacing: .06em; white-space: nowrap; display: none; }
 #bh.desk .look { top: calc(3 * var(--u)); }
 #bh .look.on { display: block; }
+#bh .look.pat { top: calc(34 * var(--u)); border-color: var(--red); color: var(--red); }
+#bh.desk .look.pat { top: calc(10 * var(--u)); }
+#bh .disp-row { display: flex; gap: calc(1.6 * var(--u)); align-items: center; }
+#bh.desk .disp-row { justify-content: flex-end; }
+#bh .holdchip { color: var(--amber); letter-spacing: .06em; cursor: default; }
+#bh .holdchip[hidden] { display: none; }
+#bh .holdchip.full { color: var(--red); border-color: var(--red); }
+#bh .mk.ally { --c: var(--green); }
+#bh .btn.leave { color: var(--amber); border-color: var(--amber); }
+#bh .btn.leave span { color: var(--amber); }
 #bh .devbtn { position: absolute; background: var(--panel); border: 1px solid var(--line); color: var(--dim); border-radius: calc(1.6 * var(--u)); padding: calc(1.2 * var(--u)) calc(2.2 * var(--u)); font: 600 calc(2 * var(--u))/1 var(--mono); cursor: pointer; display: none; }
 #bh .devbtn.on { display: block; }
 #bh.mob .devbtn { top: calc(11 * var(--u)); right: calc(3 * var(--u)); }
@@ -107,6 +129,42 @@ const EXTRA_CSS = `
 #bh.desk #bh-deckNote { display: none; }
 #overlay { z-index: 6; }
 #bh .pill { position: absolute; }
+/* the mission: its tasks over the dispatcher, the route to the beacon at the top */
+#bh .obj { pointer-events: auto; background: var(--panel); border: 1px solid var(--line); border-radius: calc(1.8 * var(--u)); padding: calc(1.6 * var(--u)) calc(2.2 * var(--u)); display: flex; flex-direction: column; gap: calc(1 * var(--u)); }
+#bh .obj[hidden] { display: none; }
+#bh .obj-h { display: flex; align-items: center; justify-content: space-between; gap: calc(2 * var(--u)); }
+#bh .obj-t { background: none; border: 0; padding: 0; color: var(--cyan); font: 700 calc(2.3 * var(--u))/1 var(--mono); letter-spacing: .2em; cursor: pointer; }
+#bh .obj-t em { font-style: normal; color: var(--dim); letter-spacing: .06em; margin-left: calc(1 * var(--u)); }
+#bh .obj-brief { display: inline-flex; align-items: center; gap: calc(1 * var(--u)); background: rgba(5, 8, 16, .6); border: 1px solid var(--line); border-radius: calc(1.2 * var(--u)); color: var(--amber); padding: calc(.8 * var(--u)) calc(1.6 * var(--u)); font: 700 calc(2.2 * var(--u))/1 var(--mono); cursor: pointer; }
+#bh .obj-brief svg { width: calc(2.8 * var(--u)); height: calc(2.8 * var(--u)); stroke: currentColor; fill: none; stroke-width: 2; }
+#bh .obj-list { display: flex; flex-direction: column; gap: calc(.6 * var(--u)); }
+#bh .task { display: grid; grid-template-columns: calc(2.6 * var(--u)) 1fr; gap: calc(1.4 * var(--u)); align-items: start; font: 400 calc(2.6 * var(--u))/1.35 var(--mono); color: var(--fg); }
+#bh .task .cb { width: calc(2.2 * var(--u)); height: calc(2.2 * var(--u)); margin-top: calc(.4 * var(--u)); border: 1.5px solid var(--cyan); border-radius: calc(.5 * var(--u)); }
+#bh .task.opt { color: #d9c4ff; } #bh .task.opt .cb { border-color: var(--violet); transform: rotate(45deg) scale(.85); }
+#bh .task.wait { color: var(--faint); } #bh .task.wait .cb { border-color: var(--faint); }
+#bh .task.done { color: var(--green); text-decoration: line-through; text-decoration-color: rgba(99, 224, 122, .5); } #bh .task.done .cb { background: var(--green); border-color: var(--green); }
+#bh .task.failed { color: var(--red); text-decoration: line-through; } #bh .task.failed .cb { border-color: var(--red); }
+#bh .task small { display: block; color: var(--faint); font-size: .88em; text-decoration: none; }
+#bh .task.fresh { animation: taskin .5s ease-out; }
+@keyframes taskin { from { background: rgba(99, 224, 122, .25); } to { background: transparent; } }
+/* a phone shows the task now and the counter; a tap on the title opens the rest */
+#bh.mob .obj:not(.open):not(.alldone) .task:not(.now) { display: none; }
+#bh .route { position: absolute; left: 50%; top: calc(3 * var(--u)); transform: translateX(-50%); width: calc(120 * var(--u)); padding: calc(1.4 * var(--u)) calc(2.4 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-radius: calc(1.8 * var(--u)); }
+#bh .route[hidden] { display: none; }
+#bh .route .rl { display: flex; justify-content: space-between; font: 700 calc(2.2 * var(--u))/1 var(--mono); letter-spacing: .12em; color: var(--dim); }
+#bh .route .rl b { color: var(--cyan); }
+#bh .route .rl .open { color: var(--green); }
+#bh .route .track { position: relative; height: calc(3 * var(--u)); margin-top: calc(1.2 * var(--u)); }
+#bh .route .track::before { content: ''; position: absolute; left: 0; right: 0; top: calc(1.3 * var(--u)); height: 2px; background: repeating-linear-gradient(90deg, var(--line) 0 calc(1.4 * var(--u)), transparent calc(1.4 * var(--u)) calc(2.4 * var(--u))); }
+#bh .route .done { position: absolute; left: 0; top: calc(1.3 * var(--u)); height: 2px; background: var(--cyan); }
+#bh .route .pin { position: absolute; top: calc(.4 * var(--u)); width: calc(2.2 * var(--u)); height: calc(2.2 * var(--u)); margin-left: calc(-1.1 * var(--u)); border-radius: 50%; border: 2px solid var(--c); background: var(--bg); }
+#bh .route .pin.site { --c: var(--violet); } #bh .route .pin.end { --c: var(--green); left: 100%; }
+#bh .route .ship { position: absolute; top: 0; margin-left: calc(-1.3 * var(--u)); width: 0; height: 0; border-top: calc(1.5 * var(--u)) solid transparent; border-bottom: calc(1.5 * var(--u)) solid transparent; border-left: calc(2.6 * var(--u)) solid var(--cyan); }
+#bh.mob .route { left: calc(3 * var(--u)); right: calc(3 * var(--u)); width: auto; transform: none; top: calc(11 * var(--u)); padding: calc(1 * var(--u)) calc(2 * var(--u)); }
+#bh.mob .disp { top: calc(19.5 * var(--u)); }
+#bh.mob .look { top: calc(44 * var(--u)); }
+#bh.mob .look.pat { top: calc(51 * var(--u)); }
+#bh .btn.leave.ask { border-color: var(--red); color: var(--red); }
 `;
 
 interface MarkerEl {
@@ -163,6 +221,7 @@ export class BattleHud {
     this.root.hidden = true;
     this.root.innerHTML = `
       <div id="bh-markers"></div>
+      <div class="route" id="bh-route" hidden><div class="rl"><span>МАРШРУТ</span><span id="bh-routeD"></span></div><div class="track"><i class="done" id="bh-routeDone"></i><i class="pin site" id="bh-routeSite"></i><i class="pin end"></i><i class="ship" id="bh-routeShip"></i></div></div>
       <div id="bh-pills"></div>
       <div class="left" id="bh-left">
         <div class="bars">
@@ -173,7 +232,11 @@ export class BattleHud {
         <div class="rooms" id="bh-rooms"></div>
       </div>
       <div class="disp" id="bh-disp">
-        <button class="disp-head" id="bh-dispHead" type="button" aria-label="Открыть журнал диспетчера"><span class="dot"></span>ДИСПЕТЧЕР <em id="bh-dispN">0</em></button>
+        <div class="disp-row"><button class="disp-head" id="bh-dispHead" type="button" aria-label="Открыть журнал диспетчера"><span class="dot"></span>ДИСПЕТЧЕР <em id="bh-dispN">0</em></button><div class="disp-head holdchip" id="bh-hold" hidden></div></div>
+        <div class="obj" id="bh-obj" hidden>
+          <div class="obj-h"><button type="button" class="obj-t" id="bh-objT" aria-label="Задачи миссии">ЗАДАЧИ <em id="bh-objN">0/0</em></button><button type="button" class="obj-brief" id="bh-brief">${svg('target')}<span>Цель</span></button></div>
+          <div class="obj-list" id="bh-objList"></div>
+        </div>
         <div id="bh-feed" style="display:flex;flex-direction:column;gap:calc(1.4 * var(--u))" aria-live="polite"></div>
       </div>
       <div class="log" id="bh-log" hidden>
@@ -182,6 +245,7 @@ export class BattleHud {
         <div class="log-list" id="bh-logList"></div>
       </div>
       <div class="look" id="bh-look"></div>
+      <div class="look pat" id="bh-pat"></div>
       <div class="weap" id="bh-weap" hidden></div>
       <div class="dock" id="bh-dock">
         <div class="grp g-fly"><div class="gh">Полёт</div><div class="grow" id="bh-gFly"></div></div>
@@ -216,6 +280,7 @@ export class BattleHud {
   }
 
   private flags: Array<{ el: HTMLElement; get: () => boolean }> = [];
+  private leaveBtn!: HTMLButtonElement;
 
   private buildControls(): void {
     const g = this.game;
@@ -232,6 +297,23 @@ export class BattleHud {
     const time = this.q('#bh-gTime');
     on(this.button(time, 'pause', 'Пауза', () => (g.paused = !g.paused)), () => g.paused);
     on(this.button(time, 'slow', 'Замедл.', () => (g.slowMo = !g.slowMo)), () => g.slowMo);
+    this.leaveBtn = this.button(time, 'exit', 'Улететь', (b) => {
+      // with the tasks undone it is a retreat: a second press within a few seconds does it
+      if (g.plan && !g.plan.done && !b.classList.contains('ask')) {
+        b.classList.add('ask');
+        b.querySelector('span')!.textContent = 'Отступить?';
+        setTimeout(() => {
+          b.classList.remove('ask');
+          b.querySelector('span')!.textContent = 'Улететь';
+        }, 3000);
+        return;
+      }
+      g.leavePoint();
+    });
+    this.leaveBtn.classList.add('leave');
+    this.q('#bh-objT').addEventListener('click', () => this.q('#bh-obj').classList.toggle('open'));
+    this.q('#bh-brief').addEventListener('click', () => g.showBriefing());
+    this.leaveBtn.hidden = true;
   }
 
   private buildDecks(depth: number): void {
@@ -338,6 +420,8 @@ export class BattleHud {
     this.paintBars();
     this.paintDispatcher(now);
     this.paintInspect();
+    this.paintMission();
+    this.paintPlan();
     const depth = p?.grid.depth ?? 0;
     if (depth !== this.deckCount) this.buildDecks(depth);
     if (g.scene.layerView !== OUTER_VIEW && g.scene.layerView >= depth) g.scene.layerView = OUTER_VIEW;
@@ -423,11 +507,43 @@ export class BattleHud {
     const W = sc.app.screen.width;
     const H = sc.app.screen.height;
     const objs: MarkerObj[] = [];
+    // before the patrol is found the scanner gives only a rough fix on it, not the ships themselves
+    const plan0 = g.mode === 'run' ? g.plan : null;
+    const hunting = !!plan0?.trail && plan0.tasks.some((t) => t.kind === 'find' && t.state !== 'done');
+    if (p && hunting && plan0?.trail) {
+      const tr = plan0.trail;
+      const s = sc.worldToScreen(tr.x, tr.y);
+      const d = Math.hypot(tr.x - p.x, tr.y - p.y);
+      objs.push({ id: 'trail', kind: 'trail', x: tr.x, y: tr.y, sx: s.x, sy: s.y, dist: d, label: `≈${Math.max(100, Math.round(d / 100) * 100)} кл` });
+    }
+    if (p && g.convoy) {
+      const e = g.convoy.exit;
+      const s = sc.worldToScreen(e.x, e.y);
+      objs.push({ id: 'cexit', kind: 'foeexit', x: e.x, y: e.y, sx: s.x, sy: s.y, dist: Math.hypot(e.x - p.x, e.y - p.y), label: `маяк конвоя ${Math.round(Math.hypot(e.x - p.x, e.y - p.y))} кл` });
+    }
     if (p) {
+      for (const l of g.world.loot) {
+        const s = sc.worldToScreen(l.x, l.y);
+        objs.push({ id: `l${l.id}`, kind: 'crate', x: l.x, y: l.y, sx: s.x, sy: s.y, dist: Math.hypot(l.x - p.x, l.y - p.y) });
+      }
       for (const b of g.world.bodies) {
         if (b.removed || b.kind !== 'ship' || !b.sys || b.sys.team !== 1 || b.sys.dead) continue;
+        if (hunting && b.sys.ai && !engaged(b.sys.ai)) continue;
         const s = sc.worldToScreen(b.x, b.y);
-        objs.push({ id: `s${b.id}`, kind: 'foe', x: b.x, y: b.y, sx: s.x, sy: s.y, dist: Math.hypot(b.x - p.x, b.y - p.y) });
+        // a patrol that has not seen the player is marked calm; the alarm turns it red
+        const calm = !!b.sys.ai && !engaged(b.sys.ai);
+        objs.push({ id: `s${b.id}`, kind: calm ? 'foeidle' : 'foe', x: b.x, y: b.y, sx: s.x, sy: s.y, dist: Math.hypot(b.x - p.x, b.y - p.y) });
+      }
+      for (const b of g.world.bodies) {
+        if (b.removed || b.kind !== 'ship' || !b.sys || b.sys.team !== 0 || b === p || b.sys.dead) continue;
+        const s = sc.worldToScreen(b.x, b.y);
+        objs.push({ id: `a${b.id}`, kind: 'ally', x: b.x, y: b.y, sx: s.x, sy: s.y, dist: Math.hypot(b.x - p.x, b.y - p.y) });
+      }
+      const plan = g.plan;
+      if (plan && g.mode === 'run') {
+        const b = plan.beacon;
+        const s = sc.worldToScreen(b.x, b.y);
+        objs.push({ id: 'beacon', kind: 'beacon', x: b.x, y: b.y, sx: s.x, sy: s.y, dist: Math.max(0, Math.hypot(b.x - p.x, b.y - p.y) - b.r) });
       }
       g.world.celestials.forEach((c, i) => {
         const kind = this.kindOf(c);
@@ -457,12 +573,16 @@ export class BattleHud {
         el = this.makeMarker(m.obj);
         layer.appendChild(el.root);
         this.markerEls.set(m.obj.id, el);
+      } else if (el.kind !== m.obj.kind) {
+        el.kind = m.obj.kind;
+        el.root.className = `mk ${m.obj.kind}`;
+        el.root.querySelector('.core')!.innerHTML = svg(m.obj.kind);
       }
       const fade = Math.max(0.4, Math.min(1, 1.15 - m.obj.dist / 2600));
       el.root.style.opacity = String(fade);
       el.root.style.transform = `translate(${m.x.toFixed(1)}px,${m.y.toFixed(1)}px)`;
       el.arrow.style.transform = `rotate(${((m.ang * 180) / Math.PI).toFixed(1)}deg)`;
-      el.dist.textContent = `${Math.round(m.obj.dist)} кл`;
+      el.dist.textContent = m.obj.label ?? `${Math.round(m.obj.dist)} кл`;
       el.dist.style.top = `${6 * u}px`;
     }
     for (const [id, el] of this.markerEls) {
@@ -576,6 +696,78 @@ export class BattleHud {
       e.textContent = 'Пока ничего.';
       list.appendChild(e);
     }
+  }
+
+  /** At a point that is not a fight: the button to leave it, the hold, and the time left before a patrol comes. */
+  private paintMission(): void {
+    const g = this.game;
+    const open = g.canLeave;
+    this.leaveBtn.hidden = !open;
+    const run = g.run;
+    const hold = this.q<HTMLElement>('#bh-hold');
+    hold.hidden = !(g.mode === 'run' && run);
+    if (run && g.mode === 'run') {
+      const cap = shipHoldCap(run.shipId);
+      const used = holdUsed(run.cargo);
+      const full = used >= cap;
+      hold.classList.toggle('full', full);
+      hold.textContent = `ТРЮМ ${used}/${cap}${run.cargo.ore ? ` · РУДА ${run.cargo.ore}` : ''}${run.cargo.credits ? ` · ${run.cargo.credits} КР` : ''}`;
+    }
+    const pat = this.q<HTMLElement>('#bh-pat');
+    const m = g.mission;
+    const left = m && m.kind === 'mining' && m.next >= 0 ? m.next - g.world.time : -1;
+    const show = open && left >= 0 && left <= 15;
+    pat.classList.toggle('on', show);
+    if (show) pat.textContent = `Патруль через ${Math.ceil(left)} с`;
+  }
+
+  private planKey = '';
+  private planState: string[] = [];
+
+  /** The tasks of the mission over the dispatcher, and the route to the beacon at the top. */
+  private paintPlan(): void {
+    const g = this.game;
+    const plan = g.mode === 'run' ? g.plan : null;
+    const box = this.q<HTMLElement>('#bh-obj');
+    const route = this.q<HTMLElement>('#bh-route');
+    box.hidden = !plan;
+    route.hidden = !plan;
+    if (!plan) {
+      this.planKey = '';
+      return;
+    }
+    const main = plan.tasks.filter((t) => !t.opt);
+    this.q('#bh-objN').textContent = `${main.filter((t) => t.state === 'done').length}/${main.length}`;
+    const p = g.world.player;
+    const toBeacon = p ? Math.max(0, Math.hypot(p.x - plan.beacon.x, p.y - plan.beacon.y) - plan.beacon.r) : 0;
+    const now = plan.tasks.findIndex((t) => !t.opt && t.state === 'active');
+    box.classList.toggle('alldone', now < 0);
+    const key = plan.tasks.map((t) => `${t.state}${t.n ?? ''}/${t.of ?? ''}`).join('|') + (plan.tasks[now]?.kind === 'beacon' ? Math.round(toBeacon / 50) : '');
+    if (key !== this.planKey) {
+      this.planKey = key;
+      const list = this.q('#bh-objList');
+      list.replaceChildren();
+      plan.tasks.forEach((t, i) => {
+        const d = document.createElement('div');
+        d.className = `task ${t.opt ? 'opt ' : ''}${t.state === 'active' && t.opt ? '' : t.state}${i === now ? ' now' : ''}`;
+        if (this.planState[i] && this.planState[i] !== t.state && t.state === 'done') d.classList.add('fresh');
+        const count = t.of !== undefined && t.state !== 'done' ? ` ${t.n ?? 0}/${t.of}` : '';
+        const sub = t.kind === 'beacon' && t.state === 'active' ? `${Math.round(toBeacon)} кл` : t.opt ? 'дополнительная' : '';
+        d.innerHTML = `<span class="cb"></span><span>${t.text}${count}${sub ? `<small>${sub}</small>` : ''}</span>`;
+        list.appendChild(d);
+      });
+      this.planState = plan.tasks.map((t) => t.state);
+    }
+    // the route: how much of the way to the beacon is behind, where the task is on it
+    const along = (x: number, y: number): number => Math.max(0, Math.min(1, 1 - Math.hypot(x - plan.beacon.x, y - plan.beacon.y) / Math.max(1, plan.startDist)));
+    const k = p ? along(p.x, p.y) : 0;
+    this.q<HTMLElement>('#bh-routeDone').style.width = `${(k * 100).toFixed(1)}%`;
+    this.q<HTMLElement>('#bh-routeShip').style.left = `${(k * 100).toFixed(1)}%`;
+    const site = this.q<HTMLElement>('#bh-routeSite');
+    site.hidden = !plan.site;
+    if (plan.site) site.style.left = `${(along(plan.site.x, plan.site.y) * 100).toFixed(1)}%`;
+    const open = beaconOpen(plan);
+    this.q('#bh-routeD').innerHTML = `<b>${Math.round(toBeacon)}</b> кл до маяка${open ? ' · <span class="open">открыт</span>' : ''}`;
   }
 
   private paintInspect(): void {
@@ -819,7 +1011,7 @@ export class BattleHud {
       if (eff <= 0) text = 'разрушено';
       else {
         const mode = w.target ? 'ручная' : sys.focus ? 'фокус' : 'авто';
-        text = `${WEAPONS[w.type].short} · ${mode}${w.firing ? ' ●' : w.cooldown > 0.05 ? ' ◌' : ''}`;
+        text = w.type === 'miner' ? `${WEAPONS[w.type].short} · ${w.firing ? 'жжёт жилу ●' : w.mine ? 'наводится' : 'нет жилы'}` : `${WEAPONS[w.type].short} · ${mode}${w.firing ? ' ●' : w.cooldown > 0.05 ? ' ◌' : ''}`;
       }
       el.st.textContent = text;
       el.st.classList.toggle('off', eff <= 0);
